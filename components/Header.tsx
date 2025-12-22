@@ -2,6 +2,7 @@
 
 import { useWallet } from '@/contexts/WalletContext'
 import { PublicKey } from '@solana/web3.js'
+import Image from 'next/image'
 
 export default function Header() {
   const { connect, disconnect, connected, balance, publicKey } = useWallet()
@@ -20,6 +21,15 @@ export default function Header() {
   return (
     <header className="flex flex-col md:flex-row items-center justify-between border-b border-white py-4">
       <div className="flex items-center gap-4 text-white">
+        <div className="relative w-12 h-12 md:w-16 md:h-16 flex-shrink-0">
+          <Image
+            src="/src/logo.png"
+            alt="Mentioned Logo"
+            fill
+            className="object-contain"
+            priority
+          />
+        </div>
         <h1 className="text-white text-2xl md:text-3xl font-bold uppercase tracking-widest">
           MENTIONED
         </h1>

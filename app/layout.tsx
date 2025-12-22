@@ -32,6 +32,11 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
           rel="stylesheet"
         />
+        <link
+          rel="icon"
+          type="image/svg+xml"
+          href="/src/mentioned_logo_top_left.svg"
+        />
       </head>
       <body className={`${spaceGrotesk.variable} ${vt323.variable} bg-background-light dark:bg-background-dark font-display text-white`}>
         <WalletProviderWrapper>
