@@ -149,6 +149,8 @@ declare global {
       isPhantom?: boolean
       connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: PublicKey | string }>
       disconnect: () => Promise<void>
+      signTransaction: (transaction: any) => Promise<any>
+      signAllTransactions: (transactions: any[]) => Promise<any[]>
       on: (event: string, callback: (publicKey: PublicKey | string | null) => void) => void
       off?: (event: string, callback: (publicKey: PublicKey | string | null) => void) => void
       publicKey?: PublicKey | string

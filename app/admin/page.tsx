@@ -481,7 +481,7 @@ export default function AdminPage() {
                               )}
                               {market.marketData.resolved && (
                                 <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-sm">
-                                  Resolved: {market.marketData.winningSide.yes ? "YES" : "NO"}
+                                  Resolved: {'yes' in market.marketData.winningSide ? "YES" : "NO"}
                                 </span>
                               )}
                             </div>
