@@ -21,12 +21,6 @@ module.exports = {
         "display": ["var(--font-display)", "Space Grotesk", "sans-serif"],
         "mono": ["var(--font-mono)", "VT323", "monospace"],
       },
-      borderRadius: {
-        "DEFAULT": "0",
-        "lg": "0",
-        "xl": "0",
-        "full": "0",
-      },
       animation: {
         'strobe': 'strobe 1s linear infinite',
       },

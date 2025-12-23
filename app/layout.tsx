@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Space_Grotesk, VT323 } from 'next/font/google'
+import { Space_Grotesk } from 'next/font/google'
 import './globals.css'
 import WalletProviderWrapper from '@/components/WalletProviderWrapper'
 
@@ -7,12 +7,6 @@ const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
   weight: ['400', '500', '700'],
   variable: '--font-display',
-})
-
-const vt323 = VT323({
-  subsets: ['latin'],
-  weight: '400',
-  variable: '--font-mono',
 })
 
 export const metadata: Metadata = {
@@ -38,7 +32,7 @@ export default function RootLayout({
           href="/src/mentioned_logo_top_left.svg"
         />
       </head>
-      <body className={`${spaceGrotesk.variable} ${vt323.variable} bg-background-light dark:bg-background-dark font-display text-white`}>
+      <body className={`${spaceGrotesk.variable} bg-black text-white font-display`}>
         <WalletProviderWrapper>
           {children}
         </WalletProviderWrapper>
@@ -46,4 +40,3 @@ export default function RootLayout({
     </html>
   )
 }
-

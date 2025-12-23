@@ -13,8 +13,8 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
 
-// Using a public RPC endpoint - in production, use your own RPC or a service like Helius, QuickNode, etc.
-const SOLANA_RPC_URL = 'https://solana-api.projectserum.com'
+// Using devnet for development
+const SOLANA_RPC_URL = 'https://api.devnet.solana.com'
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null)
@@ -80,9 +80,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setBalance(lamports / LAMPORTS_PER_SOL)
         } catch (error) {
           console.error('Error fetching balance:', error)
-          // Try alternative RPC endpoint if main one fails
+          // Try alternative devnet endpoint if main one fails
           try {
-            const altConnection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed')
+            const altConnection = new Connection('https://devnet.solana.com', 'confirmed')
             const lamports = await altConnection.getBalance(publicKey)
             setBalance(lamports / LAMPORTS_PER_SOL)
           } catch (altError) {

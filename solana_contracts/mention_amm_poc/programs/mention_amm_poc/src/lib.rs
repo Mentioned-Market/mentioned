@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 
-declare_id!("9z5ZAXAzA4yq1YapMVeemZLx3MpnzQ1iJkCMwaSG1y1L");
+declare_id!("F8EsP2rp6FBuaTfKQ8ywx4hqhM3YpcJr4HPkXHeGsZyJ");
 
 #[program]
 pub mod mention_amm_poc {
@@ -318,6 +318,222 @@ pub mod mention_amm_poc {
         withdraw_sol_from_market(&ctx.accounts.market.to_account_info(), &ctx.accounts.user.to_account_info(), amount)?;
         Ok(())
     }
+
+    /// Convenience wrapper: deposit SOL, mint YES+NO, then swap ALL NO -> YES.
+/// Result: user ends with ~ (lamports + swapped_yes) YES and ~0 NO.
+pub fn buy_yes_with_sol(
+    ctx: Context<BuyWithSol>,
+    lamports: u64,
+    min_yes_out_from_swap: u64,
+) -> Result<()> {
+    require!(lamports > 0, ErrorCode::InvalidAmount);
+    require!(!ctx.accounts.market.resolved, ErrorCode::MarketResolved);
+
+    // 1) Deposit SOL collateral into the market account
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.user.to_account_info(),
+                to: ctx.accounts.market.to_account_info(),
+            },
+        ),
+        lamports,
+    )?;
+
+    // 2) Market PDA signer seeds
+    let market_id_bytes = ctx.accounts.market.market_id.to_le_bytes();
+    let event_key = ctx.accounts.event.key();
+    let seeds: &[&[u8]] = &[
+        b"market",
+        event_key.as_ref(),
+        &market_id_bytes,
+        &[ctx.accounts.market.bump],
+    ];
+    let signer = &[seeds];
+
+    // 3) Mint complete set to user: YES + NO
+    token::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.yes_mint.to_account_info(),
+                to: ctx.accounts.user_yes.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer,
+        ),
+        lamports,
+    )?;
+    token::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.no_mint.to_account_info(),
+                to: ctx.accounts.user_no.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer,
+        ),
+        lamports,
+    )?;
+
+    // 4) Swap ALL user NO -> YES against pool vaults (constant product with fee)
+    let amount_in = lamports;
+
+    let fee_bps = ctx.accounts.market.fee_bps as u64;
+    let amount_in_after_fee = amount_in
+        .checked_mul(10_000 - fee_bps)
+        .ok_or(ErrorCode::MathOverflow)?
+        / 10_000;
+
+    let reserve_in = ctx.accounts.no_vault.amount as u128;  // NO in pool
+    let reserve_out = ctx.accounts.yes_vault.amount as u128; // YES in pool
+    require!(reserve_in > 0 && reserve_out > 0, ErrorCode::NoLiquidity);
+
+    let ai = amount_in_after_fee as u128;
+    let numerator = reserve_out.checked_mul(ai).ok_or(ErrorCode::MathOverflow)?;
+    let denominator = reserve_in.checked_add(ai).ok_or(ErrorCode::MathOverflow)?;
+    let amount_out_u128 = numerator / denominator;
+
+    let yes_out: u64 = amount_out_u128.try_into().map_err(|_| ErrorCode::MathOverflow)?;
+    require!(yes_out >= min_yes_out_from_swap, ErrorCode::SlippageExceeded);
+
+    // user NO -> pool NO
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.user_no.to_account_info(),
+                to: ctx.accounts.no_vault.to_account_info(),
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        ),
+        amount_in,
+    )?;
+
+    // pool YES -> user YES (market signs)
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.yes_vault.to_account_info(),
+                to: ctx.accounts.user_yes.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer,
+        ),
+        yes_out,
+    )?;
+
+    Ok(())
+}
+
+/// Convenience wrapper: deposit SOL, mint YES+NO, then swap ALL YES -> NO.
+/// Result: user ends with ~0 YES and ~ (lamports + swapped_no) NO.
+pub fn buy_no_with_sol(
+    ctx: Context<BuyWithSol>,
+    lamports: u64,
+    min_no_out_from_swap: u64,
+) -> Result<()> {
+    require!(lamports > 0, ErrorCode::InvalidAmount);
+    require!(!ctx.accounts.market.resolved, ErrorCode::MarketResolved);
+
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.user.to_account_info(),
+                to: ctx.accounts.market.to_account_info(),
+            },
+        ),
+        lamports,
+    )?;
+
+    let market_id_bytes = ctx.accounts.market.market_id.to_le_bytes();
+    let event_key = ctx.accounts.event.key();
+    let seeds: &[&[u8]] = &[
+        b"market",
+        event_key.as_ref(),
+        &market_id_bytes,
+        &[ctx.accounts.market.bump],
+    ];
+    let signer = &[seeds];
+
+    token::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.yes_mint.to_account_info(),
+                to: ctx.accounts.user_yes.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer,
+        ),
+        lamports,
+    )?;
+    token::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.no_mint.to_account_info(),
+                to: ctx.accounts.user_no.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer,
+        ),
+        lamports,
+    )?;
+
+    let amount_in = lamports;
+
+    let fee_bps = ctx.accounts.market.fee_bps as u64;
+    let amount_in_after_fee = amount_in
+        .checked_mul(10_000 - fee_bps)
+        .ok_or(ErrorCode::MathOverflow)?
+        / 10_000;
+
+    let reserve_in = ctx.accounts.yes_vault.amount as u128; // YES in pool
+    let reserve_out = ctx.accounts.no_vault.amount as u128; // NO in pool
+    require!(reserve_in > 0 && reserve_out > 0, ErrorCode::NoLiquidity);
+
+    let ai = amount_in_after_fee as u128;
+    let numerator = reserve_out.checked_mul(ai).ok_or(ErrorCode::MathOverflow)?;
+    let denominator = reserve_in.checked_add(ai).ok_or(ErrorCode::MathOverflow)?;
+    let amount_out_u128 = numerator / denominator;
+
+    let no_out: u64 = amount_out_u128.try_into().map_err(|_| ErrorCode::MathOverflow)?;
+    require!(no_out >= min_no_out_from_swap, ErrorCode::SlippageExceeded);
+
+    // user YES -> pool YES
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.user_yes.to_account_info(),
+                to: ctx.accounts.yes_vault.to_account_info(),
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        ),
+        amount_in,
+    )?;
+
+    // pool NO -> user NO (market signs)
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.no_vault.to_account_info(),
+                to: ctx.accounts.user_no.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer,
+        ),
+        no_out,
+    )?;
+
+    Ok(())
+}
 }
 
 /* ============================== Accounts ============================== */
@@ -388,6 +604,36 @@ pub struct InitializeEvent<'info> {
 
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+pub struct BuyWithSol<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    pub event: Account<'info, Event>,
+
+    #[account(mut, has_one = event)]
+    pub market: Account<'info, Market>,
+
+    #[account(mut)]
+    pub yes_mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub no_mint: Account<'info, Mint>,
+
+    #[account(mut)]
+    pub yes_vault: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub no_vault: Account<'info, TokenAccount>,
+
+    #[account(mut, token::mint = yes_mint, token::authority = user)]
+    pub user_yes: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = no_mint, token::authority = user)]
+    pub user_no: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
 
 #[derive(Accounts)]
 #[instruction(market_id: u64)]

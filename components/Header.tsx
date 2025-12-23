@@ -3,9 +3,12 @@
 import { useWallet } from '@/contexts/WalletContext'
 import { PublicKey } from '@solana/web3.js'
 import Image from 'next/image'
+import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
   const { connect, disconnect, connected, balance, publicKey } = useWallet()
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const formatBalance = (bal: number | null) => {
     if (bal === null) return '0.00'
@@ -18,10 +21,27 @@ export default function Header() {
     return `${address.slice(0, 4)}...${address.slice(-4)}`
   }
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+
+    if (dropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [dropdownOpen])
+
   return (
-    <header className="flex flex-col md:flex-row items-center justify-between border-b border-white py-4">
-      <div className="flex items-center gap-4 text-white">
-        <div className="relative w-12 h-12 md:w-16 md:h-16 flex-shrink-0">
+    <header className="flex items-center justify-between py-6">
+      <a href="/" className="flex items-center gap-3 text-white hover:opacity-80 transition-opacity">
+        <div className="relative w-10 h-10 flex-shrink-0">
           <Image
             src="/src/logo.png"
             alt="Mentioned Logo"
@@ -30,24 +50,62 @@ export default function Header() {
             priority
           />
         </div>
-        <h1 className="text-white text-2xl md:text-3xl font-bold uppercase tracking-widest">
+        <h1 className="text-white text-xl font-bold uppercase tracking-wider">
           MENTIONED
         </h1>
-      </div>
-      <div className="flex w-full md:w-auto flex-1 justify-end items-center gap-4 md:gap-6 mt-4 md:mt-0">
-        {connected && balance !== null && (
-          <div className="flex items-center gap-3 font-mono text-sm md:text-base">
-            <span className="text-white uppercase">{formatBalance(balance)} SOL</span>
-            <span className="text-white/50">|</span>
-            <span className="text-white/70 text-xs">{formatAddress(publicKey)}</span>
-          </div>
+      </a>
+      <div className="flex items-center gap-6">
+        {connected ? (
+          <>
+            {/* SOL Balance */}
+            <div className="flex items-center gap-2">
+              <span className="text-white/50 text-sm uppercase">Balance</span>
+              <span className="text-white font-bold text-lg">{formatBalance(balance)} SOL</span>
+            </div>
+
+            {/* Dropdown Menu */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="flex items-center gap-2 h-10 px-4 bg-[#1a1a1a] hover:bg-[#252525] text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                <span>{formatAddress(publicKey)}</span>
+                <span className="text-xs">{dropdownOpen ? '▲' : '▼'}</span>
+              </button>
+
+              {dropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-[#1a1a1a] rounded-lg overflow-hidden z-50 shadow-xl">
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false)
+                      // Navigate to profile (placeholder for now)
+                    }}
+                    className="w-full text-left px-4 py-3 text-white text-sm hover:bg-[#252525] transition-colors"
+                  >
+                    Profile
+                  </button>
+                  <div className="border-t border-white/10"></div>
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false)
+                      disconnect()
+                    }}
+                    className="w-full text-left px-4 py-3 text-white text-sm hover:bg-[#252525] transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <button
+            onClick={connect}
+            className="h-10 px-6 bg-white text-black text-sm font-bold uppercase rounded-lg hover:bg-white/90 transition-colors"
+          >
+            Connect Wallet
+          </button>
         )}
-        <button
-          onClick={connected ? disconnect : connect}
-          className="flex min-w-[84px] cursor-pointer items-center justify-center h-10 px-4 bg-white text-black text-sm font-bold leading-normal tracking-wider uppercase hover:bg-black hover:text-white border border-white"
-        >
-          <span>{connected ? 'DISCONNECT' : 'CONNECT WALLET'}</span>
-        </button>
       </div>
     </header>
   )

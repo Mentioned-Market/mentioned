@@ -47,7 +47,7 @@ export default function CountdownTimer({ targetTime }: CountdownTimerProps) {
   }, [targetTime])
 
   if (expired) {
-    return <span className="text-white/70 font-mono text-2xl">EXPIRED</span>
+    return <span className="text-white/70 font-bold text-base">EXPIRED</span>
   }
 
   const formatTime = (value: number) => {
@@ -55,9 +55,8 @@ export default function CountdownTimer({ targetTime }: CountdownTimerProps) {
   }
 
   return (
-    <span className="text-white/70 font-mono text-2xl">
+    <span className="text-white/70 font-bold text-base">
       {formatTime(timeLeft.hours)}:{formatTime(timeLeft.minutes)}:{formatTime(timeLeft.seconds)}
     </span>
   )
 }
-
