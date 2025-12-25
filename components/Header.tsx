@@ -41,7 +41,7 @@ export default function Header() {
   return (
     <header className="flex items-center justify-between py-6">
       <a href="/" className="flex items-center gap-3 text-white hover:opacity-80 transition-opacity">
-        <div className="relative w-10 h-10 flex-shrink-0">
+        <div className="relative w-12 h-12 flex-shrink-0">
           <Image
             src="/src/logo.png"
             alt="Mentioned Logo"
@@ -50,7 +50,7 @@ export default function Header() {
             priority
           />
         </div>
-        <h1 className="text-white text-xl font-bold uppercase tracking-wider">
+        <h1 className="text-white text-2xl font-bold uppercase tracking-wider">
           MENTIONED
         </h1>
       </a>

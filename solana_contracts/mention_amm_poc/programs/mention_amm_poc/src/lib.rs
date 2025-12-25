@@ -653,12 +653,14 @@ pub struct InitializeMarket<'info> {
     )]
     pub market: Account<'info, Market>,
 
-    // Outcome token mints; market PDA is mint authority.
+    // Outcome token mints as PDAs; market PDA is mint authority.
     #[account(
         init,
         payer = admin,
         mint::decimals = 9,
-        mint::authority = market
+        mint::authority = market,
+        seeds = [b"yes_mint", market.key().as_ref()],
+        bump
     )]
     pub yes_mint: Account<'info, Mint>,
 
@@ -666,16 +668,20 @@ pub struct InitializeMarket<'info> {
         init,
         payer = admin,
         mint::decimals = 9,
-        mint::authority = market
+        mint::authority = market,
+        seeds = [b"no_mint", market.key().as_ref()],
+        bump
     )]
     pub no_mint: Account<'info, Mint>,
 
-    // Pool vault token accounts owned by market PDA.
+    // Pool vault token accounts owned by market PDA as PDAs.
     #[account(
         init,
         payer = admin,
         token::mint = yes_mint,
-        token::authority = market
+        token::authority = market,
+        seeds = [b"yes_vault", market.key().as_ref()],
+        bump
     )]
     pub yes_vault: Account<'info, TokenAccount>,
 
@@ -683,7 +689,9 @@ pub struct InitializeMarket<'info> {
         init,
         payer = admin,
         token::mint = no_mint,
-        token::authority = market
+        token::authority = market,
+        seeds = [b"no_vault", market.key().as_ref()],
+        bump
     )]
     pub no_vault: Account<'info, TokenAccount>,
 

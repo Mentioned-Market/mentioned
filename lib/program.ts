@@ -15,10 +15,10 @@ export const DEVNET_RPC = "https://api.devnet.solana.com";
 
 // Instruction discriminators (first 8 bytes of sha256("global:instruction_name"))
 const DISCRIMINATORS = {
-  initializeEvent: Buffer.from([141, 241, 141, 145, 87, 214, 143, 132]),
-  initializeMarket: Buffer.from([150, 99, 82, 202, 125, 239, 189, 49]),
+  initializeEvent: Buffer.from([126, 249, 86, 221, 202, 171, 134, 20]),
+  initializeMarket: Buffer.from([35, 35, 189, 193, 155, 48, 170, 203]),
   addLiquidity: Buffer.from([181, 157, 89, 67, 143, 182, 52, 72]),
-  resolveMarket: Buffer.from([184, 150, 44, 123, 183, 223, 162, 117]),
+  resolveMarket: Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]),
 };
 
 export interface EventAccount {
@@ -61,6 +61,38 @@ export function getMarketPDA(eventPubkey: PublicKey, marketId: BN): [PublicKey, 
   );
 }
 
+// Get YES mint PDA for a market
+export function getYesMintPDA(marketPubkey: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("yes_mint"), marketPubkey.toBuffer()],
+    PROGRAM_ID
+  );
+}
+
+// Get NO mint PDA for a market
+export function getNoMintPDA(marketPubkey: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("no_mint"), marketPubkey.toBuffer()],
+    PROGRAM_ID
+  );
+}
+
+// Get YES vault PDA for a market
+export function getYesVaultPDA(marketPubkey: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("yes_vault"), marketPubkey.toBuffer()],
+    PROGRAM_ID
+  );
+}
+
+// Get NO vault PDA for a market
+export function getNoVaultPDA(marketPubkey: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("no_vault"), marketPubkey.toBuffer()],
+    PROGRAM_ID
+  );
+}
+
 export function hashWord(word: string): number[] {
   return Array.from(createHash("sha256").update(word).digest());
 }
@@ -91,6 +123,10 @@ export function createInitializeMarketInstruction(
   admin: PublicKey,
   eventPda: PublicKey,
   marketPda: PublicKey,
+  yesMint: PublicKey,
+  noMint: PublicKey,
+  yesVault: PublicKey,
+  noVault: PublicKey,
   marketId: BN,
   wordHash: number[],
   feeBps: number
@@ -105,12 +141,20 @@ export function createInitializeMarketInstruction(
     feeBuf,
   ]);
 
+  const SYSVAR_RENT_PUBKEY = new PublicKey("SysvarRent111111111111111111111111111111111");
+
   return new TransactionInstruction({
     keys: [
       { pubkey: admin, isSigner: true, isWritable: true },
-      { pubkey: eventPda, isSigner: false, isWritable: false },
+      { pubkey: eventPda, isSigner: false, isWritable: true },
       { pubkey: marketPda, isSigner: false, isWritable: true },
+      { pubkey: yesMint, isSigner: false, isWritable: true },
+      { pubkey: noMint, isSigner: false, isWritable: true },
+      { pubkey: yesVault, isSigner: false, isWritable: true },
+      { pubkey: noVault, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
     ],
     programId: PROGRAM_ID,
     data,
@@ -136,6 +180,38 @@ export function createResolveMarketInstruction(
       { pubkey: admin, isSigner: true, isWritable: false },
       { pubkey: eventPda, isSigner: false, isWritable: false },
       { pubkey: marketPda, isSigner: false, isWritable: true },
+    ],
+    programId: PROGRAM_ID,
+    data,
+  });
+}
+
+export function createAddLiquidityInstruction(
+  admin: PublicKey,
+  eventPda: PublicKey,
+  marketPda: PublicKey,
+  yesMint: PublicKey,
+  noMint: PublicKey,
+  yesVault: PublicKey,
+  noVault: PublicKey,
+  lamports: BN
+): TransactionInstruction {
+  const data = Buffer.concat([
+    DISCRIMINATORS.addLiquidity,
+    lamports.toArrayLike(Buffer, "le", 8),
+  ]);
+
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: true },
+      { pubkey: eventPda, isSigner: false, isWritable: false },
+      { pubkey: marketPda, isSigner: false, isWritable: true },
+      { pubkey: yesMint, isSigner: false, isWritable: true },
+      { pubkey: noMint, isSigner: false, isWritable: true },
+      { pubkey: yesVault, isSigner: false, isWritable: true },
+      { pubkey: noVault, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: PROGRAM_ID,
     data,
@@ -205,4 +281,158 @@ export function lamportsToSol(lamports: number): string {
 export function solToLamports(sol: number): BN {
   return new BN(Math.floor(sol * LAMPORTS_PER_SOL));
 }
+
+// Fetch token account balance
+export async function fetchTokenBalance(
+  connection: Connection,
+  tokenAccount: PublicKey
+): Promise<number> {
+  try {
+    const accountInfo = await connection.getAccountInfo(tokenAccount);
+    if (!accountInfo) return 0;
+    
+    // Token account amount is at offset 64, 8 bytes (u64)
+    const amount = accountInfo.data.readBigUInt64LE(64);
+    return Number(amount);
+  } catch (error) {
+    console.error("Error fetching token balance:", error);
+    return 0;
+  }
+}
+
+// Calculate market prices from vault balances
+export function calculateMarketPrices(yesBalance: number, noBalance: number): {
+  yesPrice: number;
+  noPrice: number;
+  totalLiquidity: number;
+} {
+  if (yesBalance === 0 || noBalance === 0) {
+    return {
+      yesPrice: 0.5,
+      noPrice: 0.5,
+      totalLiquidity: 0,
+    };
+  }
+
+  const total = yesBalance + noBalance;
+  const yesPrice = noBalance / total; // Counter-intuitive but correct for AMM
+  const noPrice = yesBalance / total;
+  
+  return {
+    yesPrice,
+    noPrice,
+    totalLiquidity: Math.min(yesBalance, noBalance), // Effective liquidity
+  };
+}
+
+// Fetch complete market data with prices
+export async function fetchMarketWithPrices(
+  connection: Connection,
+  marketPda: PublicKey,
+  word: string
+): Promise<{
+  marketPda: PublicKey;
+  marketData: MarketAccount;
+  word: string;
+  yesPrice: number;
+  noPrice: number;
+  totalLiquidity: number;
+  yesBalance: number;
+  noBalance: number;
+} | null> {
+  try {
+    const marketData = await fetchMarketAccount(connection, marketPda);
+    if (!marketData) {
+      console.warn(`Market account not found for ${word} at ${marketPda.toString()}`);
+      return null;
+    }
+
+    const [yesMintPda] = getYesMintPDA(marketPda);
+    const [noMintPda] = getNoMintPDA(marketPda);
+    const [yesVaultPda] = getYesVaultPDA(marketPda);
+    const [noVaultPda] = getNoVaultPDA(marketPda);
+
+    console.log(`Derived PDAs for ${word}:`, {
+      yesMint: yesMintPda.toString(),
+      noMint: noMintPda.toString(),
+      yesVault: yesVaultPda.toString(),
+      noVault: noVaultPda.toString()
+    });
+
+    const yesBalance = await fetchTokenBalance(connection, yesVaultPda);
+    const noBalance = await fetchTokenBalance(connection, noVaultPda);
+
+    console.log(`Token balances for ${word}:`, {
+      yes: yesBalance,
+      no: noBalance
+    });
+
+    const { yesPrice, noPrice, totalLiquidity } = calculateMarketPrices(yesBalance, noBalance);
+
+    return {
+      marketPda,
+      marketData,
+      word,
+      yesPrice,
+      noPrice,
+      totalLiquidity,
+      yesBalance,
+      noBalance,
+    };
+  } catch (error) {
+    console.error(`Error fetching market with prices for ${word}:`, error);
+    return null;
+  }
+}
+
+// Fetch all markets for an event
+export async function fetchEventMarkets(
+  connection: Connection,
+  adminPublicKey: PublicKey,
+  eventId: BN,
+  marketWords: Array<{ id: string; word: string }>
+): Promise<Array<{
+  marketPda: PublicKey;
+  marketData: MarketAccount;
+  word: string;
+  yesPrice: number;
+  noPrice: number;
+  totalLiquidity: number;
+  yesBalance: number;
+  noBalance: number;
+}>> {
+  const [eventPda] = getEventPDA(adminPublicKey, eventId);
+  console.log("Event PDA:", eventPda.toString());
+  
+  const markets = [];
+
+  for (const marketInfo of marketWords) {
+    try {
+      console.log(`Fetching market for word: ${marketInfo.word}, id: ${marketInfo.id}`);
+      
+      const marketId = new BN(marketInfo.id);
+      const [marketPda] = getMarketPDA(eventPda, marketId);
+      
+      console.log(`Market PDA: ${marketPda.toString()}`);
+      
+      const marketWithPrices = await fetchMarketWithPrices(connection, marketPda, marketInfo.word);
+      if (marketWithPrices) {
+        console.log(`Successfully loaded ${marketInfo.word}:`, {
+          yesPrice: marketWithPrices.yesPrice,
+          noPrice: marketWithPrices.noPrice,
+          liquidity: marketWithPrices.totalLiquidity / 1_000_000_000
+        });
+        markets.push(marketWithPrices);
+      } else {
+        console.warn(`Failed to load market data for ${marketInfo.word}`);
+      }
+    } catch (error) {
+      console.error(`Error loading market ${marketInfo.word}:`, error);
+    }
+  }
+
+  console.log(`Loaded ${markets.length} out of ${marketWords.length} markets`);
+  return markets;
+}
+
 

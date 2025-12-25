@@ -151,6 +151,7 @@ declare global {
       disconnect: () => Promise<void>
       signTransaction: (transaction: any) => Promise<any>
       signAllTransactions: (transactions: any[]) => Promise<any[]>
+      signMessage?: (message: Uint8Array, encoding: string) => Promise<{ signature: Uint8Array; publicKey: PublicKey }>
       on: (event: string, callback: (publicKey: PublicKey | string | null) => void) => void
       off?: (event: string, callback: (publicKey: PublicKey | string | null) => void) => void
       publicKey?: PublicKey | string

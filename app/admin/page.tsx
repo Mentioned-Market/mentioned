@@ -3,20 +3,28 @@
 import { useState, useEffect } from "react";
 import { useWallet } from "@/contexts/WalletContext";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import {
   PROGRAM_ID,
   DEVNET_RPC,
   getEventPDA,
   getMarketPDA,
+  getYesMintPDA,
+  getNoMintPDA,
+  getYesVaultPDA,
+  getNoVaultPDA,
   hashWord,
   createInitializeEventInstruction,
   createInitializeMarketInstruction,
+  createAddLiquidityInstruction,
   createResolveMarketInstruction,
   fetchEventAccount,
   fetchMarketAccount,
   EventAccount,
   MarketAccount,
+  solToLamports,
+  lamportsToSol,
 } from "@/lib/program";
 
 interface EventWithMarkets {
@@ -143,39 +151,63 @@ export default function AdminPage() {
         return;
       }
 
-      // Generate market ID (timestamp-based for uniqueness)
+      showStatus("Creating market with PDA-based mints...", false);
+
+      // Generate market ID
       const marketId = new BN(Date.now());
       const [marketPda] = getMarketPDA(eventPda, marketId);
+      
+      // Get PDA-based mints (deterministic, no keypairs needed!)
+      const [yesMintPda] = getYesMintPDA(marketPda);
+      const [noMintPda] = getNoMintPDA(marketPda);
+      
+      // Get PDA-based vaults (also deterministic!)
+      const [yesVaultPda] = getYesVaultPDA(marketPda);
+      const [noVaultPda] = getNoVaultPDA(marketPda);
       
       const wordHash = hashWord(newMarketWord);
       const feeBps = parseInt(newMarketFee);
 
-      const instruction = createInitializeMarketInstruction(
+      // Create market instruction (now includes mint + vault creation as PDAs!)
+      const createMarketIx = createInitializeMarketInstruction(
         publicKey,
         eventPda,
         marketPda,
+        yesMintPda,
+        noMintPda,
+        yesVaultPda,
+        noVaultPda,
         marketId,
         wordHash,
         feeBps
       );
 
-      const transaction = new Transaction().add(instruction);
+      const transaction = new Transaction().add(createMarketIx);
+      
       const { blockhash } = await connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
-
-      const signed = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize());
+      
+      // Only wallet needs to sign! No additional keypairs!
+      const signedTx = await window.solana.signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signedTx.serialize());
       await connection.confirmTransaction(signature, "confirmed");
 
-      showStatus(`Market created for "${newMarketWord}"! TX: ${signature.slice(0, 20)}...`);
+      showStatus(`✅ Market created for "${newMarketWord}"! TX: ${signature.slice(0,12)}...`);
       
       // Save to market registry
       const updatedRegistry = {
         ...marketRegistry,
         [selectedEventId]: [
           ...(marketRegistry[selectedEventId] || []),
-          { id: marketId.toString(), word: newMarketWord }
+          { 
+            id: marketId.toString(), 
+            word: newMarketWord,
+            yesMint: yesMintPda.toString(),
+            noMint: noMintPda.toString(),
+            yesVault: yesVaultPda.toString(),
+            noVault: noVaultPda.toString()
+          }
         ]
       };
       setMarketRegistry(updatedRegistry);
@@ -184,6 +216,7 @@ export default function AdminPage() {
       setNewMarketWord("");
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
+      console.error("Full error:", error);
       showStatus(`Error: ${error.message}`, true);
     } finally {
       setLoading(false);
@@ -223,6 +256,61 @@ export default function AdminPage() {
       showStatus(`Market resolved as ${winningSide.toUpperCase()}! TX: ${signature.slice(0, 20)}...`);
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
+      showStatus(`Error: ${error.message}`, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddLiquidity = async (eventId: BN, marketId: BN, marketPda: PublicKey) => {
+    if (!publicKey || !window.solana) {
+      showStatus("Please connect your wallet", true);
+      return;
+    }
+
+    const solAmount = prompt("Enter amount of SOL to add as liquidity (e.g., 0.1):");
+    if (!solAmount) return;
+
+    const parsedAmount = parseFloat(solAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      showStatus("Invalid amount", true);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const [eventPda] = getEventPDA(publicKey, eventId);
+      const [yesMintPda] = getYesMintPDA(marketPda);
+      const [noMintPda] = getNoMintPDA(marketPda);
+      const [yesVaultPda] = getYesVaultPDA(marketPda);
+      const [noVaultPda] = getNoVaultPDA(marketPda);
+
+      const lamports = solToLamports(parsedAmount);
+
+      const instruction = createAddLiquidityInstruction(
+        publicKey,
+        eventPda,
+        marketPda,
+        yesMintPda,
+        noMintPda,
+        yesVaultPda,
+        noVaultPda,
+        lamports
+      );
+
+      const transaction = new Transaction().add(instruction);
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      const signed = await window.solana.signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signed.serialize());
+      await connection.confirmTransaction(signature, "confirmed");
+
+      showStatus(`✅ Added ${parsedAmount} SOL liquidity! TX: ${signature.slice(0, 12)}...`);
+      setTimeout(() => loadEvents(), 2000);
+    } catch (error: any) {
+      console.error("Add liquidity error:", error);
       showStatus(`Error: ${error.message}`, true);
     } finally {
       setLoading(false);
@@ -463,6 +551,13 @@ export default function AdminPage() {
                             <div className="flex gap-2">
                               {!market.marketData.resolved && (
                                 <>
+                                  <button
+                                    onClick={() => handleAddLiquidity(event.eventId, market.marketId, market.marketPda)}
+                                    disabled={loading}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-all disabled:opacity-50"
+                                  >
+                                    💧 Add Liquidity
+                                  </button>
                                   <button
                                     onClick={() => handleResolveMarket(event.eventId, market.marketId, market.marketPda, "yes")}
                                     disabled={loading}
