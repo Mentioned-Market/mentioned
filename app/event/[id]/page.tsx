@@ -16,6 +16,7 @@ import { fetchEventMarkets, DEVNET_RPC, PROGRAM_ID } from '@/lib/program'
 
 interface MarketData {
   marketPda: PublicKey
+  marketData: any
   word: string
   yesPrice: number
   noPrice: number

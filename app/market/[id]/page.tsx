@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams } from 'next/navigation'
+import { PublicKey } from '@solana/web3.js'
 import Header from '@/components/Header'
 import CountdownTimer from '@/components/CountdownTimer'
 import TradingChart from '@/components/TradingChart'
@@ -145,6 +146,18 @@ export default function MarketPage() {
   const historicalData = generateHistoricalData(selectedWordData)
   const orderBook = generateOrderBook(selectedWordData)
 
+  // Create mock marketData for TradingInterface component
+  const mockMarketData = {
+    marketPda: new PublicKey('11111111111111111111111111111111'), // Mock public key
+    marketData: {},
+    word: selectedWord,
+    yesPrice: parseFloat(selectedWordData.yesPrice),
+    noPrice: parseFloat(selectedWordData.noPrice),
+    totalLiquidity: 0,
+    yesBalance: 0,
+    noBalance: 0,
+  }
+
   const getUsername = () => {
     if (!connected || !publicKey) return 'Anonymous'
     const address = publicKey.toString()
@@ -280,9 +293,8 @@ export default function MarketPage() {
                     {/* Right side - Compact Trading Interface */}
                     <div className="lg:col-span-1">
                       <TradingInterface
-                        word={selectedWord}
-                        yesPrice={parseFloat(selectedWordData.yesPrice)}
-                        noPrice={parseFloat(selectedWordData.noPrice)}
+                        marketData={mockMarketData}
+                        eventId={marketId}
                       />
                     </div>
                   </div>

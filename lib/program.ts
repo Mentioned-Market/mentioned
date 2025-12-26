@@ -515,9 +515,3 @@ export function createBuyNoInstruction(
   });
 }
 
-// Helper: Convert SOL to lamports
-export function solToLamports(sol: number): BN {
-  return new BN(Math.floor(sol * LAMPORTS_PER_SOL));
-}
-
-
