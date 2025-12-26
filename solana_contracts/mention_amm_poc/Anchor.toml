@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-mention_amm_poc = "9z5ZAXAzA4yq1YapMVeemZLx3MpnzQ1iJkCMwaSG1y1L"
+mention_amm_poc = "F8EsP2rp6FBuaTfKQ8ywx4hqhM3YpcJr4HPkXHeGsZyJ"
 
 [registry]
 url = "https://api.apr.dev"

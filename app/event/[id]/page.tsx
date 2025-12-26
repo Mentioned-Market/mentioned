@@ -89,8 +89,28 @@ export default function EventMarketPage() {
         const registry = JSON.parse(registryStr)
         console.log("Full registry:", registry)
         
-        const eventMarkets = registry[eventId]
-        console.log(`Markets for event ${eventId}:`, eventMarkets)
+        const eventData = registry[eventId]
+        console.log(`Event data for event ${eventId}:`, eventData)
+        
+        // Support both old array format and new {admin, markets} format
+        let adminPubkey: PublicKey
+        let eventMarkets: any[]
+        
+        if (Array.isArray(eventData)) {
+          // Old format: just array of markets
+          console.warn("Using old localStorage format, defaulting to hardcoded admin pubkey")
+          adminPubkey = new PublicKey("AmMusRD99A7CnHNhNziN4f2Fm6V9D4NW1soH4rUn8t7S")
+          eventMarkets = eventData
+        } else if (eventData && eventData.markets) {
+          // New format: {admin, markets}
+          adminPubkey = new PublicKey(eventData.admin)
+          eventMarkets = eventData.markets
+          console.log("Using admin pubkey from registry:", adminPubkey.toString())
+        } else {
+          setError(`No markets found for Event ${eventId}. Registry has events: ${Object.keys(registry).join(', ')}`)
+          setLoading(false)
+          return
+        }
         
         if (!eventMarkets || eventMarkets.length === 0) {
           setError(`No markets found for Event ${eventId}. Registry has events: ${Object.keys(registry).join(', ')}`)
@@ -104,7 +124,7 @@ export default function EventMarketPage() {
         try {
           const fetchedMarkets = await fetchEventMarkets(
             connection,
-            ADMIN_PUBKEY,
+            adminPubkey,
             new BN(eventId),
             eventMarkets
           )
@@ -361,9 +381,8 @@ export default function EventMarketPage() {
                     <div className="lg:col-span-1">
                       {selectedMarket && (
                         <TradingInterface
-                          word={selectedWord}
-                          yesPrice={selectedMarket.yesPrice}
-                          noPrice={selectedMarket.noPrice}
+                          marketData={selectedMarket}
+                          eventId={eventId}
                         />
                       )}
                     </div>

@@ -19,6 +19,8 @@ const DISCRIMINATORS = {
   initializeMarket: Buffer.from([35, 35, 189, 193, 155, 48, 170, 203]),
   addLiquidity: Buffer.from([181, 157, 89, 67, 143, 182, 52, 72]),
   resolveMarket: Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]),
+  buyYesWithSol: Buffer.from([6, 44, 134, 85, 5, 212, 0, 159]),
+  buyNoWithSol: Buffer.from([59, 16, 247, 59, 204, 200, 214, 246]),
 };
 
 export interface EventAccount {
@@ -433,6 +435,89 @@ export async function fetchEventMarkets(
 
   console.log(`Loaded ${markets.length} out of ${marketWords.length} markets`);
   return markets;
+}
+
+// Create buy YES instruction
+export function createBuyYesInstruction(
+  user: PublicKey,
+  eventPda: PublicKey,
+  marketPda: PublicKey,
+  yesMint: PublicKey,
+  noMint: PublicKey,
+  yesVault: PublicKey,
+  noVault: PublicKey,
+  userYesAta: PublicKey,
+  userNoAta: PublicKey,
+  lamports: BN,
+  minYesOut: BN
+): TransactionInstruction {
+  const data = Buffer.concat([
+    DISCRIMINATORS.buyYesWithSol,
+    lamports.toArrayLike(Buffer, "le", 8),
+    minYesOut.toArrayLike(Buffer, "le", 8),
+  ]);
+
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: eventPda, isSigner: false, isWritable: false },
+      { pubkey: marketPda, isSigner: false, isWritable: true },
+      { pubkey: yesMint, isSigner: false, isWritable: true },
+      { pubkey: noMint, isSigner: false, isWritable: true },
+      { pubkey: yesVault, isSigner: false, isWritable: true },
+      { pubkey: noVault, isSigner: false, isWritable: true },
+      { pubkey: userYesAta, isSigner: false, isWritable: true },
+      { pubkey: userNoAta, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data,
+  });
+}
+
+// Create buy NO instruction
+export function createBuyNoInstruction(
+  user: PublicKey,
+  eventPda: PublicKey,
+  marketPda: PublicKey,
+  yesMint: PublicKey,
+  noMint: PublicKey,
+  yesVault: PublicKey,
+  noVault: PublicKey,
+  userYesAta: PublicKey,
+  userNoAta: PublicKey,
+  lamports: BN,
+  minNoOut: BN
+): TransactionInstruction {
+  const data = Buffer.concat([
+    DISCRIMINATORS.buyNoWithSol,
+    lamports.toArrayLike(Buffer, "le", 8),
+    minNoOut.toArrayLike(Buffer, "le", 8),
+  ]);
+
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: eventPda, isSigner: false, isWritable: false },
+      { pubkey: marketPda, isSigner: false, isWritable: true },
+      { pubkey: yesMint, isSigner: false, isWritable: true },
+      { pubkey: noMint, isSigner: false, isWritable: true },
+      { pubkey: yesVault, isSigner: false, isWritable: true },
+      { pubkey: noVault, isSigner: false, isWritable: true },
+      { pubkey: userYesAta, isSigner: false, isWritable: true },
+      { pubkey: userNoAta, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data,
+  });
+}
+
+// Helper: Convert SOL to lamports
+export function solToLamports(sol: number): BN {
+  return new BN(Math.floor(sol * LAMPORTS_PER_SOL));
 }
 
 

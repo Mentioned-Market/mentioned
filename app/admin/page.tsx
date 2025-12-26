@@ -54,15 +54,35 @@ export default function AdminPage() {
   const [newMarketFee, setNewMarketFee] = useState("100");
 
   // Market tracking - store created markets in localStorage
-  const [marketRegistry, setMarketRegistry] = useState<Record<string, Array<{id: string, word: string}>>>({});
+  // Structure: { eventId: { admin: string, markets: Array<{id, word, ...}> } }
+  const [marketRegistry, setMarketRegistry] = useState<Record<string, {admin: string, markets: Array<{id: string, word: string, yesMint: string, noMint: string, yesVault: string, noVault: string}>}>>({});
 
   useEffect(() => {
     // Load market registry from localStorage
     const stored = localStorage.getItem("marketRegistry");
     if (stored) {
-      setMarketRegistry(JSON.parse(stored));
+      try {
+        const parsed = JSON.parse(stored);
+        // Migrate old format if needed
+        const migrated: typeof marketRegistry = {};
+        for (const [eventId, value] of Object.entries(parsed)) {
+          if (Array.isArray(value)) {
+            // Old format: array of markets
+            migrated[eventId] = {
+              admin: publicKey?.toString() || "",
+              markets: value as any
+            };
+          } else {
+            // New format: { admin, markets }
+            migrated[eventId] = value as any;
+          }
+        }
+        setMarketRegistry(migrated);
+      } catch (e) {
+        console.error("Error loading market registry:", e);
+      }
     }
-  }, []);
+  }, [publicKey]);
 
   const showStatus = (msg: string, isError = false) => {
     setStatus(msg);
@@ -108,9 +128,16 @@ export default function AdminPage() {
       showStatus(`Event #${newEventId} created! TX: ${signature.slice(0, 20)}...`);
       setNewEventId("");
       
-      // Initialize market registry for this event
-      setMarketRegistry(prev => ({ ...prev, [newEventId]: [] }));
-      localStorage.setItem("marketRegistry", JSON.stringify({ ...marketRegistry, [newEventId]: [] }));
+      // Initialize event in registry with admin pubkey
+      const updatedRegistry = {
+        ...marketRegistry,
+        [newEventId]: {
+          admin: publicKey.toString(),
+          markets: []
+        }
+      };
+      setMarketRegistry(updatedRegistry);
+      localStorage.setItem("marketRegistry", JSON.stringify(updatedRegistry));
       
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
@@ -151,11 +178,15 @@ export default function AdminPage() {
         return;
       }
 
-      showStatus("Creating market with PDA-based mints...", false);
+      showStatus("✅ Creating market with PDA-based mints...", false);
 
       // Generate market ID
       const marketId = new BN(Date.now());
+      console.log("📝 Creating market with ID:", marketId.toString());
+      console.log("📝 Event PDA:", eventPda.toString());
+      
       const [marketPda] = getMarketPDA(eventPda, marketId);
+      console.log("📝 Market PDA will be:", marketPda.toString());
       
       // Get PDA-based mints (deterministic, no keypairs needed!)
       const [yesMintPda] = getYesMintPDA(marketPda);
@@ -188,36 +219,87 @@ export default function AdminPage() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
       
+      // ⚠️ SIMULATE first to catch errors before signing!
+      console.log("🔍 Simulating transaction...");
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        console.log("Simulation result:", simulation);
+        
+        if (simulation.value.err) {
+          console.error("❌ Simulation failed:", simulation.value.err);
+          console.error("📋 Simulation logs:", simulation.value.logs);
+          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\n\nLogs:\n${simulation.value.logs?.join('\n')}`);
+        }
+        console.log("✅ Simulation succeeded!");
+      } catch (simError: any) {
+        console.error("Simulation error:", simError);
+        throw new Error(`Pre-flight check failed: ${simError.message}`);
+      }
+      
       // Only wallet needs to sign! No additional keypairs!
       const signedTx = await window.solana.signTransaction(transaction);
       const signature = await connection.sendRawTransaction(signedTx.serialize());
-      await connection.confirmTransaction(signature, "confirmed");
-
-      showStatus(`✅ Market created for "${newMarketWord}"! TX: ${signature.slice(0,12)}...`);
       
-      // Save to market registry
+      console.log("✅ Transaction sent:", signature);
+      console.log("⏳ Waiting for confirmation...");
+      
+      const confirmation = await connection.confirmTransaction(signature, "confirmed");
+      
+      console.log("📦 Transaction confirmed:", confirmation);
+      
+      if (confirmation.value.err) {
+        // Get detailed error logs
+        const txDetails = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0
+        });
+        console.error("❌ Transaction logs:", txDetails?.meta?.logMessages);
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}\nLogs: ${txDetails?.meta?.logMessages?.join('\n')}`);
+      }
+
+      // ✅ Verify the account actually exists before saving
+      console.log("🔍 Verifying market account exists on-chain...");
+      const marketAccount = await connection.getAccountInfo(marketPda);
+      
+      if (!marketAccount) {
+        console.error("❌ Market account not found at", marketPda.toString());
+        throw new Error(`Market account was not created! Expected at ${marketPda.toString()}`);
+      }
+      
+      console.log("✅ Market account confirmed on-chain:", {
+        address: marketPda.toString(),
+        owner: marketAccount.owner.toString(),
+        lamports: marketAccount.lamports,
+        dataLength: marketAccount.data.length
+      });
+      
+      // ✅ ONLY save to localStorage AFTER successful confirmation AND verification
+      const eventRegistry = marketRegistry[selectedEventId] || { admin: publicKey.toString(), markets: [] };
       const updatedRegistry = {
         ...marketRegistry,
-        [selectedEventId]: [
-          ...(marketRegistry[selectedEventId] || []),
-          { 
-            id: marketId.toString(), 
-            word: newMarketWord,
-            yesMint: yesMintPda.toString(),
-            noMint: noMintPda.toString(),
-            yesVault: yesVaultPda.toString(),
-            noVault: noVaultPda.toString()
-          }
-        ]
+        [selectedEventId]: {
+          admin: eventRegistry.admin || publicKey.toString(),
+          markets: [
+            ...eventRegistry.markets,
+            { 
+              id: marketId.toString(), 
+              word: newMarketWord,
+              yesMint: yesMintPda.toString(),
+              noMint: noMintPda.toString(),
+              yesVault: yesVaultPda.toString(),
+              noVault: noVaultPda.toString()
+            }
+          ]
+        }
       };
       setMarketRegistry(updatedRegistry);
       localStorage.setItem("marketRegistry", JSON.stringify(updatedRegistry));
       
+      showStatus(`✅ Market created for "${newMarketWord}"! TX: ${signature.slice(0,12)}...`);
       setNewMarketWord("");
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
       console.error("Full error:", error);
-      showStatus(`Error: ${error.message}`, true);
+      showStatus(`❌ Transaction failed: ${error.message}`, true);
     } finally {
       setLoading(false);
     }
@@ -335,7 +417,7 @@ export default function AdminPage() {
         if (eventData) {
           // Load markets for this event
           const markets = [];
-          const marketList = marketRegistry[eventIdStr] || [];
+          const marketList = marketRegistry[eventIdStr]?.markets || [];
           
           for (const { id: marketIdStr, word } of marketList) {
             const marketId = new BN(marketIdStr);
