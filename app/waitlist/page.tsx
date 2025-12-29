@@ -6,15 +6,40 @@ import Header from '@/components/Header'
 export default function WaitlistPage() {
   const [email, setEmail] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO: Add actual API call here
-    setSubmitted(true)
-    setTimeout(() => {
-      setEmail('')
-      setSubmitted(false)
-    }, 3000)
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to join waitlist')
+      }
+
+      setSubmitted(true)
+      setTimeout(() => {
+        setEmail('')
+        setSubmitted(false)
+      }, 5000)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => setError(''), 3000)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -25,43 +50,29 @@ export default function WaitlistPage() {
             <Header />
             
             <main className="flex-1 flex items-center justify-center py-4 md:py-8">
-              {/* Animated background elements */}
-              <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-20 left-10 w-2 h-2 bg-white animate-pulse-flash"></div>
-                <div className="absolute top-40 right-20 w-1 h-1 bg-white animate-flicker"></div>
-                <div className="absolute bottom-40 left-1/4 w-3 h-3 bg-white animate-strobe-slow"></div>
-                <div className="absolute top-1/3 right-1/3 w-1 h-1 bg-white animate-pulse-flash delay-500"></div>
-                <div className="absolute bottom-1/4 right-10 w-2 h-2 bg-white animate-flicker delay-1000"></div>
-              </div>
-
               {/* Main content */}
               <div className="relative z-10 flex flex-col items-center justify-center w-full">
-                {/* Glitched title */}
-                <div className="relative mb-4 md:mb-6">
-                  <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold uppercase tracking-widest text-white text-center">
-                    <span className="glitch-text" data-text="JOIN THE WAITLIST">
-                      JOIN THE WAITLIST
-                    </span>
-                  </h1>
-                  <div className="absolute inset-0 text-4xl md:text-6xl lg:text-7xl font-bold uppercase tracking-widest text-white text-center animate-glitch-move">
+                {/* Title */}
+                <div className="relative mb-8 md:mb-12">
+                  <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold uppercase tracking-wider text-white text-center">
                     JOIN THE WAITLIST
-                  </div>
+                  </h1>
+                  <p className="text-white/70 text-center mt-4 text-lg">
+                    Be the first to know when we launch on mainnet
+                  </p>
                 </div>
 
-                {/* Animated border box */}
+                {/* Form Box */}
                 <div className="relative w-full max-w-xl md:max-w-2xl">
-                  <div className="absolute inset-0 border-4 border-white animate-strobe-border"></div>
-                  <div className="absolute -inset-1 border-2 border-white animate-strobe-border-reverse opacity-50"></div>
-                  
-                  <div className="relative bg-black p-6 md:p-8 lg:p-10 border-4 border-white">
+                  <div className="relative bg-[#1a1a1a] p-8 md:p-12 lg:p-16 rounded-2xl border-2 border-white/20">
                     {!submitted ? (
-                      <form onSubmit={handleSubmit} className="flex flex-col gap-4 md:gap-5">
+                      <form onSubmit={handleSubmit} className="flex flex-col gap-6">
                         <div className="relative">
                           <label 
                             htmlFor="email" 
-                            className="block font-mono text-lg md:text-xl lg:text-2xl uppercase mb-2 md:mb-3 text-white animate-pulse-slow"
+                            className="block text-lg md:text-xl uppercase mb-3 text-white/90 font-bold"
                           >
-                            ENTER YOUR EMAIL
+                            EMAIL ADDRESS
                           </label>
                           <input
                             type="email"
@@ -69,40 +80,65 @@ export default function WaitlistPage() {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            className="w-full h-12 md:h-14 lg:h-16 bg-black border-4 border-white text-white font-mono text-base md:text-lg lg:text-xl px-3 md:px-4 uppercase focus:outline-none focus:bg-white focus:text-black transition-all duration-0 animate-input-flicker"
+                            disabled={loading}
+                            className="w-full h-14 md:h-16 bg-black border-2 border-white/30 rounded-lg text-white text-base md:text-lg px-4 uppercase focus:outline-none focus:border-white transition-all disabled:opacity-50"
                             placeholder="EMAIL@EXAMPLE.COM"
                           />
-                          <div className="absolute inset-0 border-4 border-white animate-strobe-input opacity-30 pointer-events-none"></div>
                         </div>
+                        
+                        {error && (
+                          <div className="text-center text-red-400 text-sm font-bold">
+                            ⚠️ {error}
+                          </div>
+                        )}
                         
                         <button
                           type="submit"
-                          className="w-full h-14 md:h-16 lg:h-18 bg-white text-black border-4 border-black font-bold text-lg md:text-xl lg:text-2xl uppercase tracking-widest hover:bg-black hover:text-white hover:border-white transition-all duration-0 animate-button-pulse relative overflow-hidden"
+                          disabled={loading}
+                          className="w-full h-14 md:h-16 bg-white text-black font-bold text-lg md:text-xl uppercase tracking-wider hover:bg-white/90 transition-all rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <span className="relative z-10">SUBMIT</span>
-                          <div className="absolute inset-0 bg-black animate-button-strobe"></div>
+                          {loading ? 'SUBMITTING...' : 'SUBMIT'}
                         </button>
                       </form>
                     ) : (
-                      <div className="text-center py-6 md:py-8">
-                        <div className="text-3xl md:text-4xl lg:text-5xl font-bold uppercase text-white font-mono mb-3 md:mb-4 animate-pulse-flash">
-                          <span className="glitch-text" data-text="YOU'RE IN">
-                            YOU&apos;RE IN
-                          </span>
+                      <div className="text-center py-8">
+                        <div className="text-3xl md:text-4xl lg:text-5xl font-bold uppercase text-white mb-4">
+                          YOU&apos;RE IN!
                         </div>
-                        <p className="text-white font-mono text-base md:text-lg lg:text-xl uppercase animate-flicker">
-                          CHECK YOUR EMAIL
+                        <p className="text-white/70 text-base md:text-lg mb-4">
+                          CHECK YOUR EMAIL FOR CONFIRMATION
+                        </p>
+                        <p className="text-white/50 text-sm">
+                          We'll notify you when mainnet launches
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Animated corner decorations */}
-                <div className="absolute top-0 left-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-l-4 border-white animate-strobe-corner"></div>
-                <div className="absolute top-0 right-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-r-4 border-white animate-strobe-corner-reverse"></div>
-                <div className="absolute bottom-0 left-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-l-4 border-white animate-strobe-corner delay-500"></div>
-                <div className="absolute bottom-0 right-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-r-4 border-white animate-strobe-corner-reverse delay-1000"></div>
+                {/* Social Links */}
+                <div className="mt-8 text-center">
+                  <p className="text-white/50 text-sm mb-4">JOIN OUR COMMUNITY</p>
+                  <div className="flex gap-6 justify-center">
+                    <a 
+                      href="https://discord.gg/gsD7vf6YRx" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-white hover:text-yellow-400 transition-colors font-bold uppercase text-sm"
+                    >
+                      Discord
+                    </a>
+                    <span className="text-white/30">•</span>
+                    <a 
+                      href="https://x.com/mentionedmarket" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-white hover:text-yellow-400 transition-colors font-bold uppercase text-sm"
+                    >
+                      Twitter/X
+                    </a>
+                  </div>
+                </div>
               </div>
             </main>
           </div>
@@ -111,4 +147,3 @@ export default function WaitlistPage() {
     </div>
   )
 }
-

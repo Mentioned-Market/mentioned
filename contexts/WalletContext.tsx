@@ -9,6 +9,8 @@ interface WalletContextType {
   connect: () => Promise<void>
   disconnect: () => void
   connected: boolean
+  mode: 'normal' | 'pro'
+  setMode: (mode: 'normal' | 'pro') => void
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -20,6 +22,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null)
   const [balance, setBalance] = useState<number | null>(null)
   const [connected, setConnected] = useState(false)
+  const [mode, setMode] = useState<'normal' | 'pro'>('normal')
   const [connection] = useState(() => new Connection(SOLANA_RPC_URL, 'confirmed'))
 
   useEffect(() => {
@@ -129,7 +132,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <WalletContext.Provider value={{ publicKey, balance, connect, disconnect, connected }}>
+    <WalletContext.Provider value={{ publicKey, balance, connect, disconnect, connected, mode, setMode }}>
       {children}
     </WalletContext.Provider>
   )

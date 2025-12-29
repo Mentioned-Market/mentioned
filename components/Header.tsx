@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
-  const { connect, disconnect, connected, balance, publicKey } = useWallet()
+  const { connect, disconnect, connected, balance, publicKey, mode, setMode } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -50,9 +50,14 @@ export default function Header() {
             priority
           />
         </div>
-        <h1 className="text-white text-2xl font-bold uppercase tracking-wider">
-          MENTIONED
-        </h1>
+        <div className="flex flex-col">
+          <h1 className="text-white text-2xl font-bold uppercase tracking-wider">
+            MENTIONED
+          </h1>
+          <span className="text-xs text-yellow-400 font-bold uppercase tracking-wide">
+            BUILT ON SOLANA (DEVNET)
+          </span>
+        </div>
       </a>
       <div className="flex items-center gap-6">
         {connected ? (
@@ -75,15 +80,13 @@ export default function Header() {
 
               {dropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-[#1a1a1a] rounded-lg overflow-hidden z-50 shadow-xl">
-                  <button
-                    onClick={() => {
-                      setDropdownOpen(false)
-                      // Navigate to profile (placeholder for now)
-                    }}
-                    className="w-full text-left px-4 py-3 text-white text-sm hover:bg-[#252525] transition-colors"
+                  <a
+                    href="/profile"
+                    onClick={() => setDropdownOpen(false)}
+                    className="block w-full text-left px-4 py-3 text-white text-sm hover:bg-[#252525] transition-colors"
                   >
                     Profile
-                  </button>
+                  </a>
                   <div className="border-t border-white/10"></div>
                   <button
                     onClick={() => {
