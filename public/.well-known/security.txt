@@ -1,0 +1,10 @@
+Contact: https://mentioned.markets/waitlist
+Contact: https://x.com/mentionedmarket
+Contact: https://discord.gg/gsD7vf6YRx
+Preferred-Languages: en
+Canonical: https://mentioned.markets/.well-known/security.txt
+Policy: https://mentioned.markets
+
+# Mentioned - Mention Markets Platform Security
+# Report security issues via our Discord or Twitter
+

@@ -44,6 +44,21 @@ export default function WaitlistPage() {
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+      {/* SEO Content - Hidden but indexable */}
+      <div className="sr-only">
+        <h2>Mentioned - The Premier Mention Markets Platform</h2>
+        <p>Join Mentioned, the leading mention markets platform where you can trade predictions on what words get mentioned in speeches, podcasts, earnings calls, and live events. Mentioned markets revolutionize prediction trading.</p>
+        <p>Sign up for early access to Mentioned.markets and start trading mention predictions today. Mentioned is the future of prediction markets focused on real-world mentions.</p>
+        <p>Why choose Mentioned? Mentioned offers the most comprehensive mention markets platform with real-time trading on speeches, political events, tech conferences, earnings calls, and more.</p>
+        <ul>
+          <li>Mentioned Markets - Trade what gets mentioned</li>
+          <li>Prediction Markets for Mentions - Mentioned platform</li>
+          <li>Speech Prediction Trading - Join Mentioned</li>
+          <li>Event Mention Markets - Mentioned.markets</li>
+          <li>Podcast Mention Trading - Mentioned protocol</li>
+        </ul>
+      </div>
+      
       <div className="layout-container flex h-full grow flex-col">
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
@@ -55,10 +70,13 @@ export default function WaitlistPage() {
                 {/* Title */}
                 <div className="relative mb-8 md:mb-12">
                   <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold uppercase tracking-wider text-white text-center">
-                    JOIN THE WAITLIST
+                    JOIN THE MENTIONED WAITLIST
                   </h1>
                   <p className="text-white/70 text-center mt-4 text-lg">
-                    Be the first to know when we launch on mainnet
+                    Get early access to Mentioned - The premier mention markets platform
+                  </p>
+                  <p className="text-white/50 text-center mt-2 text-sm">
+                    Trade predictions on mentions in speeches, podcasts, and events
                   </p>
                 </div>
 

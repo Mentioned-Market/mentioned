@@ -40,11 +40,11 @@ export default function Header() {
 
   return (
     <header className="flex items-center justify-between py-6">
-      <a href="/" className="flex items-center gap-3 text-white hover:opacity-80 transition-opacity">
+      <a href="/" className="flex items-center gap-3 text-white hover:opacity-80 transition-opacity" aria-label="Mentioned - Mention Markets Home">
         <div className="relative w-12 h-12 flex-shrink-0">
           <Image
             src="/src/logo.png"
-            alt="Mentioned Logo"
+            alt="Mentioned - Mention Markets Platform Logo"
             fill
             className="object-contain"
             priority
@@ -55,11 +55,20 @@ export default function Header() {
             MENTIONED
           </h1>
           <span className="text-xs text-yellow-400 font-bold uppercase tracking-wide">
-            BUILT ON SOLANA (DEVNET)
+            MENTION MARKETS ON SOLANA
           </span>
         </div>
       </a>
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-4">
+        {/* Join Waitlist Link */}
+        <a
+          href="/waitlist"
+          className="h-10 px-4 bg-yellow-400 text-black text-sm font-bold uppercase rounded-lg hover:bg-yellow-300 transition-colors flex items-center"
+          aria-label="Join Mentioned Waitlist"
+        >
+          Join Waitlist
+        </a>
+
         {connected ? (
           <>
             {/* SOL Balance */}

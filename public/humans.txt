@@ -1,0 +1,23 @@
+# Mentioned - Mention Markets Platform
+
+/* TEAM */
+Name: Mentioned Team
+Site: mentioned.markets
+Twitter: @mentionedmarket
+Discord: discord.gg/gsD7vf6YRx
+Location: Worldwide
+
+/* SITE */
+Last update: 2024/12/30
+Standards: HTML5, CSS3, JavaScript, TypeScript, React, Next.js
+Components: Solana Web3.js, Tailwind CSS
+Software: Visual Studio Code, Next.js 14
+
+/* THANKS */
+Built on Solana blockchain
+Powered by prediction markets technology
+Community: Discord, Twitter/X
+
+Mentioned - The Premier Mention Markets Platform
+Trade predictions on what gets mentioned
+

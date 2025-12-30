@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Screen reader only - SEO text that's hidden visually but readable by search engines */
+@layer utilities {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
 :root {
   --font-display: 'Space Grotesk', sans-serif;
   --font-mono: 'VT323', monospace;

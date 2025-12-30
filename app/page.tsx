@@ -401,11 +401,37 @@ export default function Home() {
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden">
+      {/* SEO Content - Screen reader only but indexable */}
+      <div className="sr-only">
+        <h1>Mentioned - The Premier Mention Markets Platform</h1>
+        <h2>Trade Predictions on What Gets Mentioned</h2>
+        <p>Welcome to Mentioned, the leading mention markets platform revolutionizing prediction markets. Mentioned allows you to trade predictions on what words and phrases get mentioned in real-world events including speeches, podcasts, earnings calls, tech conferences, and more.</p>
+        <p>Mentioned markets offer a unique way to engage with prediction trading. Our mention markets platform enables users to speculate on specific mentions across various categories including politics, technology, entertainment, sports, and business events.</p>
+        <h3>Why Choose Mentioned Markets?</h3>
+        <ul>
+          <li>Mentioned - The original mention markets platform</li>
+          <li>Real-time mention trading on live events</li>
+          <li>Decentralized prediction markets on Solana</li>
+          <li>Trade predictions on speeches, podcasts, and conferences</li>
+          <li>Transparent and fair mention markets</li>
+          <li>Join the Mentioned community today</li>
+        </ul>
+        <h3>Available Mention Markets on Mentioned</h3>
+        <p>Mentioned offers mention markets for political speeches, tech earnings calls, podcast episodes, YouTube videos, TV shows, music releases, Reddit AMAs, patch notes, and sporting events. Every mention market on Mentioned is carefully curated and verified.</p>
+        <p>Start trading on Mentioned.markets today. Mentioned is the future of prediction markets focused on real-world mentions and events. Join thousands of traders on the Mentioned platform.</p>
+        <h3>How Mentioned Markets Work</h3>
+        <p>On Mentioned, you can trade YES or NO positions on whether specific words will be mentioned during an event. Mentioned markets resolve based on official transcripts or verified sources. The Mentioned platform uses decentralized technology on Solana for transparent, trustless trading.</p>
+        <p>Discover mention markets on Mentioned for Trump speeches, Apple keynotes, Joe Rogan podcasts, NBA broadcasts, Netflix releases, and more. Mentioned is your gateway to mention prediction markets.</p>
+      </div>
+      
       <div className="layout-container flex h-full grow flex-col">
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
             <main className="flex-1 pt-1 pb-5">
+              {/* Visible SEO-friendly heading */}
+              <h1 className="sr-only">Mentioned - Mention Markets for Predictions on Speeches, Podcasts and Events</h1>
+              
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {markets.map((market, index) => (
                   <MarketCard key={index} {...market} />
