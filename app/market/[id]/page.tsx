@@ -33,11 +33,19 @@ export default function MarketPage() {
   const [selectedWord, setSelectedWord] = useState('IMMIGRATION')
   const [amount, setAmount] = useState('')
   const [activeTab, setActiveTab] = useState<'trading' | 'stream'>('trading')
+  const [chatMessage, setChatMessage] = useState('')
   
   // Pro mode specific state
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET')
   const [side, setSide] = useState<'YES' | 'NO'>('YES')
   const [limitPrice, setLimitPrice] = useState('')
+  
+  // Mock chat messages
+  const [chatMessages, setChatMessages] = useState([
+    { id: 1, user: 'trader123', message: 'This is going to moon! 🚀', timestamp: '2m ago' },
+    { id: 2, user: 'cryptoking', message: 'Already bought 1000 YES shares', timestamp: '5m ago' },
+    { id: 3, user: 'betmaster', message: 'Stream starting soon!', timestamp: '8m ago' },
+  ])
   
   const market = useMemo(() => {
     const now = Date.now()
@@ -127,17 +135,16 @@ export default function MarketPage() {
 
   // Normal Mode Render
   if (mode === 'normal') {
-  return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden">
-      <div className="layout-container flex h-full grow flex-col">
-        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
-          <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
-            <Header />
-          
-          <main className="py-4">
-            {/* Header with Tabs */}
-            <div className="mb-4 pb-3 border-b border-white/10">
-              <div className="flex items-center justify-between mb-3">
+    return (
+      <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden">
+        <div className="layout-container flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+            
+            <main className="py-4">
+              {/* Header with Tabs */}
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/10">
                 <div>
                   <h1 className="text-2xl font-bold text-white/90">{market.title}</h1>
                   <div className="flex items-center gap-4 text-sm text-white/50 mt-1">
@@ -184,128 +191,201 @@ export default function MarketPage() {
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Trading Tab */}
-            {activeTab === 'trading' && (
-              <>
-                {/* Trading Section */}
-                <div className="bg-[#161616] rounded-2xl p-6 border border-[#2a2a2a] mb-6">
-                  <h2 className="text-2xl font-bold mb-4 text-center">
-                    TRADE "{selectedWordData.word}"
-                  </h2>
-                  
-                  <div className="max-w-2xl mx-auto space-y-4">
-                    {/* Amount Input */}
-                    <div>
-                      <label className="text-white/70 text-base block mb-2">HOW MANY SHARES?</label>
-                      <input
-                        type="number"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        placeholder="Enter amount..."
-                        className="w-full h-12 bg-black/50 border-2 border-white/30 rounded-xl text-white text-xl px-4 focus:outline-none focus:border-white"
-                        min="0"
-                        step="1"
-                      />
-                    </div>
-
-                    {/* Buy Buttons with Info Below */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <button
-                          disabled={!amount || parseFloat(amount) <= 0 || !connected}
-                          className="w-full h-20 bg-green-600 hover:bg-green-700 text-white font-bold text-xl uppercase rounded-xl transition-all transform hover:scale-105 shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                        >
-                          <div>BUY YES</div>
-                          <div className="text-2xl mt-1">${selectedWordData.yesPrice}</div>
-                        </button>
-                        <div className="mt-2 text-sm text-center space-y-1">
-                          <div className="text-white/70">Cost: <span className="text-white font-bold">${estimatedYesCost}</span></div>
-                          <div className="text-green-400">Win: ${yesShares}</div>
+              {/* Trading Tab */}
+              <div className={activeTab === 'trading' ? 'block' : 'hidden'}>
+                <div className="grid grid-cols-12 gap-4 h-[calc(100vh-280px)]">
+                {/* Left - Words List */}
+                <div className="col-span-7 bg-[#0a0a0a] rounded-2xl border border-[#2a2a2a] p-3 overflow-y-auto">
+                  <div className="space-y-2">
+                    {market.words.map((word) => (
+                      <button
+                        key={word.word}
+                        onClick={() => setSelectedWord(word.word)}
+                        className={`w-full p-4 rounded-xl transition-all ${
+                          selectedWord === word.word
+                            ? 'bg-white text-black shadow-xl'
+                            : 'bg-[#1a1a1a] border border-white/20 hover:border-white/50 hover:bg-[#252525]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="text-xl font-bold">{word.word}</div>
+                          <div className="flex gap-3 text-sm font-bold">
+                            <span className={selectedWord === word.word ? 'text-green-600' : 'text-green-400'}>
+                              YES ${word.yesPrice}
+                            </span>
+                            <span className={selectedWord === word.word ? 'text-red-600' : 'text-red-400'}>
+                              NO ${word.noPrice}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div>
-                        <button
-                          disabled={!amount || parseFloat(amount) <= 0 || !connected}
-                          className="w-full h-20 bg-red-600 hover:bg-red-700 text-white font-bold text-xl uppercase rounded-xl transition-all transform hover:scale-105 shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                        >
-                          <div>BUY NO</div>
-                          <div className="text-2xl mt-1">${selectedWordData.noPrice}</div>
-                        </button>
-                        <div className="mt-2 text-sm text-center space-y-1">
-                          <div className="text-white/70">Cost: <span className="text-white font-bold">${estimatedNoCost}</span></div>
-                          <div className="text-red-400">Win: ${noShares}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {!connected && (
-                      <div className="text-center text-yellow-400 text-base font-bold">
-                        ⚠️ Connect your wallet to trade!
-                      </div>
-                    )}
-
-                    {/* Quick Stats */}
-                    <div className="grid grid-cols-3 gap-3 pt-4">
-                      <div className="bg-black/30 rounded-xl p-3 text-center">
-                        <div className="text-white/50 text-xs">VOLUME</div>
-                        <div className="text-xl font-bold">${(selectedWordData.volume / 1000).toFixed(0)}K</div>
-                      </div>
-                      <div className="bg-black/30 rounded-xl p-3 text-center">
-                        <div className="text-white/50 text-xs">YES PRICE</div>
-                        <div className="text-xl font-bold text-green-400">${selectedWordData.yesPrice}</div>
-                      </div>
-                      <div className="bg-black/30 rounded-xl p-3 text-center">
-                        <div className="text-white/50 text-xs">NO PRICE</div>
-                        <div className="text-xl font-bold text-red-400">${selectedWordData.noPrice}</div>
-                      </div>
-                    </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {/* Words Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  {market.words.map((word) => (
-                    <button
-                      key={word.word}
-                      onClick={() => setSelectedWord(word.word)}
-                      className={`p-6 rounded-2xl transition-all transform hover:scale-105 ${
-                        selectedWord === word.word
-                          ? 'bg-white text-black shadow-2xl scale-105'
-                          : 'bg-[#1a1a1a] border-2 border-white/20 hover:border-white/50'
-                      }`}
-                    >
-                      <div className="text-center">
-                        <div className="text-2xl font-bold mb-3">{word.word}</div>
-                        <div className="flex justify-center gap-2 text-sm">
-                          <span className={`font-bold ${selectedWord === word.word ? 'text-green-600' : 'text-green-400'}`}>
-                            ${word.yesPrice}
-                          </span>
-                          <span className={`font-bold ${selectedWord === word.word ? 'text-red-600' : 'text-red-400'}`}>
-                            ${word.noPrice}
-                          </span>
+                {/* Right - Trading Interface */}
+                <div className="col-span-5">
+                  <div className="bg-[#161616] rounded-2xl p-6 border border-[#2a2a2a] h-full flex flex-col">
+                    <h2 className="text-3xl font-bold mb-6 text-center">
+                      {selectedWordData.word}
+                    </h2>
+                    
+                    <div className="space-y-4">
+                      {/* Quick Stats */}
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div className="bg-black/30 rounded-lg p-3 text-center">
+                          <div className="text-white/50 text-xs">VOLUME</div>
+                          <div className="text-lg font-bold">${(selectedWordData.volume / 1000).toFixed(0)}K</div>
+                        </div>
+                        <div className="bg-black/30 rounded-lg p-3 text-center">
+                          <div className="text-white/50 text-xs">YES</div>
+                          <div className="text-lg font-bold text-green-400">${selectedWordData.yesPrice}</div>
+                        </div>
+                        <div className="bg-black/30 rounded-lg p-3 text-center">
+                          <div className="text-white/50 text-xs">NO</div>
+                          <div className="text-lg font-bold text-red-400">${selectedWordData.noPrice}</div>
                         </div>
                       </div>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
 
-            {/* Stream Tab */}
-            {activeTab === 'stream' && (
-              <div className="bg-[#1a1a1a] rounded-3xl overflow-hidden">
-                <div className="aspect-video bg-black">
-                  <iframe
-                    src={market.streamUrl}
-                    className="w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
+                      {/* Amount Input */}
+                      <div>
+                        <label className="text-white/70 text-sm block mb-2">SHARES</label>
+                        <input
+                          type="number"
+                          value={amount}
+                          onChange={(e) => setAmount(e.target.value)}
+                          placeholder="0"
+                          className="w-full h-14 bg-black/50 border-2 border-white/30 rounded-xl text-white text-2xl px-4 focus:outline-none focus:border-white text-center font-bold"
+                          min="0"
+                          step="1"
+                        />
+                      </div>
+
+                      {/* Buy Buttons */}
+                      <div className="space-y-3">
+                        <div>
+                          <button
+                            disabled={!amount || parseFloat(amount) <= 0 || !connected}
+                            className="w-full h-24 bg-green-600 hover:bg-green-700 text-white font-bold text-2xl uppercase rounded-xl transition-all transform hover:scale-105 shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                          >
+                            <div>BUY YES</div>
+                            <div className="text-3xl mt-1">${selectedWordData.yesPrice}</div>
+                          </button>
+                          <div className="mt-2 text-sm text-center space-y-1">
+                            <div className="text-white/70">Cost: <span className="text-white font-bold">${estimatedYesCost}</span></div>
+                            <div className="text-green-400 font-bold">Win: ${yesShares}</div>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <button
+                            disabled={!amount || parseFloat(amount) <= 0 || !connected}
+                            className="w-full h-24 bg-red-600 hover:bg-red-700 text-white font-bold text-2xl uppercase rounded-xl transition-all transform hover:scale-105 shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                          >
+                            <div>BUY NO</div>
+                            <div className="text-3xl mt-1">${selectedWordData.noPrice}</div>
+                          </button>
+                          <div className="mt-2 text-sm text-center space-y-1">
+                            <div className="text-white/70">Cost: <span className="text-white font-bold">${estimatedNoCost}</span></div>
+                            <div className="text-red-400 font-bold">Win: ${noShares}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {!connected && (
+                        <div className="text-center text-yellow-400 text-sm font-bold mt-4">
+                          ⚠️ Connect wallet to trade
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* Stream Tab */}
+            <div className={activeTab === 'stream' ? 'block' : 'hidden'}>
+              <div className="grid grid-cols-12 gap-3 h-[calc(100vh-280px)]">
+                {/* Left/Center - Stream */}
+                <div className="col-span-8 bg-[#111111] rounded border border-white/10 overflow-hidden">
+                  <div className="w-full h-full bg-black">
+                    <iframe
+                      src={market.streamUrl}
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                </div>
+
+                {/* Right - Chat */}
+                <div className="col-span-4 bg-[#111111] rounded border border-white/10 flex flex-col">
+                  <div className="p-3 border-b border-white/10">
+                    <h3 className="text-sm font-bold text-white/70">LIVE CHAT</h3>
+                  </div>
+                  
+                  {/* Chat Messages */}
+                  <div className="flex-1 p-3 overflow-y-auto space-y-2">
+                    {chatMessages.map((msg) => (
+                      <div key={msg.id} className="bg-[#1a1a1a] rounded p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-white">{msg.user}</span>
+                          <span className="text-xs text-white/50">{msg.timestamp}</span>
+                        </div>
+                        <p className="text-xs text-white/80">{msg.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Chat Input */}
+                  <div className="p-3 border-t border-white/10">
+                    {connected ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={chatMessage}
+                          onChange={(e) => setChatMessage(e.target.value)}
+                          placeholder="Message..."
+                          className="flex-1 bg-[#1a1a1a] border border-white/20 rounded px-2 py-2 text-xs text-white focus:outline-none focus:border-white/40"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && chatMessage.trim()) {
+                              setChatMessages([...chatMessages, {
+                                id: Date.now(),
+                                user: 'You',
+                                message: chatMessage,
+                                timestamp: 'now'
+                              }])
+                              setChatMessage('')
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => {
+                            if (chatMessage.trim()) {
+                              setChatMessages([...chatMessages, {
+                                id: Date.now(),
+                                user: 'You',
+                                message: chatMessage,
+                                timestamp: 'now'
+                              }])
+                              setChatMessage('')
+                            }
+                          }}
+                          className="px-3 py-2 bg-white text-black font-bold text-xs rounded hover:bg-white/90 transition-colors"
+                        >
+                          SEND
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center text-white/50 text-xs">
+                        Connect wallet to chat
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </main>
           </div>
         </div>
@@ -373,7 +453,7 @@ export default function MarketPage() {
           </div>
 
           {/* Main Grid - Trading Tab */}
-          {activeTab === 'trading' && (
+          <div className={activeTab === 'trading' ? 'block' : 'hidden'}>
             <div className="grid grid-cols-12 gap-3">
               {/* Left - Words List */}
               <div className="col-span-2 space-y-1">
@@ -597,72 +677,90 @@ export default function MarketPage() {
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Stream Tab */}
-          {activeTab === 'stream' && (
-            <div className="grid grid-cols-12 gap-3">
-              {/* Left - Words List */}
-              <div className="col-span-2 space-y-1">
-                <div className="text-xs text-white/50 font-bold mb-2 px-2">QUICK BUY</div>
-                {market.words.map((word) => {
-                  const isExpanded = selectedWord === word.word
-                  
-                  return (
-                    <div key={word.word} className="bg-[#111111] rounded border border-white/10">
-                      <button
-                        onClick={() => setSelectedWord(word.word)}
-                        className="w-full text-left px-2 py-2 text-xs hover:bg-white/5 transition-colors"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-white">{word.word}</span>
-                          <span className="text-white/50 text-xs">{isExpanded ? '▲' : '▼'}</span>
-                        </div>
-                        <div className="flex gap-2 text-xs">
-                          <span className="text-green-400">{word.yesPrice}</span>
-                          <span className="text-red-400">{word.noPrice}</span>
-                        </div>
-                      </button>
-                      
-                      {isExpanded && (
-                        <div className="border-t border-white/10 p-2 space-y-2">
-                          <input
-                            type="number"
-                            placeholder="Shares"
-                            className="w-full bg-black/50 border border-white/20 rounded px-2 py-1 text-xs text-white focus:outline-none"
-                            min="0"
-                            step="1"
-                          />
-                          <div className="grid grid-cols-2 gap-1">
-                            <button className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1 rounded">
-                              YES
-                            </button>
-                            <button className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1 rounded">
-                              NO
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+          <div className={activeTab === 'stream' ? 'block' : 'hidden'}>
+            <div className="grid grid-cols-12 gap-3 h-[calc(100vh-280px)]">
+              {/* Left/Center - Stream */}
+              <div className="col-span-8 bg-[#111111] rounded border border-white/10 overflow-hidden">
+                <div className="w-full h-full bg-black">
+                  <iframe
+                    src={market.streamUrl}
+                    className="w-full h-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
               </div>
 
-              {/* Center/Right - Stream */}
-              <div className="col-span-10">
-                <div className="bg-[#111111] rounded border border-white/10 overflow-hidden">
-                  <div className="aspect-video bg-black">
-                    <iframe
-                      src={market.streamUrl}
-                      className="w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
+              {/* Right - Chat */}
+              <div className="col-span-4 bg-[#111111] rounded border border-white/10 flex flex-col">
+                <div className="p-3 border-b border-white/10">
+                  <h3 className="text-sm font-bold text-white/70">LIVE CHAT</h3>
+                </div>
+                
+                {/* Chat Messages */}
+                <div className="flex-1 p-3 overflow-y-auto space-y-2">
+                  {chatMessages.map((msg) => (
+                    <div key={msg.id} className="bg-[#1a1a1a] rounded p-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-white">{msg.user}</span>
+                        <span className="text-xs text-white/50">{msg.timestamp}</span>
+                      </div>
+                      <p className="text-xs text-white/80">{msg.message}</p>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Chat Input */}
+                <div className="p-3 border-t border-white/10">
+                  {connected ? (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={chatMessage}
+                        onChange={(e) => setChatMessage(e.target.value)}
+                        placeholder="Message..."
+                        className="flex-1 bg-[#1a1a1a] border border-white/20 rounded px-2 py-2 text-xs text-white focus:outline-none focus:border-white/40"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && chatMessage.trim()) {
+                            setChatMessages([...chatMessages, {
+                              id: Date.now(),
+                              user: 'You',
+                              message: chatMessage,
+                              timestamp: 'now'
+                            }])
+                            setChatMessage('')
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          if (chatMessage.trim()) {
+                            setChatMessages([...chatMessages, {
+                              id: Date.now(),
+                              user: 'You',
+                              message: chatMessage,
+                              timestamp: 'now'
+                            }])
+                            setChatMessage('')
+                          }
+                        }}
+                        className="px-3 py-2 bg-white text-black font-bold text-xs rounded hover:bg-white/90 transition-colors"
+                      >
+                        SEND
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-center text-white/50 text-xs">
+                      Connect wallet to chat
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </main>
           </div>
         </div>
