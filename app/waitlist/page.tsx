@@ -64,33 +64,29 @@ export default function WaitlistPage() {
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
             
-            <main className="flex-1 flex items-center justify-center py-4 md:py-8">
-              {/* Main content */}
-              <div className="relative z-10 flex flex-col items-center justify-center w-full">
+            <main className="flex-1 py-8 md:py-12">
+              <div className="relative z-10 flex flex-col items-center w-full max-w-2xl mx-auto animate-fade-in">
                 {/* Title */}
-                <div className="relative mb-8 md:mb-12">
-                  <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold uppercase tracking-wider text-white text-center">
-                    JOIN THE MENTIONED WAITLIST
+                <div className="mb-8 text-center">
+                  <h1 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight mb-3 bg-gradient-to-b from-white to-neutral-400 bg-clip-text text-transparent">
+                    Join the Waitlist
                   </h1>
-                  <p className="text-white/70 text-center mt-4 text-lg">
-                    Get early access to Mentioned - The premier mention markets platform
-                  </p>
-                  <p className="text-white/50 text-center mt-2 text-sm">
-                    Trade predictions on mentions in speeches, podcasts, and events
+                  <p className="text-base text-neutral-400 leading-relaxed max-w-xl mx-auto">
+                    Get early access to Mentioned and start trading predictions on what gets mentioned.
                   </p>
                 </div>
 
                 {/* Form Box */}
-                <div className="relative w-full max-w-xl md:max-w-2xl">
-                  <div className="relative bg-[#1a1a1a] p-8 md:p-12 lg:p-16 rounded-2xl border-2 border-white/20">
+                <div className="w-full">
+                  <div className="glass rounded-2xl p-8 md:p-10 shadow-card-hover">
                     {!submitted ? (
                       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-                        <div className="relative">
+                        <div>
                           <label 
                             htmlFor="email" 
-                            className="block text-lg md:text-xl uppercase mb-3 text-white/90 font-bold"
+                            className="block text-sm font-medium mb-3 text-neutral-300"
                           >
-                            EMAIL ADDRESS
+                            Email Address
                           </label>
                           <input
                             type="email"
@@ -99,35 +95,40 @@ export default function WaitlistPage() {
                             onChange={(e) => setEmail(e.target.value)}
                             required
                             disabled={loading}
-                            className="w-full h-14 md:h-16 bg-black border-2 border-white/30 rounded-lg text-white text-base md:text-lg px-4 uppercase focus:outline-none focus:border-white transition-all disabled:opacity-50"
-                            placeholder="EMAIL@EXAMPLE.COM"
+                            className="w-full h-12 bg-black/50 border border-white/20 rounded-xl text-white text-base px-4 focus:outline-none focus:border-white/50 transition-all duration-200 disabled:opacity-50 placeholder:text-neutral-600"
+                            placeholder="you@example.com"
                           />
                         </div>
                         
                         {error && (
-                          <div className="text-center text-red-400 text-sm font-bold">
-                            ⚠️ {error}
+                          <div className="text-center text-apple-red text-sm font-medium bg-apple-red/10 rounded-lg py-3 px-4">
+                            {error}
                           </div>
                         )}
                         
                         <button
                           type="submit"
                           disabled={loading}
-                          className="w-full h-14 md:h-16 bg-white text-black font-bold text-lg md:text-xl uppercase tracking-wider hover:bg-white/90 transition-all rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full h-12 bg-white text-black font-semibold text-base rounded-xl hover:bg-neutral-100 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-button"
                         >
-                          {loading ? 'SUBMITTING...' : 'SUBMIT'}
+                          {loading ? 'Submitting...' : 'Join Waitlist'}
                         </button>
                       </form>
                     ) : (
-                      <div className="text-center py-8">
-                        <div className="text-3xl md:text-4xl lg:text-5xl font-bold uppercase text-white mb-4">
-                          YOU&apos;RE IN!
+                      <div className="text-center py-8 animate-scale-in">
+                        <div className="w-16 h-16 bg-apple-green/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <svg className="w-8 h-8 text-apple-green" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
                         </div>
-                        <p className="text-white/70 text-base md:text-lg mb-4">
-                          CHECK YOUR EMAIL FOR CONFIRMATION
+                        <div className="text-2xl md:text-3xl font-semibold text-white mb-3">
+                          You're all set!
+                        </div>
+                        <p className="text-neutral-400 text-base mb-2">
+                          Check your email for confirmation
                         </p>
-                        <p className="text-white/50 text-sm">
-                          We'll notify you when mainnet launches
+                        <p className="text-neutral-500 text-sm">
+                          We'll notify you when we launch
                         </p>
                       </div>
                     )}
@@ -136,24 +137,24 @@ export default function WaitlistPage() {
 
                 {/* Social Links */}
                 <div className="mt-8 text-center">
-                  <p className="text-white/50 text-sm mb-4">JOIN OUR COMMUNITY</p>
+                  <p className="text-neutral-500 text-sm mb-3 font-medium">Join Our Community</p>
                   <div className="flex gap-6 justify-center">
                     <a 
                       href="https://discord.gg/gsD7vf6YRx" 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-white hover:text-yellow-400 transition-colors font-bold uppercase text-sm"
+                      className="text-neutral-400 hover:text-white transition-colors duration-200 font-medium text-sm"
                     >
                       Discord
                     </a>
-                    <span className="text-white/30">•</span>
+                    <span className="text-neutral-600">•</span>
                     <a 
                       href="https://x.com/mentionedmarket" 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-white hover:text-yellow-400 transition-colors font-bold uppercase text-sm"
+                      className="text-neutral-400 hover:text-white transition-colors duration-200 font-medium text-sm"
                     >
-                      Twitter/X
+                      Twitter
                     </a>
                   </div>
                 </div>

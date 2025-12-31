@@ -1,13 +1,14 @@
 import type { Metadata } from 'next'
-import { Space_Grotesk } from 'next/font/google'
+import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import WalletProviderWrapper from '@/components/WalletProviderWrapper'
 import { faqSchema, webApplicationSchema } from '@/lib/seo-schemas'
 
-const spaceGrotesk = Space_Grotesk({
+const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '700'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-display',
+  display: 'swap',
 })
 
 export const metadata: Metadata = {
@@ -195,7 +196,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
       </head>
-      <body className={`${spaceGrotesk.variable} bg-black text-white font-display`}>
+      <body className={`${plusJakartaSans.variable} bg-black text-white font-display antialiased`}>
         <WalletProviderWrapper>
           {children}
         </WalletProviderWrapper>

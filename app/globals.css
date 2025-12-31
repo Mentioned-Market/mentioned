@@ -18,230 +18,127 @@
 }
 
 :root {
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-mono: 'VT323', monospace;
+  --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  
+  /* Apple-inspired color system */
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f5f5f5;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-300: #d4d4d4;
+  --color-neutral-400: #a3a3a3;
+  --color-neutral-500: #737373;
+  --color-neutral-600: #525252;
+  --color-neutral-700: #404040;
+  --color-neutral-800: #262626;
+  --color-neutral-900: #171717;
+  --color-neutral-950: #0a0a0a;
+  
+  /* Accent colors */
+  --color-blue: #007AFF;
+  --color-green: #34C759;
+  --color-red: #FF3B30;
+  --color-orange: #FF9500;
 }
 
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-.ticker-wrap {
-  position: relative;
-  width: 100%;
-  overflow: hidden;
-  height: 2.5rem;
-  background-color: #000000;
-  color: #FFFFFF;
-  border-top: 1px solid #FFFFFF;
-  border-bottom: 1px solid #FFFFFF;
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.ticker-move {
-  display: inline-block;
-  white-space: nowrap;
-  padding-right: 100%;
-  animation: ticker 20s linear infinite;
+/* Custom scrollbar - Apple style */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-@keyframes ticker {
-  0% { transform: translate3d(0, 0, 0); }
-  100% { transform: translate3d(-100%, 0, 0); }
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.glitch-text {
-  position: relative;
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
 }
 
-.glitch-text::before {
-  content: attr(data-text);
-  position: absolute;
-  left: -2px;
-  text-shadow: 1px 0 #FFFFFF;
-  overflow: hidden;
-  top: 0;
-  animation: glitch-anim-1 2s infinite linear alternate-reverse;
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
-.glitch-text::after {
-  content: attr(data-text);
-  position: absolute;
-  left: 2px;
-  text-shadow: -1px 0 #FFFFFF;
-  overflow: hidden;
-  top: 0;
-  animation: glitch-anim-2 3s infinite linear alternate-reverse;
+/* Apple-inspired animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-@keyframes glitch-anim-1 {
-  0% { clip-path: inset(15% 0 86% 0); }
-  20% { clip-path: inset(50% 0 49% 0); }
-  40% { clip-path: inset(8% 0 60% 0); }
-  60% { clip-path: inset(33% 0 35% 0); }
-  80% { clip-path: inset(70% 0 5% 0); }
-  100% { clip-path: inset(45% 0 51% 0); }
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-@keyframes glitch-anim-2 {
-  0% { clip-path: inset(78% 0 2% 0); }
-  20% { clip-path: inset(19% 0 10% 0); }
-  40% { clip-path: inset(90% 0 5% 0); }
-  60% { clip-path: inset(40% 0 45% 0); }
-  80% { clip-path: inset(5% 0 80% 0); }
-  100% { clip-path: inset(66% 0 14% 0); }
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
 }
 
-/* Waitlist page animations */
-@keyframes pulse-flash {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out;
 }
 
-@keyframes flicker {
-  0%, 100% { opacity: 1; }
-  10% { opacity: 0.8; }
-  20% { opacity: 0.6; }
-  30% { opacity: 1; }
-  40% { opacity: 0.4; }
-  50% { opacity: 0.9; }
-  60% { opacity: 0.7; }
-  70% { opacity: 1; }
-  80% { opacity: 0.5; }
-  90% { opacity: 0.8; }
+.animate-scale-in {
+  animation: scaleIn 0.3s ease-out;
 }
 
-@keyframes strobe-slow {
-  0%, 100% { opacity: 1; border-color: #FFFFFF; }
-  50% { opacity: 0.5; border-color: #000000; }
+/* Glass morphism effect */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-@keyframes strobe-slow-reverse {
-  0%, 100% { opacity: 0.5; border-color: #000000; }
-  50% { opacity: 1; border-color: #FFFFFF; }
+/* Smooth transitions */
+.transition-smooth {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@keyframes strobe-border {
-  0%, 100% { border-color: #FFFFFF; opacity: 1; }
-  25% { border-color: #000000; opacity: 0.8; }
-  50% { border-color: #FFFFFF; opacity: 1; }
-  75% { border-color: #000000; opacity: 0.8; }
+/* Hover lift effect */
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@keyframes strobe-border-reverse {
-  0%, 100% { border-color: #000000; opacity: 0.8; }
-  25% { border-color: #FFFFFF; opacity: 1; }
-  50% { border-color: #000000; opacity: 0.8; }
-  75% { border-color: #FFFFFF; opacity: 1; }
+.hover-lift:hover {
+  transform: translateY(-2px);
 }
 
-@keyframes strobe-input {
-  0%, 100% { border-color: #FFFFFF; opacity: 0.3; }
-  50% { border-color: #FFFFFF; opacity: 0.8; }
+/* Card shadows */
+.shadow-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-@keyframes strobe-corner {
-  0%, 100% { border-color: #FFFFFF; opacity: 1; }
-  50% { border-color: #FFFFFF; opacity: 0.3; }
-}
-
-@keyframes strobe-corner-reverse {
-  0%, 100% { border-color: #FFFFFF; opacity: 0.3; }
-  50% { border-color: #FFFFFF; opacity: 1; }
-}
-
-@keyframes glitch-move {
-  0% { transform: translate(0); }
-  20% { transform: translate(-2px, 2px); }
-  40% { transform: translate(-2px, -2px); }
-  60% { transform: translate(2px, 2px); }
-  80% { transform: translate(2px, -2px); }
-  100% { transform: translate(0); }
-}
-
-@keyframes button-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
-}
-
-@keyframes button-strobe {
-  0%, 100% { opacity: 0; }
-  50% { opacity: 0.3; }
-}
-
-@keyframes input-flicker {
-  0%, 100% { border-color: #FFFFFF; }
-  10% { border-color: #FFFFFF; }
-  20% { border-color: #000000; }
-  30% { border-color: #FFFFFF; }
-  40% { border-color: #FFFFFF; }
-  50% { border-color: #000000; }
-  60% { border-color: #FFFFFF; }
-  70% { border-color: #FFFFFF; }
-  80% { border-color: #000000; }
-  90% { border-color: #FFFFFF; }
-}
-
-.animate-pulse-flash {
-  animation: pulse-flash 1.5s ease-in-out infinite;
-}
-
-.animate-flicker {
-  animation: flicker 2s linear infinite;
-}
-
-.animate-strobe-slow {
-  animation: strobe-slow 2s linear infinite;
-}
-
-.animate-strobe-slow-reverse {
-  animation: strobe-slow-reverse 2s linear infinite;
-}
-
-.animate-strobe-border {
-  animation: strobe-border 0.8s linear infinite;
-}
-
-.animate-strobe-border-reverse {
-  animation: strobe-border-reverse 0.8s linear infinite;
-}
-
-.animate-strobe-input {
-  animation: strobe-input 0.5s linear infinite;
-}
-
-.animate-strobe-corner {
-  animation: strobe-corner 1.5s linear infinite;
-}
-
-.animate-strobe-corner-reverse {
-  animation: strobe-corner-reverse 1.5s linear infinite;
-}
-
-.animate-glitch-move {
-  animation: glitch-move 0.3s linear infinite;
-}
-
-.animate-button-pulse {
-  animation: button-pulse 2s ease-in-out infinite;
-}
-
-.animate-button-strobe {
-  animation: button-strobe 0.3s linear infinite;
-}
-
-.animate-input-flicker {
-  animation: input-flicker 3s linear infinite;
-}
-
-.animate-pulse-slow {
-  animation: pulse-flash 3s ease-in-out infinite;
-}
-
-.delay-500 {
-  animation-delay: 0.5s;
-}
-
-.delay-1000 {
-  animation-delay: 1s;
+.shadow-card-hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 

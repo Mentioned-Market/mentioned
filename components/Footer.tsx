@@ -1,6 +1,6 @@
 export default function Footer() {
   return (
-    <footer className="border-t border-white py-4 text-center mt-10">
+    <footer className="border-t border-white/10 py-8 text-center">
       {/* Hidden SEO-rich content for search engines */}
       <div className="sr-only">
         <h2>About Mentioned - The Premier Mention Markets Platform</h2>
@@ -22,32 +22,39 @@ export default function Footer() {
         <p>Keywords: mentioned, mention markets, mentioned markets, prediction markets, mention trading, mentioned platform, speech predictions, podcast predictions, event predictions, decentralized prediction markets, solana prediction markets, bet on mentions, trade mentions</p>
       </div>
 
-      <div className="flex flex-col md:flex-row justify-center items-center gap-2 md:gap-6 font-mono text-xs uppercase">
-        <a 
-          className="hover:bg-white hover:text-black transition-colors" 
-          href="https://discord.gg/gsD7vf6YRx" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          aria-label="Join Mentioned on Discord"
-        >
-          [DISCORD]
-        </a>
-        <a 
-          className="hover:bg-white hover:text-black transition-colors" 
-          href="https://x.com/mentionedmarket" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          aria-label="Follow Mentioned on Twitter/X"
-        >
-          [X / TWITTER]
-        </a>
-        <p className="text-white/50 mt-4 md:mt-0">
-          MENTIONED - MENTION MARKETS PLATFORM | LEGAL DISCLAIMER: THIS IS NOT FINANCIAL ADVICE. INVEST AT YOUR OWN RISK.
+      <div className="flex flex-col items-center gap-6">
+        {/* Social Links */}
+        <div className="flex items-center gap-6">
+          <a 
+            className="text-neutral-400 hover:text-white text-sm font-medium transition-colors duration-200" 
+            href="https://discord.gg/gsD7vf6YRx" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            aria-label="Join Mentioned on Discord"
+          >
+            Discord
+          </a>
+          <span className="text-neutral-600">•</span>
+          <a 
+            className="text-neutral-400 hover:text-white text-sm font-medium transition-colors duration-200" 
+            href="https://x.com/mentionedmarket" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            aria-label="Follow Mentioned on Twitter/X"
+          >
+            Twitter
+          </a>
+        </div>
+        
+        {/* Legal Disclaimer */}
+        <p className="text-neutral-500 text-xs max-w-2xl leading-relaxed">
+          Legal Disclaimer: This is not financial advice. Invest at your own risk.
         </p>
-      </div>
-      
-      <div className="mt-4 text-white/30 text-xs">
-        <p>© 2024 Mentioned. Mention Markets Platform. All rights reserved.</p>
+        
+        {/* Copyright */}
+        <div className="text-neutral-600 text-xs">
+          <p>© 2025 Mentioned. All rights reserved.</p>
+        </div>
       </div>
     </footer>
   )

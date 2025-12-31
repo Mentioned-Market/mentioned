@@ -184,85 +184,85 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
   const isDisabled = !solAmount || parseFloat(solAmount) <= 0 || !connected || loading
 
   return (
-    <div className="bg-[#1a1a1a] rounded-lg h-full flex flex-col">
-      <div className="border-b border-white/20 p-3">
-        <p className="text-white font-bold text-lg uppercase">{marketData.word}</p>
+    <div className="glass rounded-2xl h-full flex flex-col">
+      <div className="border-b border-white/10 p-4">
+        <p className="text-white font-semibold text-lg">{marketData.word}</p>
       </div>
 
-      <div className="p-4 space-y-5 flex-1">
+      <div className="p-5 space-y-5 flex-1">
         {/* Status Message */}
         {status && (
-          <div className={`text-sm p-2 rounded ${status.includes('Error') || status.includes('❌') ? 'bg-red-900/30 text-red-400' : 'bg-green-900/30 text-green-400'}`}>
+          <div className={`text-sm font-medium p-3 rounded-lg ${status.includes('Error') || status.includes('❌') ? 'bg-apple-red/10 text-apple-red' : 'bg-apple-green/10 text-apple-green'}`}>
             {status}
           </div>
         )}
 
         {/* Buy/Sell Toggle */}
         <div>
-          <label className="text-white font-bold text-sm uppercase block mb-2">
-            ACTION
+          <label className="text-neutral-400 font-medium text-sm block mb-2">
+            Action
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setAction('BUY')}
               disabled={loading}
-              className={`h-10 font-bold text-sm uppercase rounded transition-colors border border-white/20 ${
+              className={`h-10 font-semibold text-sm rounded-lg transition-all duration-200 ${
                 action === 'BUY'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent text-white hover:bg-white/5'
+                  ? 'bg-white text-black shadow-button'
+                  : 'glass hover:bg-white/10'
               } disabled:opacity-50`}
             >
-              BUY
+              Buy
             </button>
             <button
               onClick={() => setAction('SELL')}
               disabled={loading}
-              className={`h-10 font-bold text-sm uppercase rounded transition-colors border border-white/20 ${
+              className={`h-10 font-semibold text-sm rounded-lg transition-all duration-200 ${
                 action === 'SELL'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent text-white hover:bg-white/5'
+                  ? 'bg-white text-black shadow-button'
+                  : 'glass hover:bg-white/10'
               } disabled:opacity-50`}
             >
-              SELL
+              Sell
             </button>
           </div>
         </div>
 
         {/* Side Selector */}
         <div>
-          <label className="text-white font-bold text-sm uppercase block mb-2">
-            POSITION
+          <label className="text-neutral-400 font-medium text-sm block mb-2">
+            Position
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setSide('YES')}
               disabled={loading}
-              className={`h-10 font-bold text-sm uppercase rounded transition-colors border border-white/20 ${
+              className={`h-10 font-semibold text-sm rounded-lg transition-all duration-200 ${
                 side === 'YES'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent text-white hover:bg-white/5'
+                  ? 'bg-apple-green text-white'
+                  : 'glass hover:bg-white/10'
               } disabled:opacity-50`}
             >
-              YES
+              Yes
             </button>
             <button
               onClick={() => setSide('NO')}
               disabled={loading}
-              className={`h-10 font-bold text-sm uppercase rounded transition-colors border border-white/20 ${
+              className={`h-10 font-semibold text-sm rounded-lg transition-all duration-200 ${
                 side === 'NO'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent text-white hover:bg-white/5'
+                  ? 'bg-apple-red text-white'
+                  : 'glass hover:bg-white/10'
               } disabled:opacity-50`}
             >
-              NO
+              No
             </button>
           </div>
         </div>
 
         {/* Amount Input */}
         <div>
-          <label className="text-white font-bold text-sm uppercase block mb-2">
-            SOL AMOUNT
+          <label className="text-neutral-400 font-medium text-sm block mb-2">
+            SOL Amount
           </label>
           <input
             type="number"
@@ -270,25 +270,25 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
             onChange={(e) => setSolAmount(e.target.value)}
             placeholder="0.0"
             disabled={loading}
-            className="w-full h-10 bg-transparent border border-white/20 rounded text-white font-bold text-xl px-3 focus:outline-none focus:border-white disabled:opacity-50"
+            className="w-full h-10 glass rounded-lg text-white font-semibold text-xl px-3 focus:outline-none focus:bg-white/10 disabled:opacity-50 transition-all duration-200"
             min="0"
             step="0.01"
           />
         </div>
 
         {/* Estimate */}
-        <div className="border border-white/20 rounded p-3 text-sm space-y-1.5">
+        <div className="bg-black/30 rounded-lg p-3 text-sm space-y-1.5">
           <div className="flex justify-between">
-            <span className="text-white">PRICE:</span>
-            <span className="text-white font-bold">${currentPrice.toFixed(2)}</span>
+            <span className="text-neutral-400 font-medium">Price:</span>
+            <span className="text-white font-semibold">${currentPrice.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-white">EST. SHARES:</span>
-            <span className="text-white font-bold">{estimatedShares}</span>
+            <span className="text-neutral-400 font-medium">Est. Shares:</span>
+            <span className="text-white font-semibold">{estimatedShares}</span>
           </div>
           <div className="border-t border-white/20 pt-1.5 mt-1.5 flex justify-between">
-            <span className="text-white">COST:</span>
-            <span className="text-white font-bold text-base">{solAmount || '0'} SOL</span>
+            <span className="text-neutral-400 font-medium">Cost:</span>
+            <span className="text-white font-semibold text-base">{solAmount || '0'} SOL</span>
           </div>
         </div>
 
@@ -296,14 +296,14 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
         <button
           onClick={handleTrade}
           disabled={isDisabled}
-          className="w-full h-12 bg-white text-black font-bold text-sm uppercase rounded hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-12 bg-white text-black font-semibold text-sm rounded-lg hover:bg-neutral-100 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-button"
           title={!connected ? 'Connect wallet to trade' : !solAmount ? 'Enter amount to trade' : ''}
         >
-          {loading ? 'PROCESSING...' : !connected ? 'CONNECT WALLET' : `${action} ${side}`}
+          {loading ? 'Processing...' : !connected ? 'Connect Wallet' : `${action} ${side}`}
         </button>
         
         {!connected && (
-          <p className="text-xs text-gray-400 text-center -mt-2">
+          <p className="text-xs text-neutral-500 text-center -mt-2">
             Connect your wallet in the header to start trading
           </p>
         )}
