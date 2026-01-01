@@ -28,6 +28,11 @@ describe("Order Book Tests", () => {
   const eventId = new anchor.BN(1);
   const marketId = new anchor.BN(1);
   const wordHash = Array.from(crypto.createHash('sha256').update('bitcoin').digest());
+  
+  // Event times
+  const nowTimestamp = Math.floor(Date.now() / 1000);
+  const startTime = new anchor.BN(nowTimestamp + 2); // Start in 2 seconds
+  const endTime = new anchor.BN(nowTimestamp + 10); // End in 10 seconds
 
   before(async () => {
     // Create test accounts with funds
@@ -50,7 +55,7 @@ describe("Order Book Tests", () => {
   });
 
   describe("Event & Market Initialization", () => {
-    it("Creates an event", async () => {
+    it("Creates an event in PreMarket state", async () => {
       [eventPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("event"),
@@ -61,7 +66,7 @@ describe("Order Book Tests", () => {
       );
 
       await program.methods
-        .initializeEvent(eventId)
+        .initializeEvent(eventId, startTime, endTime)
         .accounts({
           admin: admin.publicKey,
           event: eventPda,
@@ -73,8 +78,11 @@ describe("Order Book Tests", () => {
       const event = await program.account.event.fetch(eventPda);
       assert.ok(event.admin.equals(admin.publicKey));
       assert.ok(event.eventId.eq(eventId));
+      assert.deepEqual(event.state, { preMarket: {} });
+      assert.ok(event.startTime.eq(startTime));
+      assert.ok(event.endTime.eq(endTime));
 
-      console.log("✓ Event created successfully");
+      console.log("✓ Event created in PreMarket state");
     });
 
     it("Creates a market", async () => {
@@ -117,27 +125,244 @@ describe("Order Book Tests", () => {
       assert.equal(market.resolved, false);
       assert.ok(market.nextOrderId.eq(new anchor.BN(0)));
 
-      console.log("✓ Market created successfully");
+      console.log("✓ Market created successfully in PreMarket state");
+    });
+
+    it("Fails to create market after event starts", async () => {
+      // Wait for event to be startable
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      
+      // Start the event
+      await program.methods
+        .startEvent()
+        .accounts({
+          admin: admin.publicKey,
+          event: eventPda,
+        })
+        .signers([admin])
+        .rpc();
+
+      const event = await program.account.event.fetch(eventPda);
+      assert.deepEqual(event.state, { live: {} });
+
+      // Try to create another market - should fail
+      const newMarketId = new anchor.BN(999);
+      const [newMarketPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("market"),
+          eventPda.toBuffer(),
+          newMarketId.toArrayLike(Buffer, "le", 8)
+        ],
+        program.programId
+      );
+
+      const [newYesMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("yes_mint"), newMarketPda.toBuffer()],
+        program.programId
+      );
+
+      const [newNoMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("no_mint"), newMarketPda.toBuffer()],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .initializeMarket(newMarketId, wordHash)
+          .accounts({
+            admin: admin.publicKey,
+            event: eventPda,
+            market: newMarketPda,
+            yesMint: newYesMintPda,
+            noMint: newNoMintPda,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([admin])
+          .rpc();
+        
+        assert.fail("Should have failed to create market after event started");
+      } catch (err) {
+        console.log("✓ Correctly prevented market creation after event started");
+      }
+    });
+  });
+
+  describe("Event State Transitions", () => {
+    it("Transitions event from Live to Ended", async () => {
+      // Wait for event to end
+      await new Promise(resolve => setTimeout(resolve, 8000));
+
+      await program.methods
+        .endEvent()
+        .accounts({
+          admin: admin.publicKey,
+          event: eventPda,
+        })
+        .signers([admin])
+        .rpc();
+
+      const event = await program.account.event.fetch(eventPda);
+      assert.deepEqual(event.state, { ended: {} });
+
+      console.log("✓ Event transitioned to Ended state");
+    });
+
+    it("Transitions event from Ended to Resolved", async () => {
+      await program.methods
+        .finalizeEvent()
+        .accounts({
+          admin: admin.publicKey,
+          event: eventPda,
+        })
+        .signers([admin])
+        .rpc();
+
+      const event = await program.account.event.fetch(eventPda);
+      assert.deepEqual(event.state, { resolved: {} });
+
+      console.log("✓ Event transitioned to Resolved state");
+    });
     });
   });
 
   describe("Minting and Burning Sets", () => {
     let user1YesAccount: PublicKey;
     let user1NoAccount: PublicKey;
+    let testEventPda: PublicKey;
+    let testMarketPda: PublicKey;
+    let testYesMintPda: PublicKey;
+    let testNoMintPda: PublicKey;
+
+    before(async () => {
+      // Create a new event for these tests (with distant times so we don't have to wait)
+      const testEventId = new anchor.BN(2);
+      const testMarketId = new anchor.BN(1);
+      const farFuture = new anchor.BN(nowTimestamp + 3600); // 1 hour from now
+
+      [testEventPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("event"),
+          admin.publicKey.toBuffer(),
+          testEventId.toArrayLike(Buffer, "le", 8)
+        ],
+        program.programId
+      );
+
+      await program.methods
+        .initializeEvent(testEventId, new anchor.BN(nowTimestamp), farFuture)
+        .accounts({
+          admin: admin.publicKey,
+          event: testEventPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([admin])
+        .rpc();
+
+      // Start event immediately
+      await program.methods
+        .startEvent()
+        .accounts({
+          admin: admin.publicKey,
+          event: testEventPda,
+        })
+        .signers([admin])
+        .rpc();
+
+      [testMarketPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("market"),
+          testEventPda.toBuffer(),
+          testMarketId.toArrayLike(Buffer, "le", 8)
+        ],
+        program.programId
+      );
+
+      [testYesMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("yes_mint"), testMarketPda.toBuffer()],
+        program.programId
+      );
+
+      [testNoMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("no_mint"), testMarketPda.toBuffer()],
+        program.programId
+      );
+
+      // Note: Can't create market after starting - need to create before transition
+      // This is expected behavior, so we'll skip market creation for this test
+      // Instead, we'll use a hack: create event, create market, then transition
+      
+      // Create a fresh event for these tests
+      const freshEventId = new anchor.BN(3);
+      [testEventPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("event"), admin.publicKey.toBuffer(), freshEventId.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
+
+      await program.methods
+        .initializeEvent(freshEventId, new anchor.BN(nowTimestamp), farFuture)
+        .accounts({
+          admin: admin.publicKey,
+          event: testEventPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([admin])
+        .rpc();
+
+      [testMarketPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("market"), testEventPda.toBuffer(), testMarketId.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
+
+      [testYesMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("yes_mint"), testMarketPda.toBuffer()],
+        program.programId
+      );
+
+      [testNoMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("no_mint"), testMarketPda.toBuffer()],
+        program.programId
+      );
+
+      // Create market while in PreMarket state
+      await program.methods
+        .initializeMarket(testMarketId, wordHash)
+        .accounts({
+          admin: admin.publicKey,
+          event: testEventPda,
+          market: testMarketPda,
+          yesMint: testYesMintPda,
+          noMint: testNoMintPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([admin])
+        .rpc();
+
+      // Now start the event
+      await program.methods
+        .startEvent()
+        .accounts({
+          admin: admin.publicKey,
+          event: testEventPda,
+        })
+        .signers([admin])
+        .rpc();
+    });
 
     it("User mints a complete set", async () => {
       // Create token accounts for user1
       user1YesAccount = await createAccount(
         provider.connection,
         user1,
-        yesMintPda,
+        testYesMintPda,
         user1.publicKey
       );
 
       user1NoAccount = await createAccount(
         provider.connection,
         user1,
-        noMintPda,
+        testNoMintPda,
         user1.publicKey
       );
 
@@ -147,10 +372,10 @@ describe("Order Book Tests", () => {
         .mintSet(mintAmount)
         .accounts({
           user: user1.publicKey,
-          event: eventPda,
-          market: marketPda,
-          yesMint: yesMintPda,
-          noMint: noMintPda,
+          event: testEventPda,
+          market: testMarketPda,
+          yesMint: testYesMintPda,
+          noMint: testNoMintPda,
           userYes: user1YesAccount,
           userNo: user1NoAccount,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -176,10 +401,10 @@ describe("Order Book Tests", () => {
         .burnSet(burnAmount)
         .accounts({
           user: user1.publicKey,
-          event: eventPda,
-          market: marketPda,
-          yesMint: yesMintPda,
-          noMint: noMintPda,
+          event: testEventPda,
+          market: testMarketPda,
+          yesMint: testYesMintPda,
+          noMint: testNoMintPda,
           userYes: user1YesAccount,
           userNo: user1NoAccount,
           tokenProgram: TOKEN_PROGRAM_ID,

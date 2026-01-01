@@ -12,19 +12,18 @@ import {
   getMarketPDA,
   getYesMintPDA,
   getNoMintPDA,
-  getYesVaultPDA,
-  getNoVaultPDA,
   hashWord,
   createInitializeEventInstruction,
   createInitializeMarketInstruction,
-  createAddLiquidityInstruction,
+  createStartEventInstruction,
+  createEndEventInstruction,
+  createFinalizeEventInstruction,
   createResolveMarketInstruction,
   fetchEventAccount,
   fetchMarketAccount,
   EventAccount,
   MarketAccount,
-  solToLamports,
-  lamportsToSol,
+  getEventStateString,
 } from "@/lib/program";
 
 interface EventWithMarkets {
@@ -49,13 +48,15 @@ export default function AdminPage() {
 
   // Form states
   const [newEventId, setNewEventId] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [selectedEventId, setSelectedEventId] = useState("");
   const [newMarketWord, setNewMarketWord] = useState("");
-  const [newMarketFee, setNewMarketFee] = useState("100");
+  // Note: Order book contract doesn't use fees - removed fee input
 
   // Market tracking - store created markets in localStorage
   // Structure: { eventId: { admin: string, markets: Array<{id, word, ...}> } }
-  const [marketRegistry, setMarketRegistry] = useState<Record<string, {admin: string, markets: Array<{id: string, word: string, yesMint: string, noMint: string, yesVault: string, noVault: string}>}>>({});
+  const [marketRegistry, setMarketRegistry] = useState<Record<string, {admin: string, markets: Array<{id: string, word: string, yesMint: string, noMint: string}>}>>({});
 
   useEffect(() => {
     // Load market registry from localStorage
@@ -96,8 +97,16 @@ export default function AdminPage() {
       return;
     }
 
-    if (!newEventId) {
-      showStatus("Please enter an event ID", true);
+    if (!newEventId || !startTime || !endTime) {
+      showStatus("Please fill in all event fields", true);
+      return;
+    }
+
+    const startTimestamp = new Date(startTime).getTime() / 1000;
+    const endTimestamp = new Date(endTime).getTime() / 1000;
+
+    if (endTimestamp <= startTimestamp) {
+      showStatus("End time must be after start time", true);
       return;
     }
 
@@ -114,7 +123,13 @@ export default function AdminPage() {
         return;
       }
 
-      const instruction = createInitializeEventInstruction(publicKey, eventPda, eventId);
+      const instruction = createInitializeEventInstruction(
+        publicKey, 
+        eventPda, 
+        eventId,
+        new BN(Math.floor(startTimestamp)),
+        new BN(Math.floor(endTimestamp))
+      );
       
       const transaction = new Transaction().add(instruction);
       const { blockhash } = await connection.getLatestBlockhash();
@@ -125,8 +140,10 @@ export default function AdminPage() {
       const signature = await connection.sendRawTransaction(signed.serialize());
       await connection.confirmTransaction(signature, "confirmed");
 
-      showStatus(`Event #${newEventId} created! TX: ${signature.slice(0, 20)}...`);
+      showStatus(`Event #${newEventId} created in PreMarket state! TX: ${signature.slice(0, 20)}...`);
       setNewEventId("");
+      setStartTime("");
+      setEndTime("");
       
       // Initialize event in registry with admin pubkey
       const updatedRegistry = {
@@ -192,25 +209,17 @@ export default function AdminPage() {
       const [yesMintPda] = getYesMintPDA(marketPda);
       const [noMintPda] = getNoMintPDA(marketPda);
       
-      // Get PDA-based vaults (also deterministic!)
-      const [yesVaultPda] = getYesVaultPDA(marketPda);
-      const [noVaultPda] = getNoVaultPDA(marketPda);
-      
       const wordHash = hashWord(newMarketWord);
-      const feeBps = parseInt(newMarketFee);
 
-      // Create market instruction (now includes mint + vault creation as PDAs!)
+      // Create market instruction (order book version - no fee, no vaults)
       const createMarketIx = createInitializeMarketInstruction(
         publicKey,
         eventPda,
         marketPda,
         yesMintPda,
         noMintPda,
-        yesVaultPda,
-        noVaultPda,
         marketId,
-        wordHash,
-        feeBps
+        wordHash
       );
 
       const transaction = new Transaction().add(createMarketIx);
@@ -284,9 +293,7 @@ export default function AdminPage() {
               id: marketId.toString(), 
               word: newMarketWord,
               yesMint: yesMintPda.toString(),
-              noMint: noMintPda.toString(),
-              yesVault: yesVaultPda.toString(),
-              noVault: noVaultPda.toString()
+              noMint: noMintPda.toString()
             }
           ]
         }
@@ -345,41 +352,20 @@ export default function AdminPage() {
   };
 
   const handleAddLiquidity = async (eventId: BN, marketId: BN, marketPda: PublicKey) => {
+    // Order book contract doesn't have add_liquidity function
+    // Users provide liquidity by minting sets (YES+NO tokens) and placing orders
+    showStatus("ℹ️ Order book doesn't use liquidity pools. Users mint sets and place orders instead!", false);
+  };
+
+  const handleStartEvent = async (eventId: BN, eventPda: PublicKey) => {
     if (!publicKey || !window.solana) {
       showStatus("Please connect your wallet", true);
       return;
     }
 
-    const solAmount = prompt("Enter amount of SOL to add as liquidity (e.g., 0.1):");
-    if (!solAmount) return;
-
-    const parsedAmount = parseFloat(solAmount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      showStatus("Invalid amount", true);
-      return;
-    }
-
     setLoading(true);
     try {
-      const [eventPda] = getEventPDA(publicKey, eventId);
-      const [yesMintPda] = getYesMintPDA(marketPda);
-      const [noMintPda] = getNoMintPDA(marketPda);
-      const [yesVaultPda] = getYesVaultPDA(marketPda);
-      const [noVaultPda] = getNoVaultPDA(marketPda);
-
-      const lamports = solToLamports(parsedAmount);
-
-      const instruction = createAddLiquidityInstruction(
-        publicKey,
-        eventPda,
-        marketPda,
-        yesMintPda,
-        noMintPda,
-        yesVaultPda,
-        noVaultPda,
-        lamports
-      );
-
+      const instruction = createStartEventInstruction(publicKey, eventPda);
       const transaction = new Transaction().add(instruction);
       const { blockhash } = await connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
@@ -389,10 +375,63 @@ export default function AdminPage() {
       const signature = await connection.sendRawTransaction(signed.serialize());
       await connection.confirmTransaction(signature, "confirmed");
 
-      showStatus(`✅ Added ${parsedAmount} SOL liquidity! TX: ${signature.slice(0, 12)}...`);
+      showStatus(`Event started! TX: ${signature.slice(0, 20)}...`);
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
-      console.error("Add liquidity error:", error);
+      showStatus(`Error: ${error.message}`, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEndEvent = async (eventId: BN, eventPda: PublicKey) => {
+    if (!publicKey || !window.solana) {
+      showStatus("Please connect your wallet", true);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const instruction = createEndEventInstruction(publicKey, eventPda);
+      const transaction = new Transaction().add(instruction);
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      const signed = await window.solana.signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signed.serialize());
+      await connection.confirmTransaction(signature, "confirmed");
+
+      showStatus(`Event ended! TX: ${signature.slice(0, 20)}...`);
+      setTimeout(() => loadEvents(), 2000);
+    } catch (error: any) {
+      showStatus(`Error: ${error.message}`, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFinalizeEvent = async (eventId: BN, eventPda: PublicKey) => {
+    if (!publicKey || !window.solana) {
+      showStatus("Please connect your wallet", true);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const instruction = createFinalizeEventInstruction(publicKey, eventPda);
+      const transaction = new Transaction().add(instruction);
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      const signed = await window.solana.signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signed.serialize());
+      await connection.confirmTransaction(signature, "confirmed");
+
+      showStatus(`Event finalized! TX: ${signature.slice(0, 20)}...`);
+      setTimeout(() => loadEvents(), 2000);
+    } catch (error: any) {
       showStatus(`Error: ${error.message}`, true);
     } finally {
       setLoading(false);
@@ -535,9 +574,33 @@ export default function AdminPage() {
                     Use a unique number (suggested: {Date.now()})
                   </p>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Start Time</label>
+                  <input
+                    type="datetime-local"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    When trading begins (must be in the future)
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">End Time</label>
+                  <input
+                    type="datetime-local"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    When trading closes (after start time)
+                  </p>
+                </div>
                 <button
                   onClick={handleCreateEvent}
-                  disabled={loading || !newEventId}
+                  disabled={loading || !newEventId || !startTime || !endTime}
                   className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   {loading ? "Creating..." : "Create Event"}
@@ -568,17 +631,7 @@ export default function AdminPage() {
                     placeholder="e.g., Mexico, Left, Taxes"
                     className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Fee (basis points)</label>
-                  <input
-                    type="number"
-                    value={newMarketFee}
-                    onChange={(e) => setNewMarketFee(e.target.value)}
-                    placeholder="100 = 1%"
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">100 basis points = 1%</p>
+                  <p className="text-xs text-gray-400 mt-1">Users will trade on YES/NO outcomes</p>
                 </div>
                 <button
                   onClick={handleCreateMarket}
@@ -608,10 +661,47 @@ export default function AdminPage() {
                       <p className="text-xs text-gray-400 font-mono">
                         {event.eventPda.toString().slice(0, 30)}...
                       </p>
+                      <p className="text-sm text-gray-300 mt-1">
+                        State: {getEventStateString(event.eventData.state)}
+                      </p>
                     </div>
-                    <span className="px-3 py-1 bg-green-500/20 text-green-300 rounded-full text-sm">
-                      Active
-                    </span>
+                    <div className="flex flex-col gap-2">
+                      <span className={`px-3 py-1 rounded-full text-sm ${
+                        'preMarket' in event.eventData.state ? 'bg-yellow-500/20 text-yellow-300' :
+                        'live' in event.eventData.state ? 'bg-green-500/20 text-green-300' :
+                        'ended' in event.eventData.state ? 'bg-orange-500/20 text-orange-300' :
+                        'bg-blue-500/20 text-blue-300'
+                      }`}>
+                        {getEventStateString(event.eventData.state)}
+                      </span>
+                      {'preMarket' in event.eventData.state && (
+                        <button
+                          onClick={() => handleStartEvent(event.eventId, event.eventPda)}
+                          disabled={loading}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs transition-all disabled:opacity-50"
+                        >
+                          Start Event
+                        </button>
+                      )}
+                      {'live' in event.eventData.state && (
+                        <button
+                          onClick={() => handleEndEvent(event.eventId, event.eventPda)}
+                          disabled={loading}
+                          className="px-3 py-1 bg-orange-600 hover:bg-orange-700 rounded text-xs transition-all disabled:opacity-50"
+                        >
+                          End Event
+                        </button>
+                      )}
+                      {'ended' in event.eventData.state && (
+                        <button
+                          onClick={() => handleFinalizeEvent(event.eventId, event.eventPda)}
+                          disabled={loading}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-all disabled:opacity-50"
+                        >
+                          Finalize
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {event.markets.length === 0 ? (
@@ -627,19 +717,12 @@ export default function AdminPage() {
                             <div>
                               <h4 className="font-semibold text-lg">"{market.word}"</h4>
                               <p className="text-xs text-gray-400">
-                                Fee: {market.marketData.feeBps}bp
+                                Market ID: {market.marketId.toString()}
                               </p>
                             </div>
                             <div className="flex gap-2">
                               {!market.marketData.resolved && (
                                 <>
-                                  <button
-                                    onClick={() => handleAddLiquidity(event.eventId, market.marketId, market.marketPda)}
-                                    disabled={loading}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-all disabled:opacity-50"
-                                  >
-                                    💧 Add Liquidity
-                                  </button>
                                   <button
                                     onClick={() => handleResolveMarket(event.eventId, market.marketId, market.marketPda, "yes")}
                                     disabled={loading}

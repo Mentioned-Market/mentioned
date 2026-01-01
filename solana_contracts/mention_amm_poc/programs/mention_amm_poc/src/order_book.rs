@@ -2,27 +2,48 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 
-declare_id!("F8EsP2rp6FBuaTfKQ8ywx4hqhM3YpcJr4HPkXHeGsZyJ");
+declare_id!("G11AaYPenVJw7MzbYLX6rp1USGhjRZwQ8eTgAu6G4pnk");
 
 #[program]
 pub mod mention_order_book {
     use super::*;
 
     /// Admin creates an event (e.g., "Trump Space Jan 15 2025")
-    pub fn initialize_event(ctx: Context<InitializeEvent>, event_id: u64) -> Result<()> {
+    pub fn initialize_event(
+        ctx: Context<InitializeEvent>, 
+        event_id: u64,
+        start_time: i64,
+        end_time: i64,
+    ) -> Result<()> {
+        require!(end_time > start_time, ErrorCode::InvalidTimeRange);
+        
+        let clock = Clock::get()?;
         let event = &mut ctx.accounts.event;
         event.admin = ctx.accounts.admin.key();
         event.event_id = event_id;
+        event.state = EventState::PreMarket;
+        event.start_time = start_time;
+        event.end_time = end_time;
+        event.created_at = clock.unix_timestamp;
         event.bump = ctx.bumps.event;
+        
+        msg!("Event {} created in PreMarket state", event_id);
         Ok(())
     }
 
     /// Admin creates a single market under an event
+    /// Can only be called when event is in PreMarket state
     pub fn initialize_market(
         ctx: Context<InitializeMarket>,
         market_id: u64,
         word_hash: [u8; 32],
     ) -> Result<()> {
+        // Only allow market creation in PreMarket state
+        require!(
+            ctx.accounts.event.state == EventState::PreMarket,
+            ErrorCode::InvalidEventState
+        );
+        
         let market = &mut ctx.accounts.market;
         market.event = ctx.accounts.event.key();
         market.market_id = market_id;
@@ -32,6 +53,8 @@ pub mod mention_order_book {
         market.winning_side = WinningSide::Unresolved;
         market.bump = ctx.bumps.market;
         market.next_order_id = 0;
+        
+        msg!("Market {} created for event in PreMarket state", market_id);
         Ok(())
     }
 
@@ -55,6 +78,51 @@ pub mod mention_order_book {
         // For Solana, this is typically done client-side with multiple transactions
         // Or you could create a simpler approach where markets are lazy-initialized
         
+        Ok(())
+    }
+
+    /// Admin transitions event from PreMarket to Live state
+    /// After this, no new markets can be added and trading begins
+    pub fn start_event(ctx: Context<UpdateEventState>) -> Result<()> {
+        let event = &mut ctx.accounts.event;
+        require!(event.state == EventState::PreMarket, ErrorCode::InvalidEventState);
+        
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp >= event.start_time,
+            ErrorCode::EventNotStarted
+        );
+        
+        event.state = EventState::Live;
+        msg!("Event {} transitioned to Live state", event.event_id);
+        Ok(())
+    }
+
+    /// Admin transitions event from Live to Ended state
+    /// After this, trading stops and admin can resolve markets
+    pub fn end_event(ctx: Context<UpdateEventState>) -> Result<()> {
+        let event = &mut ctx.accounts.event;
+        require!(event.state == EventState::Live, ErrorCode::InvalidEventState);
+        
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp >= event.end_time,
+            ErrorCode::EventNotEnded
+        );
+        
+        event.state = EventState::Ended;
+        msg!("Event {} transitioned to Ended state", event.event_id);
+        Ok(())
+    }
+
+    /// Admin marks event as fully resolved
+    /// Called after all markets are resolved
+    pub fn finalize_event(ctx: Context<UpdateEventState>) -> Result<()> {
+        let event = &mut ctx.accounts.event;
+        require!(event.state == EventState::Ended, ErrorCode::InvalidEventState);
+        
+        event.state = EventState::Resolved;
+        msg!("Event {} transitioned to Resolved state", event.event_id);
         Ok(())
     }
 
@@ -453,6 +521,10 @@ pub mod mention_order_book {
 pub struct Event {
     pub admin: Pubkey,
     pub event_id: u64,
+    pub state: EventState,
+    pub start_time: i64,    // Unix timestamp when event goes live
+    pub end_time: i64,      // Unix timestamp when event ends
+    pub created_at: i64,    // Unix timestamp of creation
     pub bump: u8,
 }
 
@@ -483,7 +555,7 @@ pub struct Order {
 }
 
 impl Event {
-    pub const SIZE: usize = 8 + 32 + 8 + 1;
+    pub const SIZE: usize = 8 + 32 + 8 + 1 + 8 + 8 + 8 + 1; // discriminator + admin + event_id + state + start_time + end_time + created_at + bump
 }
 
 impl Market {
@@ -492,6 +564,14 @@ impl Market {
 
 impl Order {
     pub const SIZE: usize = 8 + 8 + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 1 + 1;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+pub enum EventState {
+    PreMarket,  // Event created, markets can be added, no trading
+    Live,       // Trading active
+    Ended,      // Trading closed, awaiting resolution
+    Resolved,   // All markets resolved
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
@@ -531,6 +611,15 @@ pub struct InitializeEvent<'info> {
     pub event: Account<'info, Event>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateEventState<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(mut, has_one = admin)]
+    pub event: Account<'info, Event>,
 }
 
 #[derive(Accounts)]
@@ -875,5 +964,13 @@ pub enum ErrorCode {
     TooManyMarkets,
     #[msg("No markets provided for bulk creation.")]
     NoMarketsProvided,
+    #[msg("Invalid event state for this operation.")]
+    InvalidEventState,
+    #[msg("Invalid time range. End time must be after start time.")]
+    InvalidTimeRange,
+    #[msg("Event has not started yet.")]
+    EventNotStarted,
+    #[msg("Event has not ended yet.")]
+    EventNotEnded,
 }
 

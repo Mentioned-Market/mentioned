@@ -10,10 +10,10 @@ import {
   getEventPDA,
   getYesMintPDA,
   getNoMintPDA,
-  getYesVaultPDA,
-  getNoVaultPDA,
-  createBuyYesInstruction,
-  createBuyNoInstruction,
+  createMintSetInstruction,
+  createPlaceOrderInstruction,
+  getOrderPDA,
+  getOrderEscrowPDA,
   solToLamports,
 } from '@/lib/program'
 
@@ -61,9 +61,9 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
       return
     }
 
-    // SELL is not implemented yet
+    // For POC: Only implement BUY - this will mint a set and then place a limit order
     if (action === 'SELL') {
-      showStatus('SELL functionality coming soon!', true)
+      showStatus('SELL functionality: You can burn YES+NO tokens to get SOL back. Coming soon to UI!', true)
       return
     }
 
@@ -85,8 +85,6 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
       const [eventPda] = getEventPDA(adminPubkey, new BN(eventId))
       const [yesMintPda] = getYesMintPDA(marketData.marketPda)
       const [noMintPda] = getNoMintPDA(marketData.marketPda)
-      const [yesVaultPda] = getYesVaultPDA(marketData.marketPda)
-      const [noVaultPda] = getNoVaultPDA(marketData.marketPda)
 
       // Get or create user's token accounts
       const userYesAta = await getAssociatedTokenAddress(yesMintPda, publicKey)
@@ -122,39 +120,45 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
         transaction.add(createNoAtaIx)
       }
 
-      // 5% slippage tolerance
-      const minOut = lamports.mul(new BN(95)).div(new BN(100))
+      // STEP 1: Mint a set (YES + NO tokens) by depositing SOL
+      // This gives the user equal YES and NO tokens
+      console.log('📝 Minting set of YES+NO tokens...')
+      const mintSetIx = createMintSetInstruction(
+        publicKey,
+        eventPda,
+        marketData.marketPda,
+        yesMintPda,
+        noMintPda,
+        userYesAta,
+        userNoAta,
+        lamports
+      )
+      transaction.add(mintSetIx)
 
-      // Create buy instruction
-      const buyIx = side === 'YES'
-        ? createBuyYesInstruction(
-            publicKey,
-            eventPda,
-            marketData.marketPda,
-            yesMintPda,
-            noMintPda,
-            yesVaultPda,
-            noVaultPda,
-            userYesAta,
-            userNoAta,
-            lamports,
-            minOut
-          )
-        : createBuyNoInstruction(
-            publicKey,
-            eventPda,
-            marketData.marketPda,
-            yesMintPda,
-            noMintPda,
-            yesVaultPda,
-            noVaultPda,
-            userYesAta,
-            userNoAta,
-            lamports,
-            minOut
-          )
-
-      transaction.add(buyIx)
+      // STEP 2: For POC, skip placing order - just mint the set
+      // In production, you'd place a limit order here with the tokens you want to sell
+      // For example: if buying YES, you'd sell the NO tokens on the order book
+      
+      // TODO: Add order placement logic
+      // const nextOrderId = new BN(marketData.marketData.nextOrderId)
+      // const [orderPda] = getOrderPDA(marketData.marketPda, nextOrderId)
+      // const [orderEscrowPda] = getOrderEscrowPDA(orderPda)
+      // 
+      // const placeOrderIx = createPlaceOrderInstruction(
+      //   publicKey,
+      //   marketData.marketPda,
+      //   orderPda,
+      //   yesMintPda,
+      //   noMintPda,
+      //   userYesAta,
+      //   userNoAta,
+      //   orderEscrowPda,
+      //   'sell', // Sell the opposite token
+      //   side === 'YES' ? 'no' : 'yes',
+      //   new BN(currentPrice * 1_000_000), // Price in basis points
+      //   lamports // Size
+      // )
+      // transaction.add(placeOrderIx)
 
       // Send transaction
       const { blockhash } = await connection.getLatestBlockhash()
@@ -168,7 +172,7 @@ export default function TradingInterface({ marketData, eventId }: TradingInterfa
       console.log('⏳ Confirming transaction...')
       await connection.confirmTransaction(signature, 'confirmed')
 
-      showStatus(`✅ Bought ${estimatedShares} ${side} shares! TX: ${signature.slice(0, 12)}...`)
+      showStatus(`✅ Minted ${(parseFloat(solAmount) * 1_000_000_000).toFixed(0)} YES+NO tokens! TX: ${signature.slice(0, 12)}...`)
       setSolAmount('')
       
       // Refresh page after 2s
