@@ -1,18 +1,27 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'next/navigation'
-import { Connection, PublicKey } from '@solana/web3.js'
+import { Connection, PublicKey, Transaction } from '@solana/web3.js'
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import BN from 'bn.js'
 import Header from '@/components/Header'
 import CountdownTimer from '@/components/CountdownTimer'
-import TradingChart from '@/components/TradingChart'
-import WordList from '@/components/WordList'
-import TradingInterface from '@/components/TradingInterface'
-import ResolveRules from '@/components/ResolveRules'
-import QuickBuy from '@/components/QuickBuy'
 import { useWallet } from '@/contexts/WalletContext'
-import { fetchEventMarkets, DEVNET_RPC, PROGRAM_ID } from '@/lib/program'
+import { 
+  fetchEventMarkets, 
+  DEVNET_RPC, 
+  createMintSetInstruction,
+  getYesMintPDA,
+  getNoMintPDA
+} from '@/lib/program'
+
+interface Word {
+  word: string
+  yesPrice: string
+  noPrice: string
+  volume: number
+}
 
 interface MarketData {
   marketPda: PublicKey
@@ -25,61 +34,41 @@ interface MarketData {
   noBalance: number
 }
 
-interface ChatMessage {
-  id: string
-  username: string
-  message: string
-  timestamp: Date
-}
-
-interface DataPoint {
-  timestamp: number
-  price: number
-}
-
-export default function EventMarketPage() {
+export default function TrumpSpeechNormal() {
   const params = useParams()
   const eventId = params.id as string
   
-  const [connection] = useState(() => new Connection(DEVNET_RPC, "confirmed"))
-  const [markets, setMarkets] = useState<MarketData[]>([])
+  const { connected, publicKey } = useWallet()
+  const [selectedWord, setSelectedWord] = useState('')
+  const [amount, setAmount] = useState('')
+  const [activeTab, setActiveTab] = useState<'trading' | 'stream'>('trading')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [markets, setMarkets] = useState<MarketData[]>([])
+  const [connection] = useState(() => new Connection(DEVNET_RPC, "confirmed"))
+  const [tradeLoading, setTradeLoading] = useState(false)
+  const [successMessage, setSuccessMessage] = useState("")
+  const [errorMessage, setErrorMessage] = useState("")
   
-  const [activeTab, setActiveTab] = useState<'trading' | 'stream'>('trading')
-  const [selectedWord, setSelectedWord] = useState<string>("")
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatInput, setChatInput] = useState('')
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const { publicKey, connected } = useWallet()
-
-  // Hardcoded admin public key for Event 1
-  // TODO: Make this dynamic or fetch from somewhere
-  const ADMIN_PUBKEY = new PublicKey("AmMusRD99A7CnHNhNziN4f2Fm6V9D4NW1soH4rUn8t7S")
-
-  // Event metadata
-  const eventTitle = "TRUMP'S SPEECH"
-  const eventTime = new Date(Date.now() + 2 * 60 * 60 * 1000) // 2 hours from now
-  const streamUrl = 'https://www.youtube.com/embed/dQw4w9WgXcQ'
-  const resolveRules = [
-    {
-      outcome: 'YES' as const,
-      description: 'The word must be spoken clearly and audibly by Trump during the main speech. Variations (e.g., "immigrant" for "immigration") will be evaluated case-by-case. Introduction and closing remarks are included.'
-    },
-    {
-      outcome: 'NO' as const,
-      description: 'The word is NOT spoken during the main speech period, OR is only mentioned by other speakers, OR is only present in background materials/slides but not verbally stated by Trump.'
+  const market = useMemo(() => {
+    const now = Date.now()
+    return {
+      title: "TRUMP'S SPEECH",
+      eventTime: new Date(now + 2 * 60 * 60 * 1000),
+      streamUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+      imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCPwsL0smxRVROhCkwShqqarIa-4xnAdVdAomChQJ_T5mRI0s77w-xoaIXYP2m8tRl-uEGpY2db-WBf6yZIfORA6Azp8_G7mOSTRPFRKHgyuo-4Ltlj_aMHH0t0PkSvdDO95rJOZpBgoS7jAKqkQ_7C86iSDgLJC9vDfV4YSshAaEhuIv2qI0WDcGs0VSLKNYTrz72KduCuH-fH8XBkROiM1zDK2dJlV6R0sCiMjP_Y3Ml19Uglhnihkb8ZD1prCuWa0i_wip0TXSI',
     }
-  ]
+  }, [])
 
-  // Load markets from localStorage registry
+  // Load markets from contract
   useEffect(() => {
     const loadMarkets = async () => {
+      if (!eventId) return
+      
       setLoading(true)
       setError("")
       
       try {
-        // Get market registry from localStorage
         const registryStr = localStorage.getItem("marketRegistry")
         if (!registryStr) {
           setError("No markets found. Create markets in the admin panel first!")
@@ -88,65 +77,45 @@ export default function EventMarketPage() {
         }
 
         const registry = JSON.parse(registryStr)
-        console.log("Full registry:", registry)
-        
         const eventData = registry[eventId]
-        console.log(`Event data for event ${eventId}:`, eventData)
         
-        // Support both old array format and new {admin, markets} format
         let adminPubkey: PublicKey
         let eventMarkets: any[]
         
         if (Array.isArray(eventData)) {
-          // Old format: just array of markets
-          console.warn("Using old localStorage format, defaulting to hardcoded admin pubkey")
           adminPubkey = new PublicKey("AmMusRD99A7CnHNhNziN4f2Fm6V9D4NW1soH4rUn8t7S")
           eventMarkets = eventData
         } else if (eventData && eventData.markets) {
-          // New format: {admin, markets}
           adminPubkey = new PublicKey(eventData.admin)
           eventMarkets = eventData.markets
-          console.log("Using admin pubkey from registry:", adminPubkey.toString())
         } else {
-          setError(`No markets found for Event ${eventId}. Registry has events: ${Object.keys(registry).join(', ')}`)
+          setError(`No markets found for Event ${eventId}`)
           setLoading(false)
           return
         }
         
         if (!eventMarkets || eventMarkets.length === 0) {
-          setError(`No markets found for Event ${eventId}. Registry has events: ${Object.keys(registry).join(', ')}`)
+          setError(`No markets found for Event ${eventId}`)
           setLoading(false)
           return
         }
 
-        console.log("Loading markets:", eventMarkets)
+        const fetchedMarkets = await fetchEventMarkets(
+          connection,
+          adminPubkey,
+          new BN(eventId),
+          eventMarkets
+        )
 
-        // Fetch market data from chain
-        try {
-          const fetchedMarkets = await fetchEventMarkets(
-            connection,
-            adminPubkey,
-            new BN(eventId),
-            eventMarkets
-          )
-
-          console.log("Fetched markets with prices:", fetchedMarkets)
-
-          if (fetchedMarkets.length === 0) {
-            setError("Markets exist but failed to load data from chain. Check console for details.")
-            setLoading(false)
-            return
-          }
-
-          setMarkets(fetchedMarkets)
-          if (fetchedMarkets.length > 0) {
-            setSelectedWord(fetchedMarkets[0].word)
-          }
-        } catch (fetchError: any) {
-          console.error("Error fetching from chain:", fetchError)
-          setError(`Chain fetch error: ${fetchError.message}`)
+        if (fetchedMarkets.length === 0) {
+          setError("Markets exist but failed to load data from chain.")
           setLoading(false)
           return
+        }
+
+        setMarkets(fetchedMarkets)
+        if (fetchedMarkets.length > 0 && !selectedWord) {
+          setSelectedWord(fetchedMarkets[0].word)
         }
       } catch (err: any) {
         console.error("Error loading markets:", err)
@@ -156,109 +125,80 @@ export default function EventMarketPage() {
       }
     }
 
-    if (eventId) {
-      loadMarkets()
-      
-      // Refresh every 30 seconds
-      const interval = setInterval(loadMarkets, 30000)
-      return () => clearInterval(interval)
-    }
-  }, [eventId, connection])
-
-  // Generate simulated historical data for the selected word
-  const generateHistoricalData = (currentPrice: number): DataPoint[] => {
-    const data: DataPoint[] = []
-    const now = Date.now()
-    const startPrice = Math.max(0.1, currentPrice - 0.15) // Start lower
-    const endPrice = currentPrice
-    
-    // Generate 50 data points over 24 hours
-    for (let i = 0; i < 50; i++) {
-      const timestamp = now - (24 * 60 * 60 * 1000) * (1 - i / 49)
-      const progress = i / 49
-      // Add some randomness to make it look realistic
-      const volatility = (Math.random() - 0.5) * 0.05
-      const price = startPrice + (endPrice - startPrice) * progress + volatility
-      data.push({ timestamp, price: Math.max(0.01, Math.min(0.99, price)) })
-    }
-    
-    return data
-  }
+    loadMarkets()
+  }, [eventId, connection, selectedWord])
 
   const selectedMarket = markets.find(m => m.word === selectedWord)
-  const historicalData = selectedMarket ? generateHistoricalData(selectedMarket.yesPrice) : []
-
-  // Convert markets to Word format for WordList component
-  const words = markets.map(m => ({
+  const words: Word[] = markets.map(m => ({
     word: m.word,
     yesPrice: m.yesPrice.toFixed(2),
     noPrice: m.noPrice.toFixed(2),
-    volume: Math.floor(m.totalLiquidity / 1_000_000_000 * 100000), // Convert to display volume
+    volume: Math.floor(m.totalLiquidity / 1_000_000_000 * 100000),
   }))
 
-  const getUsername = () => {
-    if (!connected || !publicKey) return 'Anonymous'
-    const address = publicKey.toString()
-    return `${address.slice(0, 4)}...${address.slice(-4)}`
-  }
+  const selectedWordData = words.find(w => w.word === selectedWord) || (words.length > 0 ? words[0] : {
+    word: 'LOADING',
+    yesPrice: '0.50',
+    noPrice: '0.50',
+    volume: 0
+  })
 
-  useEffect(() => {
-    // Add some initial mock messages
-    const initialMessages: ChatMessage[] = [
-      { id: '1', username: 'CryptoTrader', message: 'These markets are live on-chain!', timestamp: new Date(Date.now() - 120000) },
-      { id: '2', username: 'SolanaMaxi', message: 'Prices update based on real liquidity', timestamp: new Date(Date.now() - 90000) },
-      { id: '3', username: 'DeFiDegen', message: 'Trading coming soon!', timestamp: new Date(Date.now() - 60000) },
-    ]
-    setChatMessages(initialMessages)
+  const estimatedYesCost = amount ? (parseFloat(amount) * parseFloat(selectedWordData.yesPrice)).toFixed(2) : '0.00'
+  const estimatedNoCost = amount ? (parseFloat(amount) * parseFloat(selectedWordData.noPrice)).toFixed(2) : '0.00'
+  const yesShares = amount ? parseFloat(amount).toFixed(0) : '0'
+  const noShares = amount ? parseFloat(amount).toFixed(0) : '0'
 
-    // Simulate new messages every 20 seconds
-    const interval = setInterval(() => {
-      const mockUsers = ['CryptoTrader', 'SolanaMaxi', 'DeFiDegen', 'MoonBoy', 'WhaleAlert']
-      const mockMessages = [
-        'Looking good!',
-        'Prices are moving',
-        'More liquidity needed',
-        'WAGMI',
-        'To the moon!',
-      ]
-      const randomUser = mockUsers[Math.floor(Math.random() * mockUsers.length)]
-      const randomMessage = mockMessages[Math.floor(Math.random() * mockMessages.length)]
-      
-      setChatMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        username: randomUser,
-        message: randomMessage,
-        timestamp: new Date(),
-      }])
-    }, 20000)
+  const handleBuy = async (side: 'YES' | 'NO') => {
+    if (!connected || !publicKey || !window.solana || !selectedMarket) {
+      setErrorMessage("Please connect your wallet first")
+      return
+    }
 
-    return () => clearInterval(interval)
-  }, [])
+    if (!amount || parseFloat(amount) <= 0) {
+      setErrorMessage("Please enter a valid amount")
+      return
+    }
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages])
+    setTradeLoading(true)
+    setSuccessMessage("")
+    setErrorMessage("")
 
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!chatInput.trim()) return
+    try {
+      const amountNum = parseFloat(amount)
+      const size = Math.floor(amountNum * 1_000_000_000) // Convert to lamports
 
-    setChatMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      username: getUsername(),
-      message: chatInput,
-      timestamp: new Date(),
-    }])
-    setChatInput('')
+      // Mint a set of YES+NO tokens
+      const mintSetIx = createMintSetInstruction(
+        publicKey,
+        selectedMarket.marketPda,
+        size
+      )
+
+      const transaction = new Transaction().add(mintSetIx)
+      transaction.feePayer = publicKey
+      const { blockhash } = await connection.getLatestBlockhash()
+      transaction.recentBlockhash = blockhash
+
+      const signed = await window.solana.signTransaction(transaction)
+      const txid = await connection.sendRawTransaction(signed.serialize())
+      await connection.confirmTransaction(txid, 'confirmed')
+
+      setSuccessMessage(`✅ Successfully bought ${amountNum} ${side} tokens!`)
+      setAmount('')
+    } catch (err: any) {
+      console.error("Trade error:", err)
+      setErrorMessage(`❌ Error: ${err.message || err.toString()}`)
+    } finally {
+      setTradeLoading(false)
+    }
   }
 
   if (loading) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center bg-black">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">
           <div className="mb-4 text-6xl">⏳</div>
-          <h2 className="text-2xl font-bold text-white">Loading Markets...</h2>
-          <p className="text-gray-400 mt-2">Fetching on-chain data</p>
+          <h2 className="text-2xl font-bold">Loading Markets...</h2>
         </div>
       </div>
     )
@@ -266,15 +206,12 @@ export default function EventMarketPage() {
 
   if (error) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center bg-black">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center max-w-md">
           <div className="mb-4 text-6xl">❌</div>
-          <h2 className="text-2xl font-bold text-white mb-4">Error Loading Markets</h2>
+          <h2 className="text-2xl font-bold mb-4">Error Loading Markets</h2>
           <p className="text-gray-400 mb-6">{error}</p>
-          <a
-            href="/admin"
-            className="inline-block px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-all"
-          >
+          <a href="/admin" className="inline-block px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold">
             Go to Admin Panel
           </a>
         </div>
@@ -282,215 +219,188 @@ export default function EventMarketPage() {
     )
   }
 
-  if (markets.length === 0) {
-    return (
-      <div className="relative flex h-screen w-full items-center justify-center bg-black">
-        <div className="text-center max-w-md">
-          <div className="mb-4 text-6xl">📊</div>
-          <h2 className="text-2xl font-bold text-white mb-4">No Markets Yet</h2>
-          <p className="text-gray-400 mb-6">Create markets for Event {eventId} in the admin panel</p>
-          <a
-            href="/admin"
-            className="inline-block px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-all"
-          >
-            Create Markets
-          </a>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
-      <div className="layout-container flex h-full grow flex-col">
-        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
-          <div className="layout-content-container flex flex-col w-full max-w-[1800px] flex-1">
-            <Header />
-            
-            <main className="flex-1 py-5">
-              {/* Market Header with Tabs */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex-1">
-                    <h1 className="text-4xl md:text-6xl font-bold uppercase text-white">{eventTitle}</h1>
-                    <p className="text-sm text-gray-400 mt-2">
-                      Event #{eventId} • {markets.length} Markets • Program: {PROGRAM_ID.toString().slice(0, 20)}...
-                    </p>
-                  </div>
-                  
-                  {/* Tabs - Top Right */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setActiveTab('trading')}
-                      className={`px-6 py-3 font-bold text-sm uppercase transition-all rounded ${
-                        activeTab === 'trading'
-                          ? 'bg-white text-black'
-                          : 'bg-[#1a1a1a] text-white hover:bg-[#252525]'
-                      }`}
-                    >
-                      TRADING
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('stream')}
-                      className={`px-6 py-3 font-bold text-sm uppercase transition-all rounded ${
-                        activeTab === 'stream'
-                          ? 'bg-white text-black'
-                          : 'bg-[#1a1a1a] text-white hover:bg-[#252525]'
-                      }`}
-                    >
-                      STREAM
-                    </button>
+    <div className="min-h-screen bg-black text-white">
+      <div className="px-4 md:px-10 lg:px-20">
+        <Header />
+        
+        <main className="py-8 max-w-7xl mx-auto">
+          {/* Header with Tabs */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h1 className="text-6xl md:text-8xl font-bold uppercase mb-4">
+                  {market.title}
+                </h1>
+                <div className="flex items-center gap-6 text-2xl">
+                  <span className="text-white/70">LIVE IN:</span>
+                  <div className="bg-red-600/80 px-6 py-2 rounded-lg">
+                    <CountdownTimer targetTime={market.eventTime} />
                   </div>
                 </div>
-                <div className="flex items-center gap-6 text-xl">
-                  <span className="text-white/70">ENDS IN:</span>
-                  <CountdownTimer targetTime={eventTime} />
+              </div>
+              
+              {/* Tabs */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setActiveTab('trading')}
+                  className={`px-6 py-3 font-bold text-sm uppercase transition-all rounded ${
+                    activeTab === 'trading'
+                      ? 'bg-white text-black'
+                      : 'bg-[#1a1a1a] text-white hover:bg-[#252525]'
+                  }`}
+                >
+                  TRADING
+                </button>
+                <button
+                  onClick={() => setActiveTab('stream')}
+                  className={`px-6 py-3 font-bold text-sm uppercase transition-all rounded ${
+                    activeTab === 'stream'
+                      ? 'bg-white text-black'
+                      : 'bg-[#1a1a1a] text-white hover:bg-[#252525]'
+                  }`}
+                >
+                  STREAM
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Trading Tab */}
+          {activeTab === 'trading' && (
+            <>
+              {/* Trading Section */}
+              <div className="bg-[#161616] rounded-3xl p-8 border border-[#2a2a2a] mb-8">
+                <h2 className="text-4xl font-bold mb-6 text-center">
+                  TRADE "{selectedWordData.word}"
+                </h2>
+                
+                <div className="max-w-2xl mx-auto space-y-6">
+                  {/* Amount Input */}
+                  <div>
+                    <label className="text-white/70 text-lg block mb-3">HOW MANY SHARES?</label>
+                    <input
+                      type="number"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      placeholder="Enter amount..."
+                      className="w-full h-16 bg-black/50 border-2 border-white/30 rounded-xl text-white text-2xl px-6 focus:outline-none focus:border-white"
+                      min="0"
+                      step="1"
+                    />
+                  </div>
+
+                  {/* Buy Buttons */}
+                  <div className="grid grid-cols-2 gap-6">
+                    <button
+                      onClick={() => handleBuy('YES')}
+                      disabled={!amount || parseFloat(amount) <= 0 || !connected || tradeLoading}
+                      className="h-32 bg-green-600 hover:bg-green-700 text-white font-bold text-2xl uppercase rounded-2xl transition-all transform hover:scale-105 shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    >
+                      <div>{tradeLoading ? 'PROCESSING...' : 'BUY YES'}</div>
+                      <div className="text-3xl mt-2">${selectedWordData.yesPrice}</div>
+                      {amount && parseFloat(amount) > 0 && (
+                        <div className="text-base mt-2">
+                          <div>Cost: ${estimatedYesCost}</div>
+                          <div className="text-sm opacity-80">Payout: ${yesShares} if YES</div>
+                        </div>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleBuy('NO')}
+                      disabled={!amount || parseFloat(amount) <= 0 || !connected || tradeLoading}
+                      className="h-32 bg-red-600 hover:bg-red-700 text-white font-bold text-2xl uppercase rounded-2xl transition-all transform hover:scale-105 shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    >
+                      <div>{tradeLoading ? 'PROCESSING...' : 'BUY NO'}</div>
+                      <div className="text-3xl mt-2">${selectedWordData.noPrice}</div>
+                      {amount && parseFloat(amount) > 0 && (
+                        <div className="text-base mt-2">
+                          <div>Cost: ${estimatedNoCost}</div>
+                          <div className="text-sm opacity-80">Payout: ${noShares} if NO</div>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+
+                  {!connected && (
+                    <div className="text-center text-yellow-400 text-lg font-bold">
+                      ⚠️ Connect your wallet to trade!
+                    </div>
+                  )}
+
+                  {successMessage && (
+                    <div className="text-center text-green-400 text-lg font-bold">
+                      {successMessage}
+                    </div>
+                  )}
+
+                  {errorMessage && (
+                    <div className="text-center text-red-400 text-lg font-bold">
+                      {errorMessage}
+                    </div>
+                  )}
+
+                  {/* Quick Stats */}
+                  <div className="grid grid-cols-3 gap-4 pt-6">
+                    <div className="bg-black/30 rounded-xl p-4 text-center">
+                      <div className="text-white/50 text-sm">VOLUME</div>
+                      <div className="text-2xl font-bold">${(selectedWordData.volume / 1000).toFixed(0)}K</div>
+                    </div>
+                    <div className="bg-black/30 rounded-xl p-4 text-center">
+                      <div className="text-white/50 text-sm">YES PRICE</div>
+                      <div className="text-2xl font-bold text-green-400">${selectedWordData.yesPrice}</div>
+                    </div>
+                    <div className="bg-black/30 rounded-xl p-4 text-center">
+                      <div className="text-white/50 text-sm">NO PRICE</div>
+                      <div className="text-2xl font-bold text-red-400">${selectedWordData.noPrice}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Trading Tab */}
-              {activeTab === 'trading' && (
-                <div className="space-y-6">
-                  {/* Top Section - Chart and Trading Interface */}
-                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-                    {/* Left side - Price Chart */}
-                    <div className="lg:col-span-3">
-                      <div className="bg-black h-full">
-                        <div className="border-b border-white/30 p-3">
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-white font-bold text-lg uppercase">
-                              {selectedWord} - PRICE HISTORY
-                            </h3>
-                            <div className="text-white font-bold text-xl">
-                              ${selectedMarket ? selectedMarket.yesPrice.toFixed(2) : '0.00'}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="h-[450px] p-4">
-                          {selectedMarket && (
-                            <TradingChart
-                              word={selectedWord}
-                              data={historicalData}
-                              currentPrice={selectedMarket.yesPrice}
-                            />
-                          )}
-                        </div>
+              {/* Words Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                {words.map((word) => (
+                  <button
+                    key={word.word}
+                    onClick={() => setSelectedWord(word.word)}
+                    className={`p-6 rounded-2xl transition-all transform hover:scale-105 ${
+                      selectedWord === word.word
+                        ? 'bg-white text-black shadow-2xl scale-105'
+                        : 'bg-[#1a1a1a] border-2 border-white/20 hover:border-white/50'
+                    }`}
+                  >
+                    <div className="text-center">
+                      <div className="text-2xl font-bold mb-3">{word.word}</div>
+                      <div className="flex justify-center gap-2 text-sm">
+                        <span className={`font-bold ${selectedWord === word.word ? 'text-green-600' : 'text-green-400'}`}>
+                          ${word.yesPrice}
+                        </span>
+                        <span className={`font-bold ${selectedWord === word.word ? 'text-red-600' : 'text-red-400'}`}>
+                          ${word.noPrice}
+                        </span>
                       </div>
                     </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
-                    {/* Right side - Trading Interface */}
-                    <div className="lg:col-span-1">
-                      {selectedMarket && (
-                        <TradingInterface
-                          marketData={selectedMarket}
-                          eventId={eventId}
-                        />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Word List - Horizontal Scroll */}
-                  <WordList
-                    words={words}
-                    selectedWord={selectedWord}
-                    onSelectWord={setSelectedWord}
-                  />
-
-                  {/* Liquidity Info */}
-                  <div className="bg-[#1a1a1a] rounded-lg p-6 border border-white/10">
-                    <h3 className="text-xl font-bold mb-4 text-white">💧 Market Liquidity</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {markets.map((market) => (
-                        <div key={market.word} className="bg-black/50 rounded-lg p-4">
-                          <h4 className="font-bold text-white mb-2">{market.word}</h4>
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">Liquidity:</span>
-                              <span className="text-white">{(market.totalLiquidity / 1_000_000_000).toFixed(2)} SOL</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">YES Pool:</span>
-                              <span className="text-green-400">{(market.yesBalance / 1_000_000_000).toFixed(4)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">NO Pool:</span>
-                              <span className="text-red-400">{(market.noBalance / 1_000_000_000).toFixed(4)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Resolve Rules */}
-                  <ResolveRules
-                    title={eventTitle}
-                    rules={resolveRules}
-                  />
-                </div>
-              )}
-
-              {/* Stream Tab */}
-              {activeTab === 'stream' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    {/* Stream Embed */}
-                    <div className="lg:col-span-2 bg-[#1a1a1a] rounded-lg overflow-hidden">
-                      <div className="aspect-video bg-black relative">
-                        <iframe
-                          src={streamUrl}
-                          className="w-full h-full"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      </div>
-                    </div>
-
-                    {/* Chat */}
-                    <div className="lg:col-span-1 bg-[#1a1a1a] rounded-lg flex flex-col h-[600px]">
-                      <div className="border-b border-white/20 p-4">
-                        <h3 className="text-white font-bold text-xl uppercase">CHAT</h3>
-                      </div>
-                      
-                      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {chatMessages.map((msg) => (
-                          <div key={msg.id} className="text-sm">
-                            <span className="text-white/70">{msg.username}:</span>
-                            <span className="text-white ml-2">{msg.message}</span>
-                          </div>
-                        ))}
-                        <div ref={chatEndRef} />
-                      </div>
-
-                      <form onSubmit={handleSendMessage} className="border-t border-white/20 p-4">
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            placeholder={connected ? "Type a message..." : "Connect wallet to chat"}
-                            disabled={!connected}
-                            className="flex-1 bg-black border-2 border-white/30 rounded text-white text-sm px-4 py-2 focus:outline-none focus:border-white disabled:opacity-50 disabled:cursor-not-allowed"
-                          />
-                          <button
-                            type="submit"
-                            disabled={!connected || !chatInput.trim()}
-                            className="px-6 py-2 bg-white text-black font-bold uppercase rounded hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            SEND
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
-
-                  {/* Quick Buy Section */}
-                  <QuickBuy words={words} />
-                </div>
-              )}
-            </main>
-          </div>
-        </div>
+          {/* Stream Tab */}
+          {activeTab === 'stream' && (
+            <div className="bg-[#1a1a1a] rounded-3xl overflow-hidden">
+              <div className="aspect-video bg-black">
+                <iframe
+                  src={market.streamUrl}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   )

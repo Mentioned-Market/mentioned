@@ -365,20 +365,128 @@ export default function AdminPage() {
 
     setLoading(true);
     try {
+      // First, fetch the event data to check start time
+      const eventData = await fetchEventAccount(connection, eventPda);
+      if (!eventData) {
+        showStatus("Event not found!", true);
+        setLoading(false);
+        return;
+      }
+
+      const currentTime = Math.floor(Date.now() / 1000);
+      const startTime = eventData.startTime.toNumber();
+      
+      // Check if start time has been reached
+      if (currentTime < startTime) {
+        const startDate = new Date(startTime * 1000);
+        const currentDate = new Date(currentTime * 1000);
+        const timeUntilStart = startTime - currentTime;
+        const hoursUntil = Math.floor(timeUntilStart / 3600);
+        const minutesUntil = Math.floor((timeUntilStart % 3600) / 60);
+        
+        showStatus(
+          `⏰ Event cannot start yet. Start time: ${startDate.toLocaleString()}. Current time: ${currentDate.toLocaleString()}. ${hoursUntil > 0 ? `${hoursUntil}h ` : ''}${minutesUntil}m remaining.`,
+          true
+        );
+        setLoading(false);
+        return;
+      }
+
       const instruction = createStartEventInstruction(publicKey, eventPda);
       const transaction = new Transaction().add(instruction);
       const { blockhash } = await connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
+      // Simulate transaction first to catch errors before signing
+      console.log("🔍 Simulating start event transaction...");
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        console.log("Simulation result:", simulation);
+        
+        if (simulation.value.err) {
+          console.error("❌ Simulation failed:", simulation.value.err);
+          console.error("📋 Simulation logs:", simulation.value.logs);
+          
+          // Extract error details
+          let errorMessage = "Transaction simulation failed";
+          if (simulation.value.logs) {
+            const logs = simulation.value.logs.join('\n');
+            if (logs.includes("InstructionFallbackNotFound")) {
+              errorMessage = "Instruction not found. The program may have been updated. Please refresh and try again.";
+            } else if (logs.includes("InvalidEventState")) {
+              errorMessage = "Event is not in PreMarket state. Cannot start event.";
+            } else if (logs.includes("EventNotStarted")) {
+              const startDate = new Date(startTime * 1000);
+              const currentDate = new Date(currentTime * 1000);
+              errorMessage = `Event start time has not been reached yet. Start time: ${startDate.toLocaleString()}, Current time: ${currentDate.toLocaleString()}`;
+            } else {
+              errorMessage = `Simulation failed: ${logs}`;
+            }
+          }
+          
+          throw new Error(errorMessage);
+        }
+        console.log("✅ Simulation succeeded!");
+      } catch (simError: any) {
+        console.error("Simulation error:", simError);
+        throw new Error(`Pre-flight check failed: ${simError.message}`);
+      }
+
       const signed = await window.solana.signTransaction(transaction);
       const signature = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction(signature, "confirmed");
+      
+      console.log("✅ Transaction sent:", signature);
+      console.log("⏳ Waiting for confirmation...");
+      
+      const confirmation = await connection.confirmTransaction(signature, "confirmed");
+      
+      if (confirmation.value.err) {
+        // Get detailed error logs
+        const txDetails = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0
+        });
+        console.error("❌ Transaction logs:", txDetails?.meta?.logMessages);
+        
+        let errorMessage = "Transaction failed";
+        if (txDetails?.meta?.logMessages) {
+          const logs = txDetails.meta.logMessages.join('\n');
+          if (logs.includes("InstructionFallbackNotFound")) {
+            errorMessage = "Instruction not found. The program may have been updated.";
+          } else if (logs.includes("InvalidEventState")) {
+            errorMessage = "Event is not in PreMarket state. Cannot start event.";
+          } else if (logs.includes("EventNotStarted")) {
+            const startDate = new Date(startTime * 1000);
+            const currentDate = new Date(currentTime * 1000);
+            errorMessage = `Event start time has not been reached yet. Start time: ${startDate.toLocaleString()}, Current time: ${currentDate.toLocaleString()}`;
+          } else {
+            errorMessage = `Transaction failed: ${logs}`;
+          }
+        }
+        
+        throw new Error(errorMessage);
+      }
 
-      showStatus(`Event started! TX: ${signature.slice(0, 20)}...`);
+      showStatus(`✅ Event started! TX: ${signature.slice(0, 20)}...`);
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
-      showStatus(`Error: ${error.message}`, true);
+      console.error("Full error:", error);
+      
+      // Handle SendTransactionError and other error types
+      let errorMessage = error.message || "Unknown error occurred";
+      
+      // Check for common Solana error patterns
+      if (error.message?.includes("SendTransactionError") || error.message?.includes("simulation failed")) {
+        errorMessage = error.message;
+      } else if (error.message?.includes("User rejected")) {
+        errorMessage = "Transaction was cancelled by user.";
+      } else if (error.message?.includes("insufficient funds")) {
+        errorMessage = "Insufficient SOL balance. Please add more SOL to your wallet.";
+      } else if (error.message?.includes("0x65") || error.message?.includes("InstructionFallbackNotFound")) {
+        errorMessage = "Instruction not found (0x65). The program may have been updated. Please refresh the page and try again.";
+      }
+      
+      showStatus(`❌ ${errorMessage}`, true);
     } finally {
       setLoading(false);
     }
@@ -398,14 +506,45 @@ export default function AdminPage() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
+      // Simulate transaction first
+      console.log("🔍 Simulating end event transaction...");
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        if (simulation.value.err) {
+          const logs = simulation.value.logs?.join('\n') || '';
+          let errorMessage = "Transaction simulation failed";
+          if (logs.includes("InvalidEventState")) {
+            errorMessage = "Event is not in Live state. Cannot end event.";
+          } else if (logs.includes("EventNotEnded")) {
+            errorMessage = "Event end time has not been reached yet.";
+          }
+          throw new Error(errorMessage);
+        }
+      } catch (simError: any) {
+        throw new Error(`Pre-flight check failed: ${simError.message}`);
+      }
+
       const signed = await window.solana.signTransaction(transaction);
       const signature = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction(signature, "confirmed");
+      const confirmation = await connection.confirmTransaction(signature, "confirmed");
 
-      showStatus(`Event ended! TX: ${signature.slice(0, 20)}...`);
+      if (confirmation.value.err) {
+        const txDetails = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0
+        });
+        const logs = txDetails?.meta?.logMessages?.join('\n') || '';
+        throw new Error(`Transaction failed: ${logs || JSON.stringify(confirmation.value.err)}`);
+      }
+
+      showStatus(`✅ Event ended! TX: ${signature.slice(0, 20)}...`);
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
-      showStatus(`Error: ${error.message}`, true);
+      console.error("Full error:", error);
+      let errorMessage = error.message || "Unknown error occurred";
+      if (error.message?.includes("0x65") || error.message?.includes("InstructionFallbackNotFound")) {
+        errorMessage = "Instruction not found (0x65). The program may have been updated.";
+      }
+      showStatus(`❌ ${errorMessage}`, true);
     } finally {
       setLoading(false);
     }
@@ -425,14 +564,43 @@ export default function AdminPage() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
+      // Simulate transaction first
+      console.log("🔍 Simulating finalize event transaction...");
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        if (simulation.value.err) {
+          const logs = simulation.value.logs?.join('\n') || '';
+          let errorMessage = "Transaction simulation failed";
+          if (logs.includes("InvalidEventState")) {
+            errorMessage = "Event is not in Ended state. Cannot finalize event.";
+          }
+          throw new Error(errorMessage);
+        }
+      } catch (simError: any) {
+        throw new Error(`Pre-flight check failed: ${simError.message}`);
+      }
+
       const signed = await window.solana.signTransaction(transaction);
       const signature = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction(signature, "confirmed");
+      const confirmation = await connection.confirmTransaction(signature, "confirmed");
 
-      showStatus(`Event finalized! TX: ${signature.slice(0, 20)}...`);
+      if (confirmation.value.err) {
+        const txDetails = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0
+        });
+        const logs = txDetails?.meta?.logMessages?.join('\n') || '';
+        throw new Error(`Transaction failed: ${logs || JSON.stringify(confirmation.value.err)}`);
+      }
+
+      showStatus(`✅ Event finalized! TX: ${signature.slice(0, 20)}...`);
       setTimeout(() => loadEvents(), 2000);
     } catch (error: any) {
-      showStatus(`Error: ${error.message}`, true);
+      console.error("Full error:", error);
+      let errorMessage = error.message || "Unknown error occurred";
+      if (error.message?.includes("0x65") || error.message?.includes("InstructionFallbackNotFound")) {
+        errorMessage = "Instruction not found (0x65). The program may have been updated.";
+      }
+      showStatus(`❌ ${errorMessage}`, true);
     } finally {
       setLoading(false);
     }

@@ -16,18 +16,18 @@ export const DEVNET_RPC = "https://api.devnet.solana.com";
 // Instruction discriminators (first 8 bytes of sha256("global:instruction_name"))
 // These are Anchor-generated discriminators
 const DISCRIMINATORS = {
-  initializeEvent: Buffer.from([126, 249, 86, 221, 202, 171, 134, 20]),
-  initializeMarket: Buffer.from([35, 35, 189, 193, 155, 48, 170, 203]),
-  mintSet: Buffer.from([150, 97, 50, 191, 131, 240, 69, 96]),
-  burnSet: Buffer.from([96, 230, 169, 202, 137, 154, 200, 44]),
-  placeOrder: Buffer.from([79, 242, 161, 71, 14, 209, 188, 76]),
-  cancelOrder: Buffer.from([95, 129, 237, 240, 8, 49, 223, 132]),
-  matchOrders: Buffer.from([197, 109, 71, 110, 196, 220, 68, 144]),
-  resolveMarket: Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]),
-  redeem: Buffer.from([184, 12, 86, 149, 70, 196, 97, 225]),
-  startEvent: Buffer.from([231, 211, 117, 124, 185, 212, 154, 110]),
-  endEvent: Buffer.from([141, 157, 99, 190, 174, 57, 234, 213]),
-  finalizeEvent: Buffer.from([252, 151, 68, 58, 138, 180, 132, 96]),
+  initializeEvent: Buffer.from([126, 249, 86, 221, 202, 171, 134, 20]), // global:initialize_event
+  initializeMarket: Buffer.from([35, 35, 189, 193, 155, 48, 170, 203]), // global:initialize_market
+  mintSet: Buffer.from([91, 117, 1, 75, 201, 110, 110, 189]), // global:mint_set
+  burnSet: Buffer.from([9, 204, 190, 179, 182, 91, 228, 20]), // global:burn_set
+  placeOrder: Buffer.from([51, 194, 155, 175, 109, 130, 96, 106]), // global:place_order
+  cancelOrder: Buffer.from([95, 129, 237, 240, 8, 49, 223, 132]), // global:cancel_order (matches)
+  matchOrders: Buffer.from([17, 1, 201, 93, 7, 51, 251, 134]), // global:match_orders
+  resolveMarket: Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]), // global:resolve_market (matches)
+  redeem: Buffer.from([184, 12, 86, 149, 70, 196, 97, 225]), // global:redeem (matches)
+  startEvent: Buffer.from([61, 196, 227, 97, 8, 81, 107, 23]), // global:start_event
+  endEvent: Buffer.from([210, 72, 122, 58, 113, 167, 161, 20]), // global:end_event
+  finalizeEvent: Buffer.from([88, 246, 123, 105, 100, 148, 170, 236]), // global:finalize_event
 };
 
 export interface EventAccount {
