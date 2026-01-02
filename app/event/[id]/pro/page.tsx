@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { Connection, PublicKey, Transaction } from '@solana/web3.js'
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import BN from 'bn.js'
 import Header from '@/components/Header'
 import CountdownTimer from '@/components/CountdownTimer'
@@ -11,7 +12,10 @@ import { useWallet } from '@/contexts/WalletContext'
 import { 
   fetchEventMarkets, 
   DEVNET_RPC, 
-  createMintSetInstruction
+  createMintSetInstruction,
+  getYesMintPDA,
+  getNoMintPDA,
+  getEventPDA
 } from '@/lib/program'
 
 interface Word {
@@ -220,12 +224,55 @@ export default function TrumpSpeechPro() {
 
     try {
       const amountNum = parseFloat(amount)
-      const size = Math.floor(amountNum * 1_000_000_000) // Convert to lamports
+      const size = new BN(Math.floor(amountNum * 1_000_000_000)) // Convert to lamports
+
+      // Get event PDA (need to derive this from localStorage)
+      const registryStr = localStorage.getItem("marketRegistry")
+      if (!registryStr) throw new Error("Registry not found")
+      
+      const registry = JSON.parse(registryStr)
+      const eventData = registry[eventId]
+      let adminPubkey: PublicKey
+      
+      if (Array.isArray(eventData)) {
+        adminPubkey = new PublicKey("AmMusRD99A7CnHNhNziN4f2Fm6V9D4NW1soH4rUn8t7S")
+      } else if (eventData && eventData.admin) {
+        adminPubkey = new PublicKey(eventData.admin)
+      } else {
+        throw new Error("Admin not found")
+      }
+      
+      const [eventPda] = getEventPDA(adminPubkey, new BN(eventId))
+
+      // Derive mint PDAs
+      const [yesMintPda] = getYesMintPDA(selectedMarket.marketPda)
+      const [noMintPda] = getNoMintPDA(selectedMarket.marketPda)
+
+      // Get user ATAs
+      const userYesAta = await getAssociatedTokenAddress(
+        yesMintPda,
+        publicKey,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+      const userNoAta = await getAssociatedTokenAddress(
+        noMintPda,
+        publicKey,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
 
       // Mint a set of YES+NO tokens
       const mintSetIx = createMintSetInstruction(
         publicKey,
+        eventPda,
         selectedMarket.marketPda,
+        yesMintPda,
+        noMintPda,
+        userYesAta,
+        userNoAta,
         size
       )
 
