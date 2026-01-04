@@ -1,0 +1,33 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+lib/
+
+# Build artifacts
+*.so
+*.dylib
+
+# Test coverage
+coverage/
+lcov.info
+
