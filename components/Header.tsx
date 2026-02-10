@@ -1,49 +1,23 @@
 'use client'
 
-import { useEVMWallet } from '@/contexts/EVMWalletContext'
+import { useWallet } from '@/contexts/WalletContext'
 import Image from 'next/image'
 import { useState, useRef, useEffect } from 'react'
-import { formatUnits } from 'viem'
-import { contracts, abis } from '@/lib/contracts'
 
 export default function Header() {
-  const { address, isConnected, connect, disconnect, publicClient } = useEVMWallet()
+  const { publicKey, balance, connected, connect, disconnect } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [usdcBalance, setUsdcBalance] = useState<bigint | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Fetch USDC balance
-  useEffect(() => {
-    if (address && publicClient) {
-      fetchBalance()
-      const interval = setInterval(fetchBalance, 10000)
-      return () => clearInterval(interval)
-    }
-  }, [address, publicClient])
-
-  const fetchBalance = async () => {
-    if (!address) return
-    try {
-      const balance = await publicClient.readContract({
-        address: contracts.mockUSDC,
-        abi: abis.mockUSDC,
-        functionName: 'balanceOf',
-        args: [address],
-      })
-      setUsdcBalance(balance as bigint)
-    } catch (err) {
-      console.error('Error fetching balance:', err)
-    }
-  }
-
-  const formatBalance = (bal: bigint | null) => {
+  const formatBalance = (bal: number | null) => {
     if (bal === null) return '0.00'
-    return parseFloat(formatUnits(bal, 6)).toFixed(2)
+    return bal.toFixed(2)
   }
 
-  const formatAddress = (addr: string | null) => {
-    if (!addr) return ''
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+  const formatAddress = (pubKey: { toString: () => string } | null) => {
+    if (!pubKey) return ''
+    const addr = pubKey.toString()
+    return `${addr.slice(0, 4)}...${addr.slice(-4)}`
   }
 
   // Close dropdown when clicking outside
@@ -85,12 +59,12 @@ export default function Header() {
         </div>
       </a>
       <div className="flex items-center gap-3">
-        {isConnected ? (
+        {connected ? (
           <>
-            {/* mUSDC Balance */}
+            {/* SOL Balance */}
             <div className="hidden md:flex items-center gap-2 px-3 py-2 glass rounded-lg">
               <span className="text-neutral-400 text-xs font-medium">Balance</span>
-              <span className="text-white font-semibold text-sm">{formatBalance(usdcBalance)} mUSDC</span>
+              <span className="text-white font-semibold text-sm">{formatBalance(balance)} SOL</span>
             </div>
 
             {/* Dropdown Menu */}
@@ -99,11 +73,11 @@ export default function Header() {
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className="flex items-center gap-2 h-9 px-4 glass hover:bg-white/10 text-white text-sm font-medium rounded-lg transition-all duration-200"
               >
-                <span className="font-mono text-xs">{formatAddress(address)}</span>
-                <svg 
+                <span className="font-mono text-xs">{formatAddress(publicKey)}</span>
+                <svg
                   className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
-                  fill="none" 
-                  viewBox="0 0 24 24" 
+                  fill="none"
+                  viewBox="0 0 24 24"
                   stroke="currentColor"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -145,4 +119,3 @@ export default function Header() {
     </header>
   )
 }
-
