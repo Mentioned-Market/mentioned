@@ -25,9 +25,9 @@ pub enum MentionMarketError {
     MarketAlreadyResolved,
 
     // Settle match
-    #[msg("Insufficient locked balance for YES buyer")]
+    #[msg("Insufficient balance for YES buyer")]
     InsufficientYesFunds,
-    #[msg("Insufficient locked balance for NO buyer")]
+    #[msg("Insufficient balance for NO buyer")]
     InsufficientNoFunds,
     #[msg("Price must be between 0 and 1 SOL (exclusive)")]
     InvalidPrice,

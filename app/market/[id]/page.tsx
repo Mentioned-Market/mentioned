@@ -169,6 +169,14 @@ export default function MarketPage() {
   // Color for the side label
   const sideColor = selectedSide === 'YES' ? 'text-apple-green' : 'text-apple-red'
 
+  // Potential winnings: amount buys (amount / price) shares, each pays 1 unit if correct
+  const activePrice = selectedSide === 'YES'
+    ? parseFloat(selectedWordData.yesPrice)
+    : parseFloat(selectedWordData.noPrice)
+  const amountInSol = denomination === 'SOL' ? amountNum : amountNum / SOL_USD_RATE
+  const potentialPayout = activePrice > 0 ? amountInSol / activePrice : 0
+  const potentialProfit = potentialPayout - amountInSol
+
   // Trading panel content (shared between desktop sidebar and mobile sheet)
   const tradingPanel = (
     <>
@@ -307,6 +315,30 @@ export default function MarketPage() {
           </div>
         </div>
       </div>
+
+      {/* Potential Winnings */}
+      {amountNum > 0 && (
+        <div className="mb-5 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Shares</span>
+            <span className="text-white font-medium">
+              {(amountInSol / activePrice).toFixed(2)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Payout if correct</span>
+            <span className="text-white font-medium">
+              {potentialPayout.toFixed(4)} SOL
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Profit</span>
+            <span className="text-apple-green font-semibold">
+              +{potentialProfit.toFixed(4)} SOL
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Action Button */}
       {connected ? (
