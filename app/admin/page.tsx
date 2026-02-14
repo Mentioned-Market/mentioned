@@ -1,943 +1,641 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@/contexts/WalletContext";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import BN from "bn.js";
+import {
+  address as toAddress,
+  type Address,
+} from "@solana/kit";
 import {
   PROGRAM_ID,
-  DEVNET_RPC,
-  getEventPDA,
-  getMarketPDA,
-  getYesMintPDA,
-  getNoMintPDA,
-  hashWord,
-  createInitializeEventInstruction,
-  createInitializeMarketInstruction,
-  createStartEventInstruction,
-  createEndEventInstruction,
-  createFinalizeEventInstruction,
-  createResolveMarketInstruction,
-  fetchEventAccount,
-  fetchMarketAccount,
-  EventAccount,
-  MarketAccount,
-  getEventStateString,
-} from "@/lib/program";
+  createDepositIx,
+  createWithdrawIx,
+  createMarketGroupIxs,
+  createPauseGroupIxs,
+  createResolveMarketIx,
+  fetchEscrow,
+  fetchAllWordMarkets,
+  solToLamports,
+  lamportsToSol,
+  marketStatusStr,
+  outcomeStr,
+  sendIxs,
+  Outcome,
+  MarketStatus,
+  type UserEscrow,
+  type WordMarket,
+} from "@/lib/mentionMarket";
 
-interface EventWithMarkets {
-  eventId: BN;
-  eventPda: PublicKey;
-  eventData: EventAccount;
-  markets: Array<{
-    marketId: BN;
-    marketPda: PublicKey;
-    marketData: MarketAccount;
-    word: string;
+// Group markets by marketId for display
+type MarketGroup = {
+  marketId: bigint;
+  words: Array<{
+    pubkey: Address;
+    data: WordMarket;
   }>;
+};
+
+function groupMarkets(
+  markets: Array<{ pubkey: Address; account: WordMarket }>
+): MarketGroup[] {
+  const map = new Map<string, MarketGroup>();
+  for (const m of markets) {
+    const key = m.account.marketId.toString();
+    if (!map.has(key)) {
+      map.set(key, { marketId: m.account.marketId, words: [] });
+    }
+    map.get(key)!.words.push({ pubkey: m.pubkey, data: m.account });
+  }
+  // Sort words within each group by wordIndex
+  const groups = Array.from(map.values());
+  for (const g of groups) {
+    g.words.sort((a, b) => a.data.wordIndex - b.data.wordIndex);
+  }
+  return groups;
 }
 
+// ── Component ────────────────────────────────────────────
+
 export default function AdminPage() {
-  const { publicKey, connect, disconnect, connected } = useWallet();
-  const [connection] = useState(() => new Connection(DEVNET_RPC, "confirmed"));
-  
-  const [events, setEvents] = useState<EventWithMarkets[]>([]);
+  const { publicKey, connect, disconnect, connected, signer, balance } =
+    useWallet();
+
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<{
+    msg: string;
+    error: boolean;
+  } | null>(null);
 
-  // Form states
-  const [newEventId, setNewEventId] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [selectedEventId, setSelectedEventId] = useState("");
-  const [newMarketWord, setNewMarketWord] = useState("");
-  // Note: Order book contract doesn't use fees - removed fee input
+  // Escrow
+  const [escrow, setEscrow] = useState<UserEscrow | null>(null);
+  const [depositAmt, setDepositAmt] = useState("");
+  const [withdrawAmt, setWithdrawAmt] = useState("");
 
-  // Market tracking - store created markets in localStorage
-  // Structure: { eventId: { admin: string, markets: Array<{id, word, ...}> } }
-  const [marketRegistry, setMarketRegistry] = useState<Record<string, {admin: string, markets: Array<{id: string, word: string, yesMint: string, noMint: string}>}>>({});
+  // Create market group
+  const [marketIdInput, setMarketIdInput] = useState("");
+  const [wordsInput, setWordsInput] = useState("");
 
-  useEffect(() => {
-    // Load market registry from localStorage
-    const stored = localStorage.getItem("marketRegistry");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // Migrate old format if needed
-        const migrated: typeof marketRegistry = {};
-        for (const [eventId, value] of Object.entries(parsed)) {
-          if (Array.isArray(value)) {
-            // Old format: array of markets
-            migrated[eventId] = {
-              admin: publicKey?.toString() || "",
-              markets: value as any
-            };
-          } else {
-            // New format: { admin, markets }
-            migrated[eventId] = value as any;
-          }
-        }
-        setMarketRegistry(migrated);
-      } catch (e) {
-        console.error("Error loading market registry:", e);
-      }
+  // All markets
+  const [marketGroups, setMarketGroups] = useState<MarketGroup[]>([]);
+
+  const show = (msg: string, error = false) => {
+    setStatus({ msg, error });
+    setTimeout(() => setStatus(null), 8000);
+  };
+
+  // ── Data loading ──
+
+  const loadEscrow = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      const data = await fetchEscrow(toAddress(publicKey));
+      setEscrow(data);
+    } catch (e: any) {
+      console.error("Error loading escrow:", e);
     }
   }, [publicKey]);
 
-  const showStatus = (msg: string, isError = false) => {
-    setStatus(msg);
-    console.log(isError ? `❌ ${msg}` : `✅ ${msg}`);
-    setTimeout(() => setStatus(""), 8000);
-  };
-
-  const handleCreateEvent = async () => {
-    if (!publicKey || !window.solana) {
-      showStatus("Please connect your wallet", true);
-      return;
-    }
-
-    if (!newEventId || !startTime || !endTime) {
-      showStatus("Please fill in all event fields", true);
-      return;
-    }
-
-    const startTimestamp = new Date(startTime).getTime() / 1000;
-    const endTimestamp = new Date(endTime).getTime() / 1000;
-
-    if (endTimestamp <= startTimestamp) {
-      showStatus("End time must be after start time", true);
-      return;
-    }
-
-    setLoading(true);
+  const loadMarkets = useCallback(async () => {
     try {
-      const eventId = new BN(newEventId);
-      const [eventPda] = getEventPDA(publicKey, eventId);
-
-      // Check if already exists
-      const existing = await fetchEventAccount(connection, eventPda);
-      if (existing) {
-        showStatus("Event already exists! Use a different ID.", true);
-        setLoading(false);
-        return;
-      }
-
-      const instruction = createInitializeEventInstruction(
-        publicKey, 
-        eventPda, 
-        eventId,
-        new BN(Math.floor(startTimestamp)),
-        new BN(Math.floor(endTimestamp))
-      );
-      
-      const transaction = new Transaction().add(instruction);
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      const signed = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction(signature, "confirmed");
-
-      showStatus(`Event #${newEventId} created in PreMarket state! TX: ${signature.slice(0, 20)}...`);
-      setNewEventId("");
-      setStartTime("");
-      setEndTime("");
-      
-      // Initialize event in registry with admin pubkey
-      const updatedRegistry = {
-        ...marketRegistry,
-        [newEventId]: {
-          admin: publicKey.toString(),
-          markets: []
-        }
-      };
-      setMarketRegistry(updatedRegistry);
-      localStorage.setItem("marketRegistry", JSON.stringify(updatedRegistry));
-      
-      setTimeout(() => loadEvents(), 2000);
-    } catch (error: any) {
-      showStatus(`Error: ${error.message}`, true);
-    } finally {
-      setLoading(false);
+      const all = await fetchAllWordMarkets();
+      setMarketGroups(groupMarkets(all));
+    } catch (e: any) {
+      console.error("Error loading markets:", e);
     }
-  };
-
-  const handleCreateMarket = async () => {
-    if (!publicKey || !window.solana) {
-      showStatus("Please connect your wallet", true);
-      return;
-    }
-
-    if (!selectedEventId || !newMarketWord) {
-      showStatus("Please select an event and enter a word", true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const eventId = new BN(selectedEventId);
-      const [eventPda] = getEventPDA(publicKey, eventId);
-
-      // Check if event exists
-      const eventData = await fetchEventAccount(connection, eventPda);
-      if (!eventData) {
-        showStatus("Event not found. Please create it first.", true);
-        setLoading(false);
-        return;
-      }
-
-      // Check if admin
-      if (!eventData.admin.equals(publicKey)) {
-        showStatus("Only the event creator can add markets!", true);
-        setLoading(false);
-        return;
-      }
-
-      showStatus("✅ Creating market with PDA-based mints...", false);
-
-      // Generate market ID
-      const marketId = new BN(Date.now());
-      console.log("📝 Creating market with ID:", marketId.toString());
-      console.log("📝 Event PDA:", eventPda.toString());
-      
-      const [marketPda] = getMarketPDA(eventPda, marketId);
-      console.log("📝 Market PDA will be:", marketPda.toString());
-      
-      // Get PDA-based mints (deterministic, no keypairs needed!)
-      const [yesMintPda] = getYesMintPDA(marketPda);
-      const [noMintPda] = getNoMintPDA(marketPda);
-      
-      const wordHash = hashWord(newMarketWord);
-
-      // Create market instruction (order book version - no fee, no vaults)
-      const createMarketIx = createInitializeMarketInstruction(
-        publicKey,
-        eventPda,
-        marketPda,
-        yesMintPda,
-        noMintPda,
-        marketId,
-        wordHash
-      );
-
-      const transaction = new Transaction().add(createMarketIx);
-      
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-      
-      // ⚠️ SIMULATE first to catch errors before signing!
-      console.log("🔍 Simulating transaction...");
-      try {
-        const simulation = await connection.simulateTransaction(transaction);
-        console.log("Simulation result:", simulation);
-        
-        if (simulation.value.err) {
-          console.error("❌ Simulation failed:", simulation.value.err);
-          console.error("📋 Simulation logs:", simulation.value.logs);
-          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\n\nLogs:\n${simulation.value.logs?.join('\n')}`);
-        }
-        console.log("✅ Simulation succeeded!");
-      } catch (simError: any) {
-        console.error("Simulation error:", simError);
-        throw new Error(`Pre-flight check failed: ${simError.message}`);
-      }
-      
-      // Only wallet needs to sign! No additional keypairs!
-      const signedTx = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signedTx.serialize());
-      
-      console.log("✅ Transaction sent:", signature);
-      console.log("⏳ Waiting for confirmation...");
-      
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      
-      console.log("📦 Transaction confirmed:", confirmation);
-      
-      if (confirmation.value.err) {
-        // Get detailed error logs
-        const txDetails = await connection.getTransaction(signature, {
-          maxSupportedTransactionVersion: 0
-        });
-        console.error("❌ Transaction logs:", txDetails?.meta?.logMessages);
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}\nLogs: ${txDetails?.meta?.logMessages?.join('\n')}`);
-      }
-
-      // ✅ Verify the account actually exists before saving
-      console.log("🔍 Verifying market account exists on-chain...");
-      const marketAccount = await connection.getAccountInfo(marketPda);
-      
-      if (!marketAccount) {
-        console.error("❌ Market account not found at", marketPda.toString());
-        throw new Error(`Market account was not created! Expected at ${marketPda.toString()}`);
-      }
-      
-      console.log("✅ Market account confirmed on-chain:", {
-        address: marketPda.toString(),
-        owner: marketAccount.owner.toString(),
-        lamports: marketAccount.lamports,
-        dataLength: marketAccount.data.length
-      });
-      
-      // ✅ ONLY save to localStorage AFTER successful confirmation AND verification
-      const eventRegistry = marketRegistry[selectedEventId] || { admin: publicKey.toString(), markets: [] };
-      const updatedRegistry = {
-        ...marketRegistry,
-        [selectedEventId]: {
-          admin: eventRegistry.admin || publicKey.toString(),
-          markets: [
-            ...eventRegistry.markets,
-            { 
-              id: marketId.toString(), 
-              word: newMarketWord,
-              yesMint: yesMintPda.toString(),
-              noMint: noMintPda.toString()
-            }
-          ]
-        }
-      };
-      setMarketRegistry(updatedRegistry);
-      localStorage.setItem("marketRegistry", JSON.stringify(updatedRegistry));
-      
-      showStatus(`✅ Market created for "${newMarketWord}"! TX: ${signature.slice(0,12)}...`);
-      setNewMarketWord("");
-      setTimeout(() => loadEvents(), 2000);
-    } catch (error: any) {
-      console.error("Full error:", error);
-      showStatus(`❌ Transaction failed: ${error.message}`, true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResolveMarket = async (eventId: BN, marketId: BN, marketPda: PublicKey, winningSide: "yes" | "no") => {
-    if (!publicKey || !window.solana) {
-      showStatus("Please connect your wallet", true);
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to resolve this market as ${winningSide.toUpperCase()}?`)) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const [eventPda] = getEventPDA(publicKey, eventId);
-      
-      const instruction = createResolveMarketInstruction(
-        publicKey,
-        eventPda,
-        marketPda,
-        winningSide
-      );
-
-      const transaction = new Transaction().add(instruction);
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      const signed = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction(signature, "confirmed");
-
-      showStatus(`Market resolved as ${winningSide.toUpperCase()}! TX: ${signature.slice(0, 20)}...`);
-      setTimeout(() => loadEvents(), 2000);
-    } catch (error: any) {
-      showStatus(`Error: ${error.message}`, true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddLiquidity = async (eventId: BN, marketId: BN, marketPda: PublicKey) => {
-    // Order book contract doesn't have add_liquidity function
-    // Users provide liquidity by minting sets (YES+NO tokens) and placing orders
-    showStatus("ℹ️ Order book doesn't use liquidity pools. Users mint sets and place orders instead!", false);
-  };
-
-  const handleStartEvent = async (eventId: BN, eventPda: PublicKey) => {
-    if (!publicKey || !window.solana) {
-      showStatus("Please connect your wallet", true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // First, fetch the event data to check start time
-      const eventData = await fetchEventAccount(connection, eventPda);
-      if (!eventData) {
-        showStatus("Event not found!", true);
-        setLoading(false);
-        return;
-      }
-
-      const currentTime = Math.floor(Date.now() / 1000);
-      const startTime = eventData.startTime.toNumber();
-      
-      // Check if start time has been reached
-      if (currentTime < startTime) {
-        const startDate = new Date(startTime * 1000);
-        const currentDate = new Date(currentTime * 1000);
-        const timeUntilStart = startTime - currentTime;
-        const hoursUntil = Math.floor(timeUntilStart / 3600);
-        const minutesUntil = Math.floor((timeUntilStart % 3600) / 60);
-        
-        showStatus(
-          `⏰ Event cannot start yet. Start time: ${startDate.toLocaleString()}. Current time: ${currentDate.toLocaleString()}. ${hoursUntil > 0 ? `${hoursUntil}h ` : ''}${minutesUntil}m remaining.`,
-          true
-        );
-        setLoading(false);
-        return;
-      }
-
-      const instruction = createStartEventInstruction(publicKey, eventPda);
-      const transaction = new Transaction().add(instruction);
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      // Simulate transaction first to catch errors before signing
-      console.log("🔍 Simulating start event transaction...");
-      try {
-        const simulation = await connection.simulateTransaction(transaction);
-        console.log("Simulation result:", simulation);
-        
-        if (simulation.value.err) {
-          console.error("❌ Simulation failed:", simulation.value.err);
-          console.error("📋 Simulation logs:", simulation.value.logs);
-          
-          // Extract error details
-          let errorMessage = "Transaction simulation failed";
-          if (simulation.value.logs) {
-            const logs = simulation.value.logs.join('\n');
-            if (logs.includes("InstructionFallbackNotFound")) {
-              errorMessage = "Instruction not found. The program may have been updated. Please refresh and try again.";
-            } else if (logs.includes("InvalidEventState")) {
-              errorMessage = "Event is not in PreMarket state. Cannot start event.";
-            } else if (logs.includes("EventNotStarted")) {
-              const startDate = new Date(startTime * 1000);
-              const currentDate = new Date(currentTime * 1000);
-              errorMessage = `Event start time has not been reached yet. Start time: ${startDate.toLocaleString()}, Current time: ${currentDate.toLocaleString()}`;
-            } else {
-              errorMessage = `Simulation failed: ${logs}`;
-            }
-          }
-          
-          throw new Error(errorMessage);
-        }
-        console.log("✅ Simulation succeeded!");
-      } catch (simError: any) {
-        console.error("Simulation error:", simError);
-        throw new Error(`Pre-flight check failed: ${simError.message}`);
-      }
-
-      const signed = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize());
-      
-      console.log("✅ Transaction sent:", signature);
-      console.log("⏳ Waiting for confirmation...");
-      
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      
-      if (confirmation.value.err) {
-        // Get detailed error logs
-        const txDetails = await connection.getTransaction(signature, {
-          maxSupportedTransactionVersion: 0
-        });
-        console.error("❌ Transaction logs:", txDetails?.meta?.logMessages);
-        
-        let errorMessage = "Transaction failed";
-        if (txDetails?.meta?.logMessages) {
-          const logs = txDetails.meta.logMessages.join('\n');
-          if (logs.includes("InstructionFallbackNotFound")) {
-            errorMessage = "Instruction not found. The program may have been updated.";
-          } else if (logs.includes("InvalidEventState")) {
-            errorMessage = "Event is not in PreMarket state. Cannot start event.";
-          } else if (logs.includes("EventNotStarted")) {
-            const startDate = new Date(startTime * 1000);
-            const currentDate = new Date(currentTime * 1000);
-            errorMessage = `Event start time has not been reached yet. Start time: ${startDate.toLocaleString()}, Current time: ${currentDate.toLocaleString()}`;
-          } else {
-            errorMessage = `Transaction failed: ${logs}`;
-          }
-        }
-        
-        throw new Error(errorMessage);
-      }
-
-      showStatus(`✅ Event started! TX: ${signature.slice(0, 20)}...`);
-      setTimeout(() => loadEvents(), 2000);
-    } catch (error: any) {
-      console.error("Full error:", error);
-      
-      // Handle SendTransactionError and other error types
-      let errorMessage = error.message || "Unknown error occurred";
-      
-      // Check for common Solana error patterns
-      if (error.message?.includes("SendTransactionError") || error.message?.includes("simulation failed")) {
-        errorMessage = error.message;
-      } else if (error.message?.includes("User rejected")) {
-        errorMessage = "Transaction was cancelled by user.";
-      } else if (error.message?.includes("insufficient funds")) {
-        errorMessage = "Insufficient SOL balance. Please add more SOL to your wallet.";
-      } else if (error.message?.includes("0x65") || error.message?.includes("InstructionFallbackNotFound")) {
-        errorMessage = "Instruction not found (0x65). The program may have been updated. Please refresh the page and try again.";
-      }
-      
-      showStatus(`❌ ${errorMessage}`, true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEndEvent = async (eventId: BN, eventPda: PublicKey) => {
-    if (!publicKey || !window.solana) {
-      showStatus("Please connect your wallet", true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const instruction = createEndEventInstruction(publicKey, eventPda);
-      const transaction = new Transaction().add(instruction);
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      // Simulate transaction first
-      console.log("🔍 Simulating end event transaction...");
-      try {
-        const simulation = await connection.simulateTransaction(transaction);
-        if (simulation.value.err) {
-          const logs = simulation.value.logs?.join('\n') || '';
-          let errorMessage = "Transaction simulation failed";
-          if (logs.includes("InvalidEventState")) {
-            errorMessage = "Event is not in Live state. Cannot end event.";
-          } else if (logs.includes("EventNotEnded")) {
-            errorMessage = "Event end time has not been reached yet.";
-          }
-          throw new Error(errorMessage);
-        }
-      } catch (simError: any) {
-        throw new Error(`Pre-flight check failed: ${simError.message}`);
-      }
-
-      const signed = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize());
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-
-      if (confirmation.value.err) {
-        const txDetails = await connection.getTransaction(signature, {
-          maxSupportedTransactionVersion: 0
-        });
-        const logs = txDetails?.meta?.logMessages?.join('\n') || '';
-        throw new Error(`Transaction failed: ${logs || JSON.stringify(confirmation.value.err)}`);
-      }
-
-      showStatus(`✅ Event ended! TX: ${signature.slice(0, 20)}...`);
-      setTimeout(() => loadEvents(), 2000);
-    } catch (error: any) {
-      console.error("Full error:", error);
-      let errorMessage = error.message || "Unknown error occurred";
-      if (error.message?.includes("0x65") || error.message?.includes("InstructionFallbackNotFound")) {
-        errorMessage = "Instruction not found (0x65). The program may have been updated.";
-      }
-      showStatus(`❌ ${errorMessage}`, true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFinalizeEvent = async (eventId: BN, eventPda: PublicKey) => {
-    if (!publicKey || !window.solana) {
-      showStatus("Please connect your wallet", true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const instruction = createFinalizeEventInstruction(publicKey, eventPda);
-      const transaction = new Transaction().add(instruction);
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      // Simulate transaction first
-      console.log("🔍 Simulating finalize event transaction...");
-      try {
-        const simulation = await connection.simulateTransaction(transaction);
-        if (simulation.value.err) {
-          const logs = simulation.value.logs?.join('\n') || '';
-          let errorMessage = "Transaction simulation failed";
-          if (logs.includes("InvalidEventState")) {
-            errorMessage = "Event is not in Ended state. Cannot finalize event.";
-          }
-          throw new Error(errorMessage);
-        }
-      } catch (simError: any) {
-        throw new Error(`Pre-flight check failed: ${simError.message}`);
-      }
-
-      const signed = await window.solana.signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize());
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-
-      if (confirmation.value.err) {
-        const txDetails = await connection.getTransaction(signature, {
-          maxSupportedTransactionVersion: 0
-        });
-        const logs = txDetails?.meta?.logMessages?.join('\n') || '';
-        throw new Error(`Transaction failed: ${logs || JSON.stringify(confirmation.value.err)}`);
-      }
-
-      showStatus(`✅ Event finalized! TX: ${signature.slice(0, 20)}...`);
-      setTimeout(() => loadEvents(), 2000);
-    } catch (error: any) {
-      console.error("Full error:", error);
-      let errorMessage = error.message || "Unknown error occurred";
-      if (error.message?.includes("0x65") || error.message?.includes("InstructionFallbackNotFound")) {
-        errorMessage = "Instruction not found (0x65). The program may have been updated.";
-      }
-      showStatus(`❌ ${errorMessage}`, true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadEvents = async () => {
-    if (!publicKey) return;
-
-    setLoading(true);
-    try {
-      const loadedEvents: EventWithMarkets[] = [];
-
-      // Load events from registry
-      const eventIds = Object.keys(marketRegistry);
-      
-      for (const eventIdStr of eventIds) {
-        const eventId = new BN(eventIdStr);
-        const [eventPda] = getEventPDA(publicKey, eventId);
-        const eventData = await fetchEventAccount(connection, eventPda);
-        
-        if (eventData) {
-          // Load markets for this event
-          const markets = [];
-          const marketList = marketRegistry[eventIdStr]?.markets || [];
-          
-          for (const { id: marketIdStr, word } of marketList) {
-            const marketId = new BN(marketIdStr);
-            const [marketPda] = getMarketPDA(eventPda, marketId);
-            const marketData = await fetchMarketAccount(connection, marketPda);
-            
-            if (marketData) {
-              markets.push({ marketId, marketPda, marketData, word });
-            }
-          }
-
-          loadedEvents.push({
-            eventId,
-            eventPda,
-            eventData,
-            markets,
-          });
-        }
-      }
-
-      setEvents(loadedEvents);
-      if (loadedEvents.length === 0) {
-        showStatus("No events found. Create one to get started!");
-      }
-    } catch (error: any) {
-      console.error("Error loading events:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, []);
 
   useEffect(() => {
     if (publicKey && connected) {
-      loadEvents();
+      loadEscrow();
+      loadMarkets();
     }
-  }, [publicKey, connected]);
+  }, [publicKey, connected, loadEscrow, loadMarkets]);
+
+  // ── Actions ──
+
+  const handleDeposit = async () => {
+    if (!signer || !publicKey) return;
+    const sol = parseFloat(depositAmt);
+    if (isNaN(sol) || sol <= 0) {
+      show("Enter a valid SOL amount", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const ix = await createDepositIx(toAddress(publicKey), solToLamports(sol));
+      await sendIxs(signer, [ix]);
+      show(`Deposited ${sol} SOL`);
+      setDepositAmt("");
+      await loadEscrow();
+    } catch (e: any) {
+      show(e.message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!signer || !publicKey) return;
+    const sol = parseFloat(withdrawAmt);
+    if (isNaN(sol) || sol <= 0) {
+      show("Enter a valid SOL amount", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const ix = await createWithdrawIx(
+        toAddress(publicKey),
+        solToLamports(sol)
+      );
+      await sendIxs(signer, [ix]);
+      show(`Withdrew ${sol} SOL`);
+      setWithdrawAmt("");
+      await loadEscrow();
+    } catch (e: any) {
+      show(e.message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateMarketGroup = async () => {
+    if (!signer || !publicKey) return;
+    const mId = parseInt(marketIdInput);
+    if (isNaN(mId)) {
+      show("Enter a valid market ID", true);
+      return;
+    }
+    const words = wordsInput
+      .split(",")
+      .map((w) => w.trim())
+      .filter(Boolean);
+    if (words.length === 0) {
+      show("Enter at least one word", true);
+      return;
+    }
+    if (words.some((w) => w.length > 32)) {
+      show("Each word must be 32 characters or fewer", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const ixs = await createMarketGroupIxs(
+        toAddress(publicKey),
+        BigInt(mId),
+        words
+      );
+      await sendIxs(signer, ixs);
+      show(
+        `Created market #${mId} with ${words.length} word${words.length > 1 ? "s" : ""}: ${words.join(", ")}`
+      );
+      setWordsInput("");
+      await loadMarkets();
+    } catch (e: any) {
+      show(e.message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePauseGroup = async (group: MarketGroup) => {
+    if (!signer || !publicKey) return;
+    setLoading(true);
+    try {
+      const ixs = await createPauseGroupIxs(
+        toAddress(publicKey),
+        group.marketId,
+        group.words.length
+      );
+      await sendIxs(signer, ixs);
+      show(`Paused all words in market #${group.marketId}`);
+      await loadMarkets();
+    } catch (e: any) {
+      show(e.message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResolveWord = async (
+    marketId: bigint,
+    wordIndex: number,
+    label: string,
+    outcome: Outcome
+  ) => {
+    if (!signer || !publicKey) return;
+    const outcomeLabel = outcome === Outcome.Yes ? "YES" : "NO";
+    if (!confirm(`Resolve "${label}" as ${outcomeLabel}?`)) return;
+    setLoading(true);
+    try {
+      const ix = await createResolveMarketIx(
+        toAddress(publicKey),
+        marketId,
+        wordIndex,
+        outcome
+      );
+      await sendIxs(signer, [ix]);
+      show(`Resolved "${label}" as ${outcomeLabel}`);
+      await loadMarkets();
+    } catch (e: any) {
+      show(e.message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── UI ─────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white p-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-black text-white p-6 md:p-10">
+      <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-4xl font-bold mb-2">🎯 Admin Panel</h1>
-            <p className="text-gray-300">Manage prediction market events & markets</p>
-            <p className="text-sm text-gray-400 mt-1">Program: {PROGRAM_ID.toString().slice(0, 30)}...</p>
+            <h1 className="text-3xl font-bold">Admin Panel</h1>
+            <p className="text-neutral-400 text-sm mt-1">
+              mention_market &middot;{" "}
+              <span className="font-mono text-xs">
+                {(PROGRAM_ID as string).slice(0, 20)}...
+              </span>
+            </p>
           </div>
-          <div>
-            {!connected ? (
+          {!connected ? (
+            <button
+              onClick={connect}
+              className="px-5 py-2.5 bg-apple-blue rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              Connect Wallet
+            </button>
+          ) : (
+            <div className="text-right">
+              <p className="font-mono text-sm">
+                {publicKey?.slice(0, 4)}...{publicKey?.slice(-4)}
+              </p>
+              {balance !== null && (
+                <p className="text-xs text-neutral-400">
+                  {balance.toFixed(2)} SOL
+                </p>
+              )}
               <button
-                onClick={connect}
-                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all"
+                onClick={disconnect}
+                className="text-xs text-apple-red hover:opacity-80 mt-0.5"
               >
-                Connect Wallet
+                Disconnect
               </button>
-            ) : (
-              <div className="text-right">
-                <p className="text-sm text-gray-400">Connected</p>
-                <p className="text-xs font-mono">{publicKey?.toString().slice(0, 8)}...</p>
-                <button
-                  onClick={disconnect}
-                  className="text-xs text-red-400 hover:text-red-300 mt-1"
-                >
-                  Disconnect
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Admin Access Note */}
-        <div className="mb-6 p-4 bg-yellow-500/10 backdrop-blur-sm rounded-lg border border-yellow-500/30">
-          <p className="text-sm text-yellow-200">
-            <strong>🔑 Admin Access:</strong> Only the wallet that creates an event can create markets and resolve them. 
-            Events are tied to YOUR wallet address.
-          </p>
-        </div>
-
-        {/* Status Bar */}
+        {/* Status */}
         {status && (
-          <div className="mb-6 p-4 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20 animate-pulse">
-            <p className="text-sm">{status}</p>
+          <div
+            className={`p-4 rounded-lg border text-sm whitespace-pre-wrap ${
+              status.error
+                ? "bg-red-500/10 border-red-500/30 text-red-300"
+                : "bg-green-500/10 border-green-500/30 text-green-300"
+            }`}
+          >
+            {status.msg}
           </div>
         )}
 
         {!connected ? (
-          <div className="text-center py-20">
-            <h2 className="text-2xl mb-4">👆 Connect your wallet to get started</h2>
-            <p className="text-gray-400">Make sure you have SOL on Devnet to create events and markets</p>
-            <a 
-              href="https://faucet.solana.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-all"
-            >
-              Get Devnet SOL
-            </a>
+          <div className="text-center py-24 text-neutral-500">
+            <p className="text-xl">
+              Connect your Phantom wallet to get started
+            </p>
+            <p className="text-sm mt-2">
+              Make sure you have SOL on Devnet
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Create Event Card */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
-              <h2 className="text-2xl font-bold mb-4">📅 Create Event</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Event ID (unique number)</label>
-                  <input
-                    type="number"
-                    value={newEventId}
-                    onChange={(e) => setNewEventId(e.target.value)}
-                    placeholder="e.g., 1, 2, 3..."
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* ── Escrow ── */}
+            <Card title="Escrow">
+              {escrow ? (
+                <div className="mb-4 space-y-1 text-sm">
+                  <Row
+                    label="Balance"
+                    value={`${lamportsToSol(escrow.balance)} SOL`}
                   />
-                  <p className="text-xs text-gray-400 mt-1">
-                    Use a unique number (suggested: {Date.now()})
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Start Time</label>
-                  <input
-                    type="datetime-local"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
+                  <Row
+                    label="Locked"
+                    value={`${lamportsToSol(escrow.locked)} SOL`}
                   />
-                  <p className="text-xs text-gray-400 mt-1">
-                    When trading begins (must be in the future)
-                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">End Time</label>
-                  <input
-                    type="datetime-local"
-                    value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    When trading closes (after start time)
-                  </p>
-                </div>
+              ) : (
+                <p className="text-neutral-500 text-sm mb-4">
+                  No escrow account yet. Deposit to create one.
+                </p>
+              )}
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="SOL"
+                  value={depositAmt}
+                  onChange={(e) => setDepositAmt(e.target.value)}
+                  className="flex-1 input"
+                />
                 <button
-                  onClick={handleCreateEvent}
-                  disabled={loading || !newEventId || !startTime || !endTime}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  onClick={handleDeposit}
+                  disabled={loading}
+                  className="btn bg-apple-green/80 hover:bg-apple-green"
                 >
-                  {loading ? "Creating..." : "Create Event"}
+                  Deposit
                 </button>
               </div>
-            </div>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="SOL"
+                  value={withdrawAmt}
+                  onChange={(e) => setWithdrawAmt(e.target.value)}
+                  className="flex-1 input"
+                />
+                <button
+                  onClick={handleWithdraw}
+                  disabled={loading}
+                  className="btn bg-apple-orange/80 hover:bg-apple-orange"
+                >
+                  Withdraw
+                </button>
+              </div>
+              <button
+                onClick={loadEscrow}
+                disabled={loading}
+                className="mt-3 text-xs text-neutral-400 hover:text-white transition-colors"
+              >
+                Refresh
+              </button>
+            </Card>
 
-            {/* Create Market Card */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
-              <h2 className="text-2xl font-bold mb-4">📊 Create Market</h2>
-              <div className="space-y-4">
+            {/* ── Create Market Group ── */}
+            <Card title="Create Market">
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Event ID</label>
+                  <label className="label">Market ID</label>
                   <input
                     type="number"
-                    value={selectedEventId}
-                    onChange={(e) => setSelectedEventId(e.target.value)}
-                    placeholder="Enter your event ID"
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
+                    value={marketIdInput}
+                    onChange={(e) => setMarketIdInput(e.target.value)}
+                    placeholder="e.g. 1"
+                    className="w-full input"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Word to Track</label>
+                  <label className="label">Words (comma-separated)</label>
                   <input
                     type="text"
-                    value={newMarketWord}
-                    onChange={(e) => setNewMarketWord(e.target.value)}
-                    placeholder="e.g., Mexico, Left, Taxes"
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 focus:border-purple-500 focus:outline-none text-white"
+                    value={wordsInput}
+                    onChange={(e) => setWordsInput(e.target.value)}
+                    placeholder="economy, taxes, jobs, mexico"
+                    className="w-full input"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Users will trade on YES/NO outcomes</p>
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Each word becomes a YES/NO market. All created in one
+                    transaction.
+                  </p>
                 </div>
                 <button
-                  onClick={handleCreateMarket}
-                  disabled={loading || !selectedEventId || !newMarketWord}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg font-semibold hover:from-blue-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  onClick={handleCreateMarketGroup}
+                  disabled={loading || !marketIdInput || !wordsInput}
+                  className="w-full btn bg-apple-blue hover:opacity-90"
                 >
-                  {loading ? "Creating..." : "Create Market"}
+                  {loading
+                    ? "Creating..."
+                    : `Create Market (${
+                        wordsInput
+                          .split(",")
+                          .map((w) => w.trim())
+                          .filter(Boolean).length
+                      } word${
+                        wordsInput
+                          .split(",")
+                          .map((w) => w.trim())
+                          .filter(Boolean).length !== 1
+                          ? "s"
+                          : ""
+                      })`}
                 </button>
               </div>
-            </div>
-          </div>
-        )}
+            </Card>
 
-        {/* Events List */}
-        {connected && events.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-4">📋 Your Events</h2>
-            <div className="space-y-4">
-              {events.map((event) => (
-                <div
-                  key={event.eventId.toString()}
-                  className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20"
+            {/* ── Markets ── */}
+            <div className="lg:col-span-2">
+              <Card title="Markets">
+                <button
+                  onClick={loadMarkets}
+                  disabled={loading}
+                  className="mb-4 text-xs text-neutral-400 hover:text-white transition-colors"
                 >
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-xl font-bold">Event #{event.eventId.toString()}</h3>
-                      <p className="text-xs text-gray-400 font-mono">
-                        {event.eventPda.toString().slice(0, 30)}...
-                      </p>
-                      <p className="text-sm text-gray-300 mt-1">
-                        State: {getEventStateString(event.eventData.state)}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <span className={`px-3 py-1 rounded-full text-sm ${
-                        'preMarket' in event.eventData.state ? 'bg-yellow-500/20 text-yellow-300' :
-                        'live' in event.eventData.state ? 'bg-green-500/20 text-green-300' :
-                        'ended' in event.eventData.state ? 'bg-orange-500/20 text-orange-300' :
-                        'bg-blue-500/20 text-blue-300'
-                      }`}>
-                        {getEventStateString(event.eventData.state)}
-                      </span>
-                      {'preMarket' in event.eventData.state && (
-                        <button
-                          onClick={() => handleStartEvent(event.eventId, event.eventPda)}
-                          disabled={loading}
-                          className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs transition-all disabled:opacity-50"
-                        >
-                          Start Event
-                        </button>
-                      )}
-                      {'live' in event.eventData.state && (
-                        <button
-                          onClick={() => handleEndEvent(event.eventId, event.eventPda)}
-                          disabled={loading}
-                          className="px-3 py-1 bg-orange-600 hover:bg-orange-700 rounded text-xs transition-all disabled:opacity-50"
-                        >
-                          End Event
-                        </button>
-                      )}
-                      {'ended' in event.eventData.state && (
-                        <button
-                          onClick={() => handleFinalizeEvent(event.eventId, event.eventPda)}
-                          disabled={loading}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-all disabled:opacity-50"
-                        >
-                          Finalize
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  Refresh ({marketGroups.length} group
+                  {marketGroups.length !== 1 ? "s" : ""})
+                </button>
 
-                  {event.markets.length === 0 ? (
-                    <p className="text-gray-400 text-sm">No markets yet. Create one above!</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {event.markets.map((market) => (
+                {marketGroups.length === 0 ? (
+                  <p className="text-neutral-500 text-sm">
+                    No markets found. Create one above.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {marketGroups.map((group) => {
+                      const isAuthority =
+                        publicKey === (group.words[0]?.data.authority as string);
+                      const allActive = group.words.every(
+                        (w) => w.data.status === MarketStatus.Active
+                      );
+                      const allResolved = group.words.every(
+                        (w) => w.data.status === MarketStatus.Resolved
+                      );
+
+                      return (
                         <div
-                          key={market.marketId.toString()}
-                          className="bg-white/5 rounded-lg p-4 border border-white/10"
+                          key={group.marketId.toString()}
+                          className="bg-neutral-800/50 border border-neutral-700 rounded-lg p-4"
                         >
-                          <div className="flex justify-between items-center">
+                          {/* Group header */}
+                          <div className="flex justify-between items-center mb-3">
                             <div>
-                              <h4 className="font-semibold text-lg">"{market.word}"</h4>
-                              <p className="text-xs text-gray-400">
-                                Market ID: {market.marketId.toString()}
+                              <h3 className="font-semibold">
+                                Market #{group.marketId.toString()}
+                              </h3>
+                              <p className="text-xs text-neutral-500">
+                                {group.words.length} word
+                                {group.words.length !== 1 ? "s" : ""}{" "}
+                                &middot; Authority:{" "}
+                                {(group.words[0]?.data.authority as string)?.slice(0, 8)}
+                                ...
                               </p>
                             </div>
-                            <div className="flex gap-2">
-                              {!market.marketData.resolved && (
-                                <>
-                                  <button
-                                    onClick={() => handleResolveMarket(event.eventId, market.marketId, market.marketPda, "yes")}
-                                    disabled={loading}
-                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition-all disabled:opacity-50"
-                                  >
-                                    Resolve YES
-                                  </button>
-                                  <button
-                                    onClick={() => handleResolveMarket(event.eventId, market.marketId, market.marketPda, "no")}
-                                    disabled={loading}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm transition-all disabled:opacity-50"
-                                  >
-                                    Resolve NO
-                                  </button>
-                                </>
-                              )}
-                              {market.marketData.resolved && (
-                                <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-sm">
-                                  Resolved: {'yes' in market.marketData.winningSide ? "YES" : "NO"}
-                                </span>
-                              )}
-                            </div>
+                            {isAuthority && allActive && (
+                              <button
+                                onClick={() => handlePauseGroup(group)}
+                                disabled={loading}
+                                className="btn bg-apple-orange/80 hover:bg-apple-orange text-xs"
+                              >
+                                Pause All
+                              </button>
+                            )}
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Quick Start Guide */}
-        {connected && events.length === 0 && !loading && (
-          <div className="mt-8 bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
-            <h3 className="text-xl font-bold mb-4">🚀 Quick Start</h3>
-            <ol className="space-y-2 text-sm">
-              <li>1. Create an Event with a unique ID (try using: {Date.now()})</li>
-              <li>2. Create Markets for words you want to track (e.g., "Mexico", "Left", "Taxes")</li>
-              <li>3. After the event, resolve markets by selecting YES or NO</li>
-              <li>4. Users can then redeem their winning tokens for SOL</li>
-            </ol>
+                          {/* Words */}
+                          <div className="space-y-2">
+                            {group.words.map((w) => {
+                              const statusColor =
+                                w.data.status === MarketStatus.Active
+                                  ? "text-apple-green"
+                                  : w.data.status === MarketStatus.Paused
+                                  ? "text-apple-orange"
+                                  : "text-apple-blue";
+
+                              return (
+                                <div
+                                  key={w.pubkey as string}
+                                  className="flex items-center justify-between bg-neutral-900/50 rounded px-3 py-2"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <span className="font-medium">
+                                      &ldquo;{w.data.label}&rdquo;
+                                    </span>
+                                    <span
+                                      className={`text-xs font-medium ${statusColor}`}
+                                    >
+                                      {marketStatusStr(w.data.status)}
+                                    </span>
+                                    {w.data.status ===
+                                      MarketStatus.Resolved && (
+                                      <span className="text-xs text-neutral-400">
+                                        = {outcomeStr(w.data.outcome)}
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-neutral-600">
+                                      idx:{w.data.wordIndex}
+                                    </span>
+                                  </div>
+
+                                  {isAuthority &&
+                                    w.data.status === MarketStatus.Active && (
+                                      <div className="flex gap-1">
+                                        <button
+                                          onClick={() =>
+                                            handleResolveWord(
+                                              w.data.marketId,
+                                              w.data.wordIndex,
+                                              w.data.label,
+                                              Outcome.Yes
+                                            )
+                                          }
+                                          disabled={loading}
+                                          className="btn bg-apple-green/60 hover:bg-apple-green text-xs py-1 px-2"
+                                        >
+                                          YES
+                                        </button>
+                                        <button
+                                          onClick={() =>
+                                            handleResolveWord(
+                                              w.data.marketId,
+                                              w.data.wordIndex,
+                                              w.data.label,
+                                              Outcome.No
+                                            )
+                                          }
+                                          disabled={loading}
+                                          className="btn bg-apple-red/60 hover:bg-apple-red text-xs py-1 px-2"
+                                        >
+                                          NO
+                                        </button>
+                                      </div>
+                                    )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Collateral */}
+                          <p className="text-xs text-neutral-600 mt-2">
+                            Total collateral:{" "}
+                            {lamportsToSol(
+                              group.words.reduce(
+                                (sum, w) => sum + w.data.totalCollateral,
+                                0n
+                              )
+                            )}{" "}
+                            SOL
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            </div>
           </div>
         )}
       </div>
+
+      <style jsx global>{`
+        .input {
+          padding: 0.5rem 0.75rem;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: white;
+          font-size: 0.875rem;
+          outline: none;
+        }
+        .input:focus {
+          border-color: #007aff;
+        }
+        .btn {
+          padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+          font-weight: 500;
+          font-size: 0.875rem;
+          transition: all 0.15s;
+          white-space: nowrap;
+        }
+        .btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+        .label {
+          display: block;
+          font-size: 0.75rem;
+          font-weight: 500;
+          color: #a3a3a3;
+          margin-bottom: 0.25rem;
+        }
+      `}</style>
     </div>
   );
 }
 
+// ── Sub-components ───────────────────────────────────────
+
+function Card({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+      <h2 className="text-lg font-semibold mb-4">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-neutral-400">{label}</span>
+      <span className="font-mono">{value}</span>
+    </div>
+  );
+}
