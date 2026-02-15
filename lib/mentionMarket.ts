@@ -38,6 +38,7 @@ const DISC = {
   createMarket: new Uint8Array([103, 226, 97, 235, 200, 188, 251, 254]),
   pauseMarket: new Uint8Array([216, 238, 4, 164, 65, 11, 162, 91]),
   resolveMarket: new Uint8Array([155, 23, 80, 173, 46, 74, 23, 239]),
+  claim: new Uint8Array([62, 198, 214, 193, 213, 159, 108, 210]),
 }
 
 // Account discriminators
@@ -79,6 +80,16 @@ export interface WordMarket {
   outcome: Outcome | null
   bump: number
   vaultBump: number
+}
+
+export interface UserPosition {
+  wordMarketPubkey: Address
+  market: WordMarket
+  side: 'YES' | 'NO'
+  rawAmount: bigint
+  shares: number
+  estimatedValueSol: number
+  claimable: boolean
 }
 
 // ── Encoding helpers ─────────────────────────────────────
@@ -549,4 +560,103 @@ export async function sendIxs(
   )
 
   await signAndSendTransactionMessageWithSigners(txMsg)
+}
+
+// ── Position fetching ───────────────────────────────────
+
+const TOKEN_DECIMALS = 6
+const TOKEN_BASE = 1_000_000
+
+function estimatePositionValue(
+  market: WordMarket,
+  side: 'YES' | 'NO',
+  shares: number
+): number {
+  if (market.status === MarketStatus.Resolved) {
+    const isWinner =
+      (market.outcome === Outcome.Yes && side === 'YES') ||
+      (market.outcome === Outcome.No && side === 'NO')
+    return isWinner ? shares * 1.0 : 0
+  }
+  return shares * 0.5
+}
+
+function isWinningSide(market: WordMarket, side: 'YES' | 'NO'): boolean {
+  return (
+    (market.outcome === Outcome.Yes && side === 'YES') ||
+    (market.outcome === Outcome.No && side === 'NO')
+  )
+}
+
+export async function fetchUserPositions(
+  userAddr: Address
+): Promise<UserPosition[]> {
+  const rpc = createRpc()
+
+  // Fetch all markets and user's token accounts in parallel
+  const [allMarkets, tokenResult] = await Promise.all([
+    fetchAllWordMarkets(),
+    rpc
+      .getTokenAccountsByOwner(
+        userAddr,
+        { programId: TOKEN_PROGRAM },
+        { encoding: 'jsonParsed' }
+      )
+      .send(),
+  ])
+
+  // Build mint → market lookup maps
+  const yesMintMap = new Map<string, { pubkey: Address; account: WordMarket }>()
+  const noMintMap = new Map<string, { pubkey: Address; account: WordMarket }>()
+
+  for (const m of allMarkets) {
+    yesMintMap.set(m.account.yesMint, { pubkey: m.pubkey, account: m.account })
+    noMintMap.set(m.account.noMint, { pubkey: m.pubkey, account: m.account })
+  }
+
+  const positions: UserPosition[] = []
+
+  for (const item of tokenResult.value) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = (item.account.data as any).parsed
+    if (!parsed?.info) continue
+
+    const mint = parsed.info.mint as string
+    const amountStr = parsed.info.tokenAmount?.amount as string
+    if (!amountStr || amountStr === '0') continue
+
+    const rawAmount = BigInt(amountStr)
+    let side: 'YES' | 'NO'
+    let marketInfo: { pubkey: Address; account: WordMarket } | undefined
+
+    if (yesMintMap.has(mint)) {
+      side = 'YES'
+      marketInfo = yesMintMap.get(mint)!
+    } else if (noMintMap.has(mint)) {
+      side = 'NO'
+      marketInfo = noMintMap.get(mint)!
+    } else {
+      continue // Not a market token
+    }
+
+    const shares = Number(rawAmount) / TOKEN_BASE
+    const market = marketInfo.account
+    const estimatedValueSol = estimatePositionValue(market, side, shares)
+    const claimable =
+      market.status === MarketStatus.Resolved &&
+      isWinningSide(market, side) &&
+      rawAmount > 0n
+
+    positions.push({
+      wordMarketPubkey: marketInfo.pubkey,
+      market,
+      side,
+      rawAmount,
+      shares,
+      estimatedValueSol,
+      claimable,
+    })
+  }
+
+  return positions
 }

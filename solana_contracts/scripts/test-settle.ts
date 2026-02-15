@@ -106,17 +106,25 @@ function getVaultPda(
 async function main() {
   const { yesBuyer, marketId, wordIndex, price, shares } = parseArgs();
 
-  // Setup provider
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-  const program = anchor.workspace.MentionMarket as Program<MentionMarket>;
-  const connection = provider.connection;
-
   // Load deployer keypair (= backend signer)
   const deployerKeyfile = JSON.parse(
     fs.readFileSync("./deployer-keypair.json", "utf-8")
   );
   const deployer = Keypair.fromSecretKey(new Uint8Array(deployerKeyfile));
+
+  // Setup provider manually (no ANCHOR_PROVIDER_URL needed)
+  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+  const wallet = new anchor.Wallet(deployer);
+  const provider = new anchor.AnchorProvider(connection, wallet, {
+    commitment: "confirmed",
+  });
+  anchor.setProvider(provider);
+
+  // Load IDL and create program instance
+  const idl = JSON.parse(
+    fs.readFileSync("./target/idl/mention_market.json", "utf-8")
+  );
+  const program = new Program<MentionMarket>(idl, provider) as Program<MentionMarket>;
   console.log("Backend signer:", deployer.publicKey.toBase58());
 
   // YES buyer = the Phantom user address provided via CLI
@@ -127,14 +135,18 @@ async function main() {
   const noBuyer = Keypair.generate();
   console.log("NO buyer (ephemeral):", noBuyer.publicKey.toBase58());
 
-  // ── Airdrop to ephemeral NO buyer ───────────────────────
-  console.log("\nAirdropping 2 SOL to ephemeral NO buyer...");
-  const airdropSig = await connection.requestAirdrop(
-    noBuyer.publicKey,
-    2 * LAMPORTS_PER_SOL
+  // ── Fund ephemeral NO buyer from deployer ────────────────
+  const fundAmount = 1 * LAMPORTS_PER_SOL;
+  console.log("\nTransferring 1 SOL from deployer to ephemeral NO buyer...");
+  const fundTx = new anchor.web3.Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: deployer.publicKey,
+      toPubkey: noBuyer.publicKey,
+      lamports: fundAmount,
+    })
   );
-  await connection.confirmTransaction(airdropSig, "confirmed");
-  console.log("Airdrop confirmed");
+  await provider.sendAndConfirm(fundTx);
+  console.log("Funded NO buyer");
 
   // ── Deposit for NO buyer ────────────────────────────────
   const [noBuyerEscrow] = getEscrowPda(program.programId, noBuyer.publicKey);
@@ -150,7 +162,7 @@ async function main() {
       user: noBuyer.publicKey,
       escrow: noBuyerEscrow,
       systemProgram: SystemProgram.programId,
-    })
+    } as any)
     .signers([noBuyer])
     .rpc();
   console.log("NO buyer deposit confirmed");
@@ -216,7 +228,7 @@ async function main() {
       vault,
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
-    })
+    } as any)
     .signers([deployer])
     .rpc();
 

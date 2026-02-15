@@ -1,11 +1,21 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Header from '@/components/Header'
 import CountdownTimer from '@/components/CountdownTimer'
 import MarketChart from '@/components/MarketChart'
 import { useWallet } from '@/contexts/WalletContext'
+import {
+  fetchAllWordMarkets,
+  fetchUserPositions,
+  type WordMarket,
+  type UserPosition,
+  MarketStatus,
+  marketStatusStr,
+  outcomeStr,
+} from '@/lib/mentionMarket'
+import { address as toAddress } from '@solana/kit'
 
 interface Word {
   word: string
@@ -20,7 +30,7 @@ const SOL_USD_RATE = 175 // mock rate
 export default function MarketPage() {
   const params = useParams()
   const marketId = params.id as string
-  const { connected, connect } = useWallet()
+  const { connected, connect, publicKey } = useWallet()
 
   const [selectedWord, setSelectedWord] = useState<string | null>(null)
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
@@ -37,29 +47,131 @@ export default function MarketPage() {
   const chartColors = ['#34C759', '#007AFF', '#FF9500']
   const [trackedWords, setTrackedWords] = useState<string[]>([])
 
-  const market = useMemo(() => {
+  // On-chain data state
+  const isNumericMarket = /^\d+$/.test(marketId)
+  const [onChainWords, setOnChainWords] = useState<WordMarket[] | null>(null)
+  const [onChainStatus, setOnChainStatus] = useState<MarketStatus | null>(null)
+  const [loading, setLoading] = useState(isNumericMarket)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [userPositions, setUserPositions] = useState<UserPosition[]>([])
+
+  useEffect(() => {
+    if (!isNumericMarket) return
+
+    let cancelled = false
+    setLoading(true)
+    setFetchError(null)
+
+    fetchAllWordMarkets()
+      .then((all) => {
+        if (cancelled) return
+        const targetId = BigInt(marketId)
+        const matches = all
+          .filter((m) => m.account.marketId === targetId)
+          .sort((a, b) => a.account.wordIndex - b.account.wordIndex)
+
+        if (matches.length === 0) {
+          setFetchError('Market not found')
+          setOnChainWords(null)
+        } else {
+          setOnChainWords(matches.map((m) => m.account))
+          setOnChainStatus(matches[0].account.status)
+        }
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Failed to fetch markets:', err)
+        setFetchError('Failed to load market data')
+        setLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [isNumericMarket, marketId])
+
+  // Fetch user positions for this market
+  useEffect(() => {
+    if (!publicKey || !isNumericMarket) {
+      setUserPositions([])
+      return
+    }
+    let cancelled = false
+
+    fetchUserPositions(toAddress(publicKey))
+      .then((positions) => {
+        if (cancelled) return
+        const marketPositions = positions.filter(
+          (p) => p.market.marketId === BigInt(marketId)
+        )
+        setUserPositions(marketPositions)
+      })
+      .catch(console.error)
+
+    return () => { cancelled = true }
+  }, [publicKey, isNumericMarket, marketId])
+
+  interface MarketData {
+    id: string
+    title: string
+    category: string
+    eventTime: Date
+    eventDateLabel: string
+    imageUrl: string
+    words: Word[]
+    totalVolume: number
+    rules: {
+      summary: string
+      details: string
+      marketOpen: string
+      marketCloses: string
+      projectedPayout: string
+      expiryNote: string
+      series: string
+      event: string
+      marketCode: string
+    }
+  }
+
+  const market = useMemo((): MarketData => {
     const now = Date.now()
-    const marketData: Record<string, {
-      id: string
-      title: string
-      category: string
-      eventTime: Date
-      eventDateLabel: string
-      imageUrl: string
-      words: Word[]
-      totalVolume: number
-      rules: {
-        summary: string
-        details: string
-        marketOpen: string
-        marketCloses: string
-        projectedPayout: string
-        expiryNote: string
-        series: string
-        event: string
-        marketCode: string
+
+    // On-chain market data
+    if (isNumericMarket && onChainWords && onChainWords.length > 0) {
+      const totalCol = onChainWords.reduce(
+        (sum, w) => sum + Number(w.totalCollateral),
+        0
+      )
+      return {
+        id: marketId,
+        title: `Market #${marketId}`,
+        category: 'Mentions · On-Chain',
+        eventTime: new Date(now + 2 * 60 * 60 * 1000),
+        eventDateLabel: 'TBD',
+        imageUrl: '/src/logo.png',
+        words: onChainWords.map((w) => ({
+          word: w.label,
+          yesPrice: '0.50',
+          noPrice: '0.50',
+          volume: Number(w.totalCollateral),
+          change: 0,
+        })),
+        totalVolume: totalCol,
+        rules: {
+          summary: `If the speaker says this word during the event, then the market resolves to Yes. Outcome verified from the official broadcast.`,
+          details: 'The exact phrase/word, or a plural or possessive form of the phrase/word, must be used. Grammatical/tense inflections are otherwise not included. Commentary will count once the speech has started and end once the speech has concluded.',
+          marketOpen: 'When market is created',
+          marketCloses: 'After the outcome occurs',
+          projectedPayout: '30 minutes after closing',
+          expiryNote: 'This market will close when paused and resolved by the authority.',
+          series: `MNTD-MARKET-${marketId}`,
+          event: `MNTD-MARKET-${marketId}`,
+          marketCode: `MNTD-MARKET-${marketId}`,
+        },
       }
-    }> = {
+    }
+
+    // Hardcoded demo data
+    const marketData: Record<string, MarketData> = {
       'trump-speech': {
         id: 'trump-speech',
         title: "Trump Iowa Rally",
@@ -94,15 +206,17 @@ export default function MarketPage() {
       },
     }
     return marketData[marketId] || marketData['trump-speech']
-  }, [marketId])
+  }, [marketId, isNumericMarket, onChainWords])
 
   // Initialize tracked words and selected word
   useMemo(() => {
-    if (trackedWords.length === 0 && market.words.length > 0) {
-      setTrackedWords(market.words.slice(0, 3).map(w => w.word))
-    }
-    if (selectedWord === null && market.words.length > 0) {
-      setSelectedWord(market.words[0].word)
+    if (market.words.length > 0) {
+      if (trackedWords.length === 0 || !trackedWords.some(tw => market.words.some(w => w.word === tw))) {
+        setTrackedWords(market.words.slice(0, 3).map(w => w.word))
+      }
+      if (selectedWord === null || !market.words.some(w => w.word === selectedWord)) {
+        setSelectedWord(market.words[0].word)
+      }
     }
   }, [market.words, trackedWords.length, selectedWord])
 
@@ -176,6 +290,12 @@ export default function MarketPage() {
   const amountInSol = denomination === 'SOL' ? amountNum : amountNum / SOL_USD_RATE
   const potentialPayout = activePrice > 0 ? amountInSol / activePrice : 0
   const potentialProfit = potentialPayout - amountInSol
+
+  // User's position for the currently selected word
+  const selectedWordPosition = useMemo(() => {
+    if (!selectedWord) return null
+    return userPositions.find((p) => p.market.label === selectedWord) ?? null
+  }, [selectedWord, userPositions])
 
   // Trading panel content (shared between desktop sidebar and mobile sheet)
   const tradingPanel = (
@@ -341,7 +461,14 @@ export default function MarketPage() {
       )}
 
       {/* Action Button */}
-      {connected ? (
+      {isNumericMarket && onChainStatus === MarketStatus.Resolved ? (
+        <button
+          disabled
+          className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed"
+        >
+          Market Resolved
+        </button>
+      ) : connected ? (
         <button
           disabled={!amount || parseFloat(amount) <= 0}
           className={`w-full py-3.5 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -360,6 +487,37 @@ export default function MarketPage() {
           Connect wallet to trade
         </button>
       )}
+
+      {/* Your Position */}
+      {connected && selectedWordPosition && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="text-xs text-neutral-400 font-medium uppercase tracking-wider mb-2">
+            Your Position
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Side</span>
+              <span className={`font-semibold ${
+                selectedWordPosition.side === 'YES' ? 'text-apple-green' : 'text-apple-red'
+              }`}>
+                {selectedWordPosition.side}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Shares</span>
+              <span className="text-white font-medium">
+                {selectedWordPosition.shares.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Est. Value</span>
+              <span className="text-white font-medium">
+                {selectedWordPosition.estimatedValueSol.toFixed(4)} SOL
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 
@@ -371,6 +529,22 @@ export default function MarketPage() {
             <Header />
 
             <main className="py-4 md:py-6 flex-1">
+              {/* Loading state */}
+              {loading && (
+                <div className="flex items-center justify-center py-32">
+                  <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                </div>
+              )}
+
+              {/* Error state */}
+              {fetchError && !loading && (
+                <div className="flex flex-col items-center justify-center py-32 gap-3">
+                  <span className="text-neutral-400 text-lg font-medium">{fetchError}</span>
+                  <span className="text-neutral-500 text-sm">Check the market ID and try again</span>
+                </div>
+              )}
+
+              {!loading && !fetchError && (<>
               {/* Event Header — full width above both columns */}
               <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
                 <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
@@ -381,8 +555,22 @@ export default function MarketPage() {
                   />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs md:text-sm text-neutral-400 font-medium mb-0.5">
-                    {market.category}
+                  <div className="flex items-center gap-2 text-xs md:text-sm text-neutral-400 font-medium mb-0.5">
+                    <span>{market.category}</span>
+                    {isNumericMarket && onChainStatus !== null && (
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                        onChainStatus === MarketStatus.Active
+                          ? 'bg-apple-green/15 text-apple-green'
+                          : onChainStatus === MarketStatus.Paused
+                          ? 'bg-yellow-500/15 text-yellow-400'
+                          : 'bg-white/10 text-neutral-300'
+                      }`}>
+                        {marketStatusStr(onChainStatus)}
+                        {onChainStatus === MarketStatus.Resolved && onChainWords?.[0]?.outcome !== null && (
+                          <> · {outcomeStr(onChainWords![0].outcome)}</>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <h1 className="text-lg md:text-xl font-semibold text-white leading-tight">
                     {market.title}
@@ -628,12 +816,14 @@ export default function MarketPage() {
                   </div>
                 </div>
               </div>
+              </>)}
             </main>
           </div>
         </div>
       </div>
 
-      {/* Mobile Trade Bar — sticky bottom (hidden on desktop) */}
+      {/* Mobile Trade Bar — sticky bottom (hidden on desktop, hidden during loading/error) */}
+      {loading || fetchError ? null : (
       <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40">
         {mobileTradeOpen ? (
           <>
@@ -685,6 +875,7 @@ export default function MarketPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { useWallet } from '@/contexts/WalletContext'
 import Image from 'next/image'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { address as toAddress } from '@solana/kit'
-import { fetchEscrow, lamportsToSol } from '@/lib/mentionMarket'
+import { fetchEscrow, fetchUserPositions, lamportsToSol } from '@/lib/mentionMarket'
 import DepositModal from '@/components/DepositModal'
 
 export default function Header() {
@@ -12,6 +12,7 @@ export default function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [depositOpen, setDepositOpen] = useState(false)
   const [escrowBalance, setEscrowBalance] = useState<bigint | null>(null)
+  const [positionValueSol, setPositionValueSol] = useState(0)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const formatAddress = (pubKey: string | null) => {
@@ -32,16 +33,35 @@ export default function Header() {
     }
   }, [publicKey])
 
-  // Fetch escrow on connect + poll every 15s
+  const loadPositions = useCallback(async () => {
+    if (!publicKey) {
+      setPositionValueSol(0)
+      return
+    }
+    try {
+      const positions = await fetchUserPositions(toAddress(publicKey))
+      const total = positions.reduce((sum, p) => sum + p.estimatedValueSol, 0)
+      setPositionValueSol(total)
+    } catch {
+      setPositionValueSol(0)
+    }
+  }, [publicKey])
+
+  // Fetch escrow + positions on connect, poll every 15s
   useEffect(() => {
     if (!publicKey) {
       setEscrowBalance(null)
+      setPositionValueSol(0)
       return
     }
     loadEscrow()
-    const interval = setInterval(loadEscrow, 15_000)
+    loadPositions()
+    const interval = setInterval(() => {
+      loadEscrow()
+      loadPositions()
+    }, 15_000)
     return () => clearInterval(interval)
-  }, [publicKey, loadEscrow])
+  }, [publicKey, loadEscrow, loadPositions])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -61,8 +81,8 @@ export default function Header() {
   }, [dropdownOpen])
 
   const cashDisplay = escrowBalance !== null ? lamportsToSol(escrowBalance) : '0.00'
-  // Portfolio = cash for now (later will include position value)
-  const portfolioDisplay = cashDisplay
+  const cashSol = escrowBalance !== null ? Number(escrowBalance) / 1_000_000_000 : 0
+  const portfolioDisplay = (cashSol + positionValueSol).toFixed(2)
 
   return (
     <>
