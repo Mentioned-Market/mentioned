@@ -1,19 +1,32 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Header from '@/components/Header'
 import CountdownTimer from '@/components/CountdownTimer'
 import MarketChart from '@/components/MarketChart'
+import FlashValue from '@/components/FlashValue'
 import { useWallet } from '@/contexts/WalletContext'
 import {
-  fetchAllWordMarkets,
+  fetchMarket,
   fetchUserPositions,
-  type WordMarket,
+  fetchTradeHistory,
+  createBuyIx,
+  createSellIx,
+  createAtaIx,
+  createRedeemIx,
+  sendIxs,
+  solToLamports,
+  getAssociatedTokenAddress,
+  lmsrImpliedPrice,
+  lmsrBuyCost,
+  lmsrSellReturn,
+  createRpc,
+  type MarketAccount,
   type UserPosition,
+  type TradeHistoryPoint,
   MarketStatus,
   marketStatusStr,
-  outcomeStr,
 } from '@/lib/mentionMarket'
 import { address as toAddress } from '@solana/kit'
 
@@ -23,6 +36,7 @@ interface Word {
   noPrice: string
   volume: number
   change: number
+  outcome: boolean | null
 }
 
 const SOL_USD_RATE = 175 // mock rate
@@ -30,7 +44,7 @@ const SOL_USD_RATE = 175 // mock rate
 export default function MarketPage() {
   const params = useParams()
   const marketId = params.id as string
-  const { connected, connect, publicKey } = useWallet()
+  const { connected, connect, publicKey, signer } = useWallet()
 
   const [selectedWord, setSelectedWord] = useState<string | null>(null)
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
@@ -38,10 +52,14 @@ export default function MarketPage() {
   const [amount, setAmount] = useState('')
   const [chartPeriod, setChartPeriod] = useState<'1D' | '1W' | '1M' | 'ALL'>('ALL')
   const [showAllWords, setShowAllWords] = useState(false)
-  const [denomination, setDenomination] = useState<'SOL' | 'USD'>('SOL')
+  const [denomination, setDenomination] = useState<'Shares' | 'USD'>('Shares')
   const [denomDropdownOpen, setDenomDropdownOpen] = useState(false)
   const [rulesExpanded, setRulesExpanded] = useState(false)
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
+
+  const [trading, setTrading] = useState(false)
+  const [tradingPhase, setTradingPhase] = useState<'signing' | 'confirming' | 'refreshing' | null>(null)
+  const [tradeStatus, setTradeStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
   // Chart legend — track up to 3 words
   const chartColors = ['#34C759', '#007AFF', '#FF9500']
@@ -49,11 +67,12 @@ export default function MarketPage() {
 
   // On-chain data state
   const isNumericMarket = /^\d+$/.test(marketId)
-  const [onChainWords, setOnChainWords] = useState<WordMarket[] | null>(null)
+  const [onChainMarket, setOnChainMarket] = useState<MarketAccount | null>(null)
   const [onChainStatus, setOnChainStatus] = useState<MarketStatus | null>(null)
   const [loading, setLoading] = useState(isNumericMarket)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [userPositions, setUserPositions] = useState<UserPosition[]>([])
+  const [tradeHistory, setTradeHistory] = useState<TradeHistoryPoint[]>([])
 
   useEffect(() => {
     if (!isNumericMarket) return
@@ -62,20 +81,15 @@ export default function MarketPage() {
     setLoading(true)
     setFetchError(null)
 
-    fetchAllWordMarkets()
-      .then((all) => {
+    fetchMarket(BigInt(marketId))
+      .then((market) => {
         if (cancelled) return
-        const targetId = BigInt(marketId)
-        const matches = all
-          .filter((m) => m.account.marketId === targetId)
-          .sort((a, b) => a.account.wordIndex - b.account.wordIndex)
-
-        if (matches.length === 0) {
+        if (!market) {
           setFetchError('Market not found')
-          setOnChainWords(null)
+          setOnChainMarket(null)
         } else {
-          setOnChainWords(matches.map((m) => m.account))
-          setOnChainStatus(matches[0].account.status)
+          setOnChainMarket(market)
+          setOnChainStatus(market.status)
         }
         setLoading(false)
       })
@@ -101,7 +115,7 @@ export default function MarketPage() {
       .then((positions) => {
         if (cancelled) return
         const marketPositions = positions.filter(
-          (p) => p.market.marketId === BigInt(marketId)
+          (p) => p.marketId === BigInt(marketId)
         )
         setUserPositions(marketPositions)
       })
@@ -109,6 +123,20 @@ export default function MarketPage() {
 
     return () => { cancelled = true }
   }, [publicKey, isNumericMarket, marketId])
+
+  // Fetch trade history for charts
+  useEffect(() => {
+    if (!isNumericMarket) return
+    let cancelled = false
+
+    fetchTradeHistory(BigInt(marketId))
+      .then((history) => {
+        if (!cancelled) setTradeHistory(history)
+      })
+      .catch(console.error)
+
+    return () => { cancelled = true }
+  }, [isNumericMarket, marketId])
 
   interface MarketData {
     id: string
@@ -136,26 +164,30 @@ export default function MarketPage() {
     const now = Date.now()
 
     // On-chain market data
-    if (isNumericMarket && onChainWords && onChainWords.length > 0) {
-      const totalCol = onChainWords.reduce(
-        (sum, w) => sum + Number(w.totalCollateral),
-        0
-      )
+    if (isNumericMarket && onChainMarket && onChainMarket.words.length > 0) {
       return {
         id: marketId,
-        title: `Market #${marketId}`,
+        title: onChainMarket.label || `Market #${marketId}`,
         category: 'Mentions · On-Chain',
-        eventTime: new Date(now + 2 * 60 * 60 * 1000),
-        eventDateLabel: 'TBD',
+        eventTime: new Date(Number(onChainMarket.resolvesAt) * 1000),
+        eventDateLabel: new Date(Number(onChainMarket.resolvesAt) * 1000).toLocaleDateString(),
         imageUrl: '/src/logo.png',
-        words: onChainWords.map((w) => ({
-          word: w.label,
-          yesPrice: '0.50',
-          noPrice: '0.50',
-          volume: Number(w.totalCollateral),
-          change: 0,
-        })),
-        totalVolume: totalCol,
+        words: onChainMarket.words.map((w) => {
+          const price = lmsrImpliedPrice(
+            w.yesQuantity,
+            w.noQuantity,
+            onChainMarket.liquidityParamB
+          )
+          return {
+            word: w.label,
+            yesPrice: price.yes.toFixed(2),
+            noPrice: price.no.toFixed(2),
+            volume: 0,
+            change: 0,
+            outcome: w.outcome,
+          }
+        }),
+        totalVolume: 0,
         rules: {
           summary: `If the speaker says this word during the event, then the market resolves to Yes. Outcome verified from the official broadcast.`,
           details: 'The exact phrase/word, or a plural or possessive form of the phrase/word, must be used. Grammatical/tense inflections are otherwise not included. Commentary will count once the speech has started and end once the speech has concluded.',
@@ -180,16 +212,16 @@ export default function MarketPage() {
         eventDateLabel: 'Feb 14, 12:00pm EST',
         imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCPwsL0smxRVROhCkwShqqarIa-4xnAdVdAomChQJ_T5mRI0s77w-xoaIXYP2m8tRl-uEGpY2db-WBf6yZIfORA6Azp8_G7mOSTRPFRKHgyuo-4Ltlj_aMHH0t0PkSvdDO95rJOZpBgoS7jAKqkQ_7C86iSDgLJC9vDfV4YSshAaEhuIv2qI0WDcGs0VSLKNYTrz72KduCuH-fH8XBkROiM1zDK2dJlV6R0sCiMjP_Y3Ml19Uglhnihkb8ZD1prCuWa0i_wip0TXSI',
         words: [
-          { word: 'Immigration', yesPrice: '0.72', noPrice: '0.28', volume: 125000, change: -6 },
-          { word: 'Economy', yesPrice: '0.65', noPrice: '0.35', volume: 98000, change: -5 },
-          { word: 'China', yesPrice: '0.58', noPrice: '0.42', volume: 87000, change: 3 },
-          { word: 'Border', yesPrice: '0.81', noPrice: '0.19', volume: 156000, change: 8 },
-          { word: 'Taxes', yesPrice: '0.45', noPrice: '0.55', volume: 67000, change: -11 },
-          { word: 'Jobs', yesPrice: '0.67', noPrice: '0.33', volume: 89000, change: 2 },
-          { word: 'Trade', yesPrice: '0.52', noPrice: '0.48', volume: 72000, change: -3 },
-          { word: 'America', yesPrice: '0.89', noPrice: '0.11', volume: 234000, change: 12 },
-          { word: 'Freedom', yesPrice: '0.76', noPrice: '0.24', volume: 145000, change: 5 },
-          { word: 'Victory', yesPrice: '0.83', noPrice: '0.17', volume: 178000, change: -2 },
+          { word: 'Immigration', yesPrice: '0.72', noPrice: '0.28', volume: 125000, change: -6, outcome: null },
+          { word: 'Economy', yesPrice: '0.65', noPrice: '0.35', volume: 98000, change: -5, outcome: null },
+          { word: 'China', yesPrice: '0.58', noPrice: '0.42', volume: 87000, change: 3, outcome: null },
+          { word: 'Border', yesPrice: '0.81', noPrice: '0.19', volume: 156000, change: 8, outcome: null },
+          { word: 'Taxes', yesPrice: '0.45', noPrice: '0.55', volume: 67000, change: -11, outcome: null },
+          { word: 'Jobs', yesPrice: '0.67', noPrice: '0.33', volume: 89000, change: 2, outcome: null },
+          { word: 'Trade', yesPrice: '0.52', noPrice: '0.48', volume: 72000, change: -3, outcome: null },
+          { word: 'America', yesPrice: '0.89', noPrice: '0.11', volume: 234000, change: 12, outcome: null },
+          { word: 'Freedom', yesPrice: '0.76', noPrice: '0.24', volume: 145000, change: 5, outcome: null },
+          { word: 'Victory', yesPrice: '0.83', noPrice: '0.17', volume: 178000, change: -2, outcome: null },
         ],
         totalVolume: 1251000,
         rules: {
@@ -206,7 +238,7 @@ export default function MarketPage() {
       },
     }
     return marketData[marketId] || marketData['trump-speech']
-  }, [marketId, isNumericMarket, onChainWords])
+  }, [marketId, isNumericMarket, onChainMarket])
 
   // Initialize tracked words and selected word
   useMemo(() => {
@@ -231,15 +263,47 @@ export default function MarketPage() {
       const data: { timestamp: number; price: number }[] = []
       const now = Date.now()
       const endPrice = parseFloat(word.yesPrice)
-      const startPrice = endPrice - 0.1 + Math.random() * 0.05
 
-      for (let j = 0; j < 60; j++) {
-        const progress = j / 59
-        const timestamp = now - (24 * 60 * 60 * 1000) * (1 - progress)
-        const volatility = (Math.random() - 0.5) * 0.04
-        const trend = startPrice + (endPrice - startPrice) * progress
-        const price = Math.max(0.01, Math.min(0.99, trend + volatility))
-        data.push({ timestamp, price })
+      if (isNumericMarket && onChainMarket) {
+        // Find this word's index in the on-chain data
+        const onChainWord = onChainMarket.words.find((w) => w.label === wordName)
+        const wordIdx = onChainWord?.wordIndex
+
+        // Filter trade history for this word
+        const wordHistory = wordIdx !== undefined
+          ? tradeHistory.filter((t) => t.wordIndex === wordIdx)
+          : []
+
+        if (wordHistory.length > 0) {
+          // Start at 0.50 (initial LMSR price), then add each trade's resulting price
+          data.push({
+            timestamp: wordHistory[0].timestamp * 1000 - 60000,
+            price: 0.50,
+          })
+          for (const point of wordHistory) {
+            data.push({
+              timestamp: point.timestamp * 1000,
+              price: point.impliedYesPrice,
+            })
+          }
+          // Add current price at now
+          data.push({ timestamp: now, price: endPrice })
+        } else {
+          // No trades yet: flat line at current price
+          data.push({ timestamp: now - 24 * 60 * 60 * 1000, price: 0.50 })
+          data.push({ timestamp: now, price: endPrice })
+        }
+      } else {
+        // Demo market: generate mock chart data
+        const startPrice = endPrice - 0.1 + Math.random() * 0.05
+        for (let j = 0; j < 60; j++) {
+          const progress = j / 59
+          const timestamp = now - (24 * 60 * 60 * 1000) * (1 - progress)
+          const volatility = (Math.random() - 0.5) * 0.04
+          const trend = startPrice + (endPrice - startPrice) * progress
+          const price = Math.max(0.01, Math.min(0.99, trend + volatility))
+          data.push({ timestamp, price })
+        }
       }
 
       return {
@@ -249,7 +313,7 @@ export default function MarketPage() {
         currentPrice: endPrice,
       }
     }).filter(Boolean) as { label: string; color: string; data: { timestamp: number; price: number }[]; currentPrice: number }[]
-  }, [trackedWords, market.words])
+  }, [trackedWords, market.words, isNumericMarket, onChainMarket, tradeHistory])
 
   const yesCents = Math.round(parseFloat(selectedWordData.yesPrice) * 100)
   const noCents = Math.round(parseFloat(selectedWordData.noPrice) * 100)
@@ -273,29 +337,182 @@ export default function MarketPage() {
 
   // Amount conversion helpers
   const amountNum = parseFloat(amount) || 0
-  const convertedAmount = denomination === 'SOL'
-    ? (amountNum * SOL_USD_RATE).toFixed(2)
-    : (amountNum / SOL_USD_RATE).toFixed(4)
-  const convertedLabel = denomination === 'SOL' ? 'USD' : 'SOL'
+  const activePrice = selectedSide === 'YES'
+    ? parseFloat(selectedWordData.yesPrice)
+    : parseFloat(selectedWordData.noPrice)
+
+  // Shares mode: user enters shares, we compute SOL cost
+  // USD mode: user enters USD, we compute shares
+  const shares = denomination === 'Shares'
+    ? amountNum
+    : activePrice > 0 ? (amountNum / SOL_USD_RATE) / activePrice : 0
+
+  // Use accurate LMSR cost/return instead of simple shares * price
+  const wordForCost = onChainMarket?.words.find((w) => w.label === selectedWord)
+  const costInSol = useMemo(() => {
+    if (!wordForCost || !onChainMarket || shares <= 0) return shares * activePrice
+    if (side === 'buy') {
+      return lmsrBuyCost(
+        wordForCost.yesQuantity, wordForCost.noQuantity,
+        selectedSide, shares, onChainMarket.liquidityParamB
+      )
+    } else {
+      return lmsrSellReturn(
+        wordForCost.yesQuantity, wordForCost.noQuantity,
+        selectedSide, shares, onChainMarket.liquidityParamB
+      )
+    }
+  }, [wordForCost, onChainMarket, shares, selectedSide, side, activePrice])
+  const costInUsd = costInSol * SOL_USD_RATE
 
   const visibleWords = showAllWords ? market.words : market.words.slice(0, 3)
 
   // Color for the side label
   const sideColor = selectedSide === 'YES' ? 'text-apple-green' : 'text-apple-red'
 
-  // Potential winnings: amount buys (amount / price) shares, each pays 1 unit if correct
-  const activePrice = selectedSide === 'YES'
-    ? parseFloat(selectedWordData.yesPrice)
-    : parseFloat(selectedWordData.noPrice)
-  const amountInSol = denomination === 'SOL' ? amountNum : amountNum / SOL_USD_RATE
-  const potentialPayout = activePrice > 0 ? amountInSol / activePrice : 0
-  const potentialProfit = potentialPayout - amountInSol
+  // Potential winnings: each share pays 1 SOL if correct
+  const potentialPayout = shares * 1.0
+  const potentialProfit = potentialPayout - costInSol
 
   // User's position for the currently selected word
   const selectedWordPosition = useMemo(() => {
     if (!selectedWord) return null
-    return userPositions.find((p) => p.market.label === selectedWord) ?? null
+    return userPositions.find((p) => p.wordLabel === selectedWord) ?? null
   }, [selectedWord, userPositions])
+
+  // Refresh market + positions + history
+  const refreshData = useCallback(async () => {
+    if (!isNumericMarket) return
+    try {
+      const m = await fetchMarket(BigInt(marketId))
+      if (m) {
+        setOnChainMarket(m)
+        setOnChainStatus(m.status)
+      }
+    } catch {}
+    try {
+      const history = await fetchTradeHistory(BigInt(marketId))
+      setTradeHistory(history)
+    } catch {}
+    if (publicKey) {
+      try {
+        const positions = await fetchUserPositions(toAddress(publicKey))
+        setUserPositions(positions.filter((p) => p.marketId === BigInt(marketId)))
+      } catch {}
+    }
+  }, [isNumericMarket, marketId, publicKey])
+
+  // Auto-poll every 15s so other users' trades appear
+  useEffect(() => {
+    if (!isNumericMarket || loading) return
+    const interval = setInterval(refreshData, 15_000)
+    return () => clearInterval(interval)
+  }, [isNumericMarket, loading, refreshData])
+
+  const handleTrade = async () => {
+    if (!signer || !publicKey || !onChainMarket || !selectedWord) return
+    if (shares <= 0) return
+
+    const wordData = onChainMarket.words.find((w) => w.label === selectedWord)
+    if (!wordData) return
+    const wordIndex = wordData.wordIndex
+
+    setTrading(true)
+    setTradingPhase('signing')
+    setTradeStatus(null)
+    try {
+      const addr = toAddress(publicKey)
+
+      if (side === 'buy') {
+        // Determine the token mint for ATA creation
+        const mint = selectedSide === 'YES' ? wordData.yesMint : wordData.noMint
+        const ata = await getAssociatedTokenAddress(mint, addr)
+
+        // Check if ATA exists - if not, create it first
+        const ixs = []
+        try {
+          const rpc = createRpc()
+          const ataInfo = await rpc.getAccountInfo(ata, { encoding: 'base64' }).send()
+          if (!ataInfo.value) {
+            ixs.push(await createAtaIx(addr, addr, mint))
+          }
+        } catch {
+          // If we can't check, try to create it (idempotent with ATA program)
+          ixs.push(await createAtaIx(addr, addr, mint))
+        }
+
+        // quantity in token base units (9 decimals = 1 share)
+        const quantityTokens = solToLamports(shares)
+        // Compute accurate LMSR cost + trade fee + 10% slippage buffer
+        const accurateCost = lmsrBuyCost(
+          wordData.yesQuantity, wordData.noQuantity,
+          selectedSide, shares, onChainMarket.liquidityParamB
+        )
+        const feeBps = onChainMarket.tradeFeeBps || 0
+        const costWithFee = accurateCost * (1 + feeBps / 10000)
+        const maxCostLamports = solToLamports(costWithFee * 1.10)
+
+        ixs.push(
+          await createBuyIx(
+            addr,
+            BigInt(marketId),
+            wordIndex,
+            selectedSide,
+            quantityTokens,
+            maxCostLamports,
+            onChainMarket
+          )
+        )
+
+        await sendIxs(signer, ixs)
+      } else {
+        // Sell: shares to sell in token units
+        const quantityTokens = solToLamports(shares)
+        // Compute accurate LMSR return - fee - 10% slippage buffer
+        const accurateReturn = lmsrSellReturn(
+          wordData.yesQuantity, wordData.noQuantity,
+          selectedSide, shares, onChainMarket.liquidityParamB
+        )
+        const feeBps = onChainMarket.tradeFeeBps || 0
+        const returnAfterFee = accurateReturn * (1 - feeBps / 10000)
+        const minReturnLamports = solToLamports(returnAfterFee * 0.90)
+
+        const ix = await createSellIx(
+          addr,
+          BigInt(marketId),
+          wordIndex,
+          selectedSide,
+          quantityTokens,
+          minReturnLamports,
+          onChainMarket
+        )
+
+        await sendIxs(signer, [ix])
+      }
+
+      // Wait for transaction to confirm on-chain
+      setTradingPhase('confirming')
+      await new Promise((r) => setTimeout(r, 2000))
+
+      // Refresh market data + positions
+      setTradingPhase('refreshing')
+      await refreshData()
+
+      const action = side === 'buy' ? 'Bought' : 'Sold'
+      setTradeStatus({
+        msg: `${action} ${shares.toFixed(2)} ${selectedSide} shares of "${selectedWord}" for ${costInSol.toFixed(4)} SOL`,
+        error: false,
+      })
+      setAmount('')
+    } catch (e: unknown) {
+      console.error('Trade failed:', e)
+      setTradeStatus({ msg: (e as Error).message, error: true })
+    } finally {
+      setTrading(false)
+      setTradingPhase(null)
+      setTimeout(() => setTradeStatus(null), 8000)
+    }
+  }
 
   // Trading panel content (shared between desktop sidebar and mobile sheet)
   const tradingPanel = (
@@ -359,7 +576,7 @@ export default function MarketPage() {
               : 'border border-white/10 text-neutral-400 hover:border-white/20'
           }`}
         >
-          Yes {yesCents}¢
+          Yes <FlashValue value={`${yesCents}¢`} />
         </button>
         <button
           onClick={() => setSelectedSide('NO')}
@@ -369,7 +586,7 @@ export default function MarketPage() {
               : 'border border-white/10 text-neutral-400 hover:border-white/20'
           }`}
         >
-          No {noCents}¢
+          No <FlashValue value={`${noCents}¢`} />
         </button>
       </div>
 
@@ -380,7 +597,9 @@ export default function MarketPage() {
             <div className="text-sm text-neutral-400 font-medium">Amount</div>
             {amountNum > 0 && (
               <div className="text-xs text-neutral-500 mt-0.5">
-                ({denomination === 'SOL' ? '$' : ''}{convertedAmount} {convertedLabel})
+                {denomination === 'Shares'
+                  ? `${costInSol.toFixed(4)} SOL ($${costInUsd.toFixed(2)})`
+                  : `${shares.toFixed(2)} shares (${costInSol.toFixed(4)} SOL)`}
               </div>
             )}
           </div>
@@ -412,14 +631,14 @@ export default function MarketPage() {
                 </svg>
               </button>
               {denomDropdownOpen && (
-                <div className="absolute right-0 top-full mt-1 w-20 bg-neutral-900 rounded-lg overflow-hidden z-50 border border-white/10 animate-scale-in">
+                <div className="absolute right-0 top-full mt-1 w-24 bg-neutral-900 rounded-lg overflow-hidden z-50 border border-white/10 animate-scale-in">
                   <button
-                    onClick={() => { setDenomination('SOL'); setDenomDropdownOpen(false); setAmount('') }}
+                    onClick={() => { setDenomination('Shares'); setDenomDropdownOpen(false); setAmount('') }}
                     className={`block w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                      denomination === 'SOL' ? 'text-white bg-white/10' : 'text-neutral-400 hover:bg-white/5'
+                      denomination === 'Shares' ? 'text-white bg-white/10' : 'text-neutral-400 hover:bg-white/5'
                     }`}
                   >
-                    SOL
+                    Shares
                   </button>
                   <button
                     onClick={() => { setDenomination('USD'); setDenomDropdownOpen(false); setAmount('') }}
@@ -442,42 +661,133 @@ export default function MarketPage() {
           <div className="flex justify-between">
             <span className="text-neutral-400">Shares</span>
             <span className="text-white font-medium">
-              {(amountInSol / activePrice).toFixed(2)}
+              {shares.toFixed(2)}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-400">Payout if correct</span>
+            <span className="text-neutral-400">{side === 'buy' ? 'Cost' : 'Return'}</span>
             <span className="text-white font-medium">
-              {potentialPayout.toFixed(4)} SOL
+              {costInSol.toFixed(4)} SOL
             </span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-neutral-400">Profit</span>
-            <span className="text-apple-green font-semibold">
-              +{potentialProfit.toFixed(4)} SOL
-            </span>
-          </div>
+          {side === 'buy' && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Payout if correct</span>
+                <span className="text-white font-medium">
+                  {potentialPayout.toFixed(4)} SOL
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Profit</span>
+                <span className="text-apple-green font-semibold">
+                  +{potentialProfit.toFixed(4)} SOL
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Trade Status */}
+      {tradeStatus && (
+        <div
+          className={`mb-3 p-3 rounded-lg text-xs ${
+            tradeStatus.error
+              ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+              : 'bg-green-500/10 border border-green-500/30 text-green-300'
+          }`}
+        >
+          {tradeStatus.msg}
         </div>
       )}
 
       {/* Action Button */}
       {isNumericMarket && onChainStatus === MarketStatus.Resolved ? (
-        <button
-          disabled
-          className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed"
-        >
-          Market Resolved
-        </button>
+        (() => {
+          const marketClaimable = userPositions.filter((p) => p.claimable)
+          const totalClaimSol = marketClaimable.reduce((s, p) => s + p.estimatedValueSol, 0)
+          return marketClaimable.length > 0 ? (
+            <button
+              onClick={async () => {
+                if (!signer || !publicKey || !onChainMarket) return
+                setTrading(true)
+                setTradingPhase('signing')
+                setTradeStatus(null)
+                try {
+                  const addr = toAddress(publicKey)
+                  const ixs = await Promise.all(
+                    marketClaimable.map((pos) =>
+                      createRedeemIx(addr, pos.marketId, pos.wordIndex, pos.side, onChainMarket!)
+                    )
+                  )
+                  await sendIxs(signer, ixs)
+                  setTradingPhase('confirming')
+                  await new Promise((r) => setTimeout(r, 2000))
+                  setTradingPhase('refreshing')
+                  await refreshData()
+                  setTradeStatus({
+                    msg: `Claimed ${marketClaimable.length} position${marketClaimable.length > 1 ? 's' : ''} for ${totalClaimSol.toFixed(4)} SOL`,
+                    error: false,
+                  })
+                } catch (e: unknown) {
+                  console.error('Claim failed:', e)
+                  setTradeStatus({ msg: (e as Error).message, error: true })
+                } finally {
+                  setTrading(false)
+                  setTradingPhase(null)
+                  setTimeout(() => setTradeStatus(null), 8000)
+                }
+              }}
+              disabled={trading}
+              className="w-full py-3.5 bg-apple-green hover:bg-apple-green/90 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {trading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  {tradingPhase === 'signing' && 'Sign in wallet...'}
+                  {tradingPhase === 'confirming' && 'Confirming...'}
+                  {tradingPhase === 'refreshing' && 'Updating...'}
+                </span>
+              ) : (
+                `Claim ${marketClaimable.length} Position${marketClaimable.length > 1 ? 's' : ''} (${totalClaimSol.toFixed(4)} SOL)`
+              )}
+            </button>
+          ) : (
+            <button
+              disabled
+              className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed"
+            >
+              Market Resolved
+            </button>
+          )
+        })()
       ) : connected ? (
         <button
-          disabled={!amount || parseFloat(amount) <= 0}
+          onClick={handleTrade}
+          disabled={!amount || parseFloat(amount) <= 0 || trading || !isNumericMarket}
           className={`w-full py-3.5 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
             selectedSide === 'YES'
               ? 'bg-apple-green hover:bg-apple-green/90'
               : 'bg-apple-red hover:bg-apple-red/90'
           }`}
         >
-          {side === 'buy' ? 'Buy' : 'Sell'} {selectedSide === 'YES' ? 'Yes' : 'No'}
+          {trading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              {tradingPhase === 'signing' && 'Sign in wallet...'}
+              {tradingPhase === 'confirming' && 'Confirming...'}
+              {tradingPhase === 'refreshing' && 'Updating...'}
+            </span>
+          ) : (
+            `${side === 'buy' ? 'Buy' : 'Sell'} ${selectedSide === 'YES' ? 'Yes' : 'No'}`
+          )}
         </button>
       ) : (
         <button
@@ -505,15 +815,11 @@ export default function MarketPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-neutral-400">Shares</span>
-              <span className="text-white font-medium">
-                {selectedWordPosition.shares.toFixed(2)}
-              </span>
+              <FlashValue value={selectedWordPosition.shares.toFixed(2)} className="text-white font-medium" />
             </div>
             <div className="flex justify-between">
               <span className="text-neutral-400">Est. Value</span>
-              <span className="text-white font-medium">
-                {selectedWordPosition.estimatedValueSol.toFixed(4)} SOL
-              </span>
+              <FlashValue value={`${selectedWordPosition.estimatedValueSol.toFixed(4)} SOL`} className="text-white font-medium" />
             </div>
           </div>
         </div>
@@ -559,16 +865,13 @@ export default function MarketPage() {
                     <span>{market.category}</span>
                     {isNumericMarket && onChainStatus !== null && (
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                        onChainStatus === MarketStatus.Active
+                        onChainStatus === MarketStatus.Open
                           ? 'bg-apple-green/15 text-apple-green'
                           : onChainStatus === MarketStatus.Paused
                           ? 'bg-yellow-500/15 text-yellow-400'
                           : 'bg-white/10 text-neutral-300'
                       }`}>
                         {marketStatusStr(onChainStatus)}
-                        {onChainStatus === MarketStatus.Resolved && onChainWords?.[0]?.outcome !== null && (
-                          <> · {outcomeStr(onChainWords![0].outcome)}</>
-                        )}
                       </span>
                     )}
                   </div>
@@ -608,7 +911,7 @@ export default function MarketPage() {
                         style={{ backgroundColor: chartColors[i % chartColors.length] }}
                       />
                       <span className="text-neutral-300 font-medium">{wordName}</span>
-                      <span className="text-white font-semibold">{pct}%</span>
+                      <FlashValue value={`${pct}%`} className="text-white font-semibold" />
                     </button>
                   )
                 })}
@@ -663,6 +966,7 @@ export default function MarketPage() {
                       const wordChance = Math.round(parseFloat(word.yesPrice) * 100)
                       const isSelected = selectedWord === word.word
                       const isTracked = trackedWords.includes(word.word)
+                      const isResolved = word.outcome !== null
 
                       return (
                         <button
@@ -682,46 +986,67 @@ export default function MarketPage() {
                             <span className="text-white font-semibold text-sm md:text-[15px]">
                               {word.word}
                             </span>
+                            {isResolved && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                word.outcome ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                              }`}>
+                                {word.outcome ? 'YES' : 'NO'}
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 md:gap-2 flex-1 justify-center">
-                            <span className="text-white font-bold text-base md:text-lg">{wordChance}%</span>
-                            <span className={`text-[10px] md:text-xs font-semibold ${
-                              word.change >= 0 ? 'text-apple-green' : 'text-apple-red'
-                            }`}>
-                              {word.change >= 0 ? '▲' : '▼'} {Math.abs(word.change)}
-                            </span>
+                            <FlashValue value={`${wordChance}%`} className="text-white font-bold text-base md:text-lg" />
+                            {word.change !== 0 && (
+                              <span className={`text-[10px] md:text-xs font-semibold ${
+                                word.change > 0 ? 'text-apple-green' : 'text-apple-red'
+                              }`}>
+                                {word.change > 0 ? '▲' : '▼'} {Math.abs(word.change)}
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 md:gap-2 w-[160px] md:w-[240px] justify-end">
-                            <span
-                              className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
-                                isSelected && selectedSide === 'YES'
-                                  ? 'bg-apple-green/15 border-apple-green text-apple-green'
-                                  : 'border-white/10 text-apple-green hover:border-apple-green/30'
-                              }`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedWord(word.word)
-                                setSelectedSide('YES')
-                              }}
-                            >
-                              Yes {wordYesCents}¢
-                            </span>
-                            <span
-                              className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
-                                isSelected && selectedSide === 'NO'
-                                  ? 'bg-apple-red/15 border-apple-red text-apple-red'
-                                  : 'border-white/10 text-apple-red hover:border-apple-red/30'
-                              }`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedWord(word.word)
-                                setSelectedSide('NO')
-                              }}
-                            >
-                              No {wordNoCents}¢
-                            </span>
+                            {isResolved ? (
+                              <span className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border ${
+                                word.outcome
+                                  ? 'bg-apple-green/10 border-apple-green/30 text-apple-green'
+                                  : 'bg-apple-red/10 border-apple-red/30 text-apple-red'
+                              }`}>
+                                Resolved {word.outcome ? 'Yes' : 'No'}
+                              </span>
+                            ) : (
+                              <>
+                                <span
+                                  className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
+                                    isSelected && selectedSide === 'YES'
+                                      ? 'bg-apple-green/15 border-apple-green text-apple-green'
+                                      : 'border-white/10 text-apple-green hover:border-apple-green/30'
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedWord(word.word)
+                                    setSelectedSide('YES')
+                                  }}
+                                >
+                                  Yes <FlashValue value={`${wordYesCents}¢`} />
+                                </span>
+                                <span
+                                  className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
+                                    isSelected && selectedSide === 'NO'
+                                      ? 'bg-apple-red/15 border-apple-red text-apple-red'
+                                      : 'border-white/10 text-apple-red hover:border-apple-red/30'
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedWord(word.word)
+                                    setSelectedSide('NO')
+                                  }}
+                                >
+                                  No <FlashValue value={`${wordNoCents}¢`} />
+                                </span>
+                              </>
+                            )}
                           </div>
                         </button>
                       )
@@ -858,9 +1183,7 @@ export default function MarketPage() {
               <span className="text-white font-semibold text-sm">
                 {selectedWordData.word}
               </span>
-              <span className="text-neutral-500 text-sm ml-2">
-                {selectedSide === 'YES' ? yesCents : noCents}¢
-              </span>
+              <FlashValue value={`${selectedSide === 'YES' ? yesCents : noCents}¢`} className="text-neutral-500 text-sm ml-2" />
             </div>
             <button
               onClick={() => setMobileTradeOpen(true)}

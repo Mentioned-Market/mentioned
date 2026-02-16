@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { address as toAddress } from '@solana/kit'
 import { fetchEscrow, fetchUserPositions, lamportsToSol } from '@/lib/mentionMarket'
 import DepositModal from '@/components/DepositModal'
+import FlashValue from '@/components/FlashValue'
 
 export default function Header() {
   const { publicKey, connected, connect, disconnect } = useWallet()
@@ -110,27 +111,23 @@ export default function Header() {
           {connected ? (
             <>
               {/* Portfolio / Cash — desktop */}
-              <div className="hidden md:flex items-center gap-4 px-4 py-2 glass rounded-lg">
-                <div className="flex flex-col">
-                  <span className="text-neutral-400 text-[10px] font-medium uppercase tracking-wider">Portfolio</span>
-                  <span className="text-white font-semibold text-sm">{portfolioDisplay} SOL</span>
-                </div>
-                <div className="w-px h-8 bg-white/10" />
-                <div className="flex flex-col">
-                  <span className="text-neutral-400 text-[10px] font-medium uppercase tracking-wider">Cash</span>
-                  <span className="text-white font-semibold text-sm">{cashDisplay} SOL</span>
-                </div>
+              <div className="hidden md:flex items-center gap-3 h-9 px-3 glass rounded-lg">
+                <span className="text-neutral-400 text-xs font-medium">Portfolio</span>
+                <FlashValue value={`${portfolioDisplay} SOL`} className="text-white font-semibold text-sm" />
+                <div className="w-px h-4 bg-white/10" />
+                <span className="text-neutral-400 text-xs font-medium">Cash</span>
+                <FlashValue value={`${cashDisplay} SOL`} className="text-white font-semibold text-sm" />
               </div>
 
               {/* Mobile: compact cash display */}
-              <div className="flex md:hidden items-center px-2.5 py-1.5 glass rounded-lg">
-                <span className="text-white font-semibold text-xs">{cashDisplay} SOL</span>
+              <div className="flex md:hidden items-center h-8 px-2.5 glass rounded-lg">
+                <FlashValue value={`${cashDisplay} SOL`} className="text-white font-semibold text-xs" />
               </div>
 
               {/* Deposit button */}
               <button
                 onClick={() => setDepositOpen(true)}
-                className="h-8 md:h-9 px-3 md:px-4 bg-white text-black text-xs md:text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button"
+                className="h-8 md:h-9 px-2.5 md:px-3 bg-white text-black text-xs font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200"
               >
                 Deposit
               </button>

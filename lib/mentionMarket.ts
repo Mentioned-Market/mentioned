@@ -20,13 +20,19 @@ import {
 // ── Constants ────────────────────────────────────────────
 
 export const PROGRAM_ID = toAddress(
-  'AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN'
+  '2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU'
 )
 export const TOKEN_PROGRAM = toAddress(
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 )
 export const SYSTEM_PROGRAM = toAddress(
   '11111111111111111111111111111111'
+)
+export const RENT_SYSVAR = toAddress(
+  'SysvarRent111111111111111111111111111111111'
+)
+export const ASSOCIATED_TOKEN_PROGRAM = toAddress(
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 )
 export const DEVNET_URL = 'https://api.devnet.solana.com'
 const LAMPORTS_PER_SOL = 1_000_000_000
@@ -37,14 +43,18 @@ const DISC = {
   withdraw: new Uint8Array([183, 18, 70, 156, 148, 109, 161, 34]),
   createMarket: new Uint8Array([103, 226, 97, 235, 200, 188, 251, 254]),
   pauseMarket: new Uint8Array([216, 238, 4, 164, 65, 11, 162, 91]),
-  resolveMarket: new Uint8Array([155, 23, 80, 173, 46, 74, 23, 239]),
-  claim: new Uint8Array([62, 198, 214, 193, 213, 159, 108, 210]),
+  resolveWord: new Uint8Array([233, 96, 121, 102, 6, 222, 241, 147]),
+  depositLiquidity: new Uint8Array([245, 99, 59, 25, 151, 71, 233, 249]),
+  buy: new Uint8Array([102, 6, 61, 18, 1, 218, 235, 234]),
+  sell: new Uint8Array([51, 230, 133, 164, 1, 127, 131, 173]),
+  redeem: new Uint8Array([184, 12, 86, 149, 70, 196, 97, 225]),
+  withdrawLiquidity: new Uint8Array([149, 158, 33, 185, 47, 243, 253, 31]),
 }
 
 // Account discriminators
 const ACCT_DISC = {
   userEscrow: new Uint8Array([242, 233, 85, 38, 26, 5, 142, 109]),
-  wordMarket: new Uint8Array([19, 245, 212, 180, 55, 87, 181, 250]),
+  marketAccount: new Uint8Array([201, 78, 187, 225, 240, 198, 201, 251]),
 }
 
 // ── Types ────────────────────────────────────────────────
@@ -57,34 +67,51 @@ export interface UserEscrow {
 }
 
 export enum MarketStatus {
-  Active = 0,
+  Open = 0,
   Paused = 1,
   Resolved = 2,
 }
 
-export enum Outcome {
-  Yes = 0,
-  No = 1,
-}
-
-export interface WordMarket {
-  authority: Address
-  marketId: bigint
+export interface WordState {
   wordIndex: number
   label: string
   yesMint: Address
   noMint: Address
-  vault: Address
-  totalCollateral: bigint
-  status: MarketStatus
-  outcome: Outcome | null
+  yesQuantity: bigint
+  noQuantity: bigint
+  outcome: boolean | null
+}
+
+export interface MarketAccount {
+  version: number
   bump: number
+  marketId: bigint
+  label: string
+  authority: Address
+  resolver: Address
+  router: Address | null
+  poolVault: Address
   vaultBump: number
+  totalLpShares: bigint
+  liquidityParamB: bigint
+  baseBPerSol: bigint
+  numWords: number
+  words: WordState[]
+  status: MarketStatus
+  createdAt: bigint
+  resolvesAt: bigint
+  resolvedAt: bigint | null
+  tradeFeeBps: number
+  protocolFeeBps: number
+  accumulatedFees: bigint
 }
 
 export interface UserPosition {
-  wordMarketPubkey: Address
-  market: WordMarket
+  marketId: bigint
+  wordIndex: number
+  wordLabel: string
+  marketLabel: string
+  marketStatus: MarketStatus
   side: 'YES' | 'NO'
   rawAmount: bigint
   shares: number
@@ -97,6 +124,12 @@ export interface UserPosition {
 function u64LE(n: bigint): Uint8Array {
   const buf = new ArrayBuffer(8)
   new DataView(buf).setBigUint64(0, n, true)
+  return new Uint8Array(buf)
+}
+
+function i64LE(n: bigint): Uint8Array {
+  const buf = new ArrayBuffer(8)
+  new DataView(buf).setBigInt64(0, n, true)
   return new Uint8Array(buf)
 }
 
@@ -150,45 +183,72 @@ export async function getEscrowPDA(
   return [pda, bump]
 }
 
-export async function getWordMarketPDA(
-  marketId: bigint,
-  wordIndex: number
+export async function getMarketPDA(
+  marketId: bigint
 ): Promise<[Address, number]> {
   const [pda, bump] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
-    seeds: ['market', u64LE(marketId), u16LE(wordIndex)],
-  })
-  return [pda, bump]
-}
-
-export async function getYesMintPDA(
-  wordMarket: Address
-): Promise<[Address, number]> {
-  const [pda, bump] = await getProgramDerivedAddress({
-    programAddress: PROGRAM_ID,
-    seeds: ['yes_mint', addrEncoder.encode(wordMarket)],
-  })
-  return [pda, bump]
-}
-
-export async function getNoMintPDA(
-  wordMarket: Address
-): Promise<[Address, number]> {
-  const [pda, bump] = await getProgramDerivedAddress({
-    programAddress: PROGRAM_ID,
-    seeds: ['no_mint', addrEncoder.encode(wordMarket)],
+    seeds: ['market', u64LE(marketId)],
   })
   return [pda, bump]
 }
 
 export async function getVaultPDA(
-  wordMarket: Address
+  marketId: bigint
 ): Promise<[Address, number]> {
   const [pda, bump] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
-    seeds: ['vault', addrEncoder.encode(wordMarket)],
+    seeds: ['vault', u64LE(marketId)],
   })
   return [pda, bump]
+}
+
+export async function getYesMintPDA(
+  marketId: bigint,
+  wordIndex: number
+): Promise<[Address, number]> {
+  const [pda, bump] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: ['yes_mint', u64LE(marketId), new Uint8Array([wordIndex])],
+  })
+  return [pda, bump]
+}
+
+export async function getNoMintPDA(
+  marketId: bigint,
+  wordIndex: number
+): Promise<[Address, number]> {
+  const [pda, bump] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: ['no_mint', u64LE(marketId), new Uint8Array([wordIndex])],
+  })
+  return [pda, bump]
+}
+
+export async function getLpPositionPDA(
+  marketId: bigint,
+  lpWallet: Address
+): Promise<[Address, number]> {
+  const [pda, bump] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: ['lp', u64LE(marketId), addrEncoder.encode(lpWallet)],
+  })
+  return [pda, bump]
+}
+
+export async function getAssociatedTokenAddress(
+  mint: Address,
+  owner: Address
+): Promise<Address> {
+  const [pda] = await getProgramDerivedAddress({
+    programAddress: ASSOCIATED_TOKEN_PROGRAM,
+    seeds: [
+      addrEncoder.encode(owner),
+      addrEncoder.encode(TOKEN_PROGRAM),
+      addrEncoder.encode(mint),
+    ],
+  })
+  return pda
 }
 
 // ── Instruction builders ─────────────────────────────────
@@ -228,119 +288,273 @@ export async function createWithdrawIx(
 export async function createCreateMarketIx(
   authority: Address,
   marketId: bigint,
-  wordIndex: number,
-  label: string
+  label: string,
+  wordLabels: string[],
+  resolvesAt: bigint,
+  resolver: Address,
+  tradeFeeBps: number,
+  initialB: bigint,
+  baseBPerSol: bigint
 ): Promise<Instruction> {
-  const [wordMarket] = await getWordMarketPDA(marketId, wordIndex)
-  const [yesMint] = await getYesMintPDA(wordMarket)
-  const [noMint] = await getNoMintPDA(wordMarket)
-  const [vault] = await getVaultPDA(wordMarket)
+  const [marketPda] = await getMarketPDA(marketId)
+  const [vaultPda] = await getVaultPDA(marketId)
+
+  // Build remaining accounts: pairs of (yes_mint, no_mint) per word
+  const remainingAccounts: AccountMeta[] = []
+  for (let i = 0; i < wordLabels.length; i++) {
+    const [yesMint] = await getYesMintPDA(marketId, i)
+    const [noMint] = await getNoMintPDA(marketId, i)
+    remainingAccounts.push({ address: yesMint, role: AccountRole.WRITABLE })
+    remainingAccounts.push({ address: noMint, role: AccountRole.WRITABLE })
+  }
+
+  // Encode Vec<String> for word_labels
+  const wordLabelsParts: Uint8Array[] = [u32LE(wordLabels.length)]
+  for (const w of wordLabels) {
+    wordLabelsParts.push(encodeString(w))
+  }
+  const encodedWordLabels = concat(...wordLabelsParts)
 
   return {
     programAddress: PROGRAM_ID,
     accounts: [
       { address: authority, role: AccountRole.WRITABLE_SIGNER },
-      { address: wordMarket, role: AccountRole.WRITABLE },
-      { address: yesMint, role: AccountRole.WRITABLE },
-      { address: noMint, role: AccountRole.WRITABLE },
-      { address: vault, role: AccountRole.READONLY },
+      { address: marketPda, role: AccountRole.WRITABLE },
+      { address: vaultPda, role: AccountRole.WRITABLE },
       { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
       { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+      { address: RENT_SYSVAR, role: AccountRole.READONLY },
+      ...remainingAccounts,
     ] as AccountMeta[],
     data: concat(
       DISC.createMarket,
       u64LE(marketId),
-      u16LE(wordIndex),
-      encodeString(label)
+      encodeString(label),
+      encodedWordLabels,
+      i64LE(resolvesAt),
+      new Uint8Array(addrEncoder.encode(resolver)),
+      u16LE(tradeFeeBps),
+      u64LE(initialB),
+      u64LE(baseBPerSol)
     ),
   }
 }
 
-/** Build instructions for a batch of words sharing the same market_id */
-export async function createMarketGroupIxs(
-  authority: Address,
-  marketId: bigint,
-  words: string[]
-): Promise<Instruction[]> {
-  return Promise.all(
-    words.map((word, i) =>
-      createCreateMarketIx(authority, marketId, i, word.trim())
-    )
-  )
-}
-
 export async function createPauseMarketIx(
   authority: Address,
-  marketId: bigint,
-  wordIndex: number
+  marketId: bigint
 ): Promise<Instruction> {
-  const [wordMarket] = await getWordMarketPDA(marketId, wordIndex)
+  const [marketPda] = await getMarketPDA(marketId)
   return {
     programAddress: PROGRAM_ID,
     accounts: [
       { address: authority, role: AccountRole.READONLY_SIGNER },
-      { address: wordMarket, role: AccountRole.WRITABLE },
+      { address: marketPda, role: AccountRole.WRITABLE },
     ] as AccountMeta[],
     data: DISC.pauseMarket,
   }
 }
 
-export async function createResolveMarketIx(
-  authority: Address,
+export async function createResolveWordIx(
+  resolver: Address,
   marketId: bigint,
   wordIndex: number,
-  outcome: Outcome
+  outcome: boolean
 ): Promise<Instruction> {
-  const [wordMarket] = await getWordMarketPDA(marketId, wordIndex)
+  const [marketPda] = await getMarketPDA(marketId)
   return {
     programAddress: PROGRAM_ID,
     accounts: [
-      { address: authority, role: AccountRole.READONLY_SIGNER },
-      { address: wordMarket, role: AccountRole.WRITABLE },
+      { address: resolver, role: AccountRole.READONLY_SIGNER },
+      { address: marketPda, role: AccountRole.WRITABLE },
     ] as AccountMeta[],
-    data: concat(DISC.resolveMarket, new Uint8Array([outcome])),
+    data: concat(
+      DISC.resolveWord,
+      new Uint8Array([wordIndex]),
+      new Uint8Array([outcome ? 1 : 0])
+    ),
   }
 }
 
-/** Batch pause all words in a market group */
-export async function createPauseGroupIxs(
-  authority: Address,
+export async function createDepositLiquidityIx(
+  lpWallet: Address,
   marketId: bigint,
-  wordCount: number
-): Promise<Instruction[]> {
-  return Promise.all(
-    Array.from({ length: wordCount }, (_, i) =>
-      createPauseMarketIx(authority, marketId, i)
-    )
-  )
+  amount: bigint
+): Promise<Instruction> {
+  const [marketPda] = await getMarketPDA(marketId)
+  const [vaultPda] = await getVaultPDA(marketId)
+  const [lpPositionPda] = await getLpPositionPDA(marketId, lpWallet)
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: lpWallet, role: AccountRole.WRITABLE_SIGNER },
+      { address: marketPda, role: AccountRole.WRITABLE },
+      { address: vaultPda, role: AccountRole.WRITABLE },
+      { address: lpPositionPda, role: AccountRole.WRITABLE },
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+    ] as AccountMeta[],
+    data: concat(DISC.depositLiquidity, u64LE(amount)),
+  }
 }
 
-/** Batch resolve all words in a market group */
-export async function createResolveGroupIxs(
-  authority: Address,
+export async function createWithdrawLiquidityIx(
+  lpWallet: Address,
   marketId: bigint,
-  wordIndices: number[],
-  outcomes: Outcome[]
-): Promise<Instruction[]> {
-  return Promise.all(
-    wordIndices.map((idx, i) =>
-      createResolveMarketIx(authority, marketId, idx, outcomes[i])
-    )
-  )
+  sharesToBurn: bigint
+): Promise<Instruction> {
+  const [marketPda] = await getMarketPDA(marketId)
+  const [vaultPda] = await getVaultPDA(marketId)
+  const [lpPositionPda] = await getLpPositionPDA(marketId, lpWallet)
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: lpWallet, role: AccountRole.WRITABLE_SIGNER },
+      { address: marketPda, role: AccountRole.WRITABLE },
+      { address: vaultPda, role: AccountRole.WRITABLE },
+      { address: lpPositionPda, role: AccountRole.WRITABLE },
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+    ] as AccountMeta[],
+    data: concat(DISC.withdrawLiquidity, u64LE(sharesToBurn)),
+  }
+}
+
+export async function createBuyIx(
+  trader: Address,
+  marketId: bigint,
+  wordIndex: number,
+  side: 'YES' | 'NO',
+  quantity: bigint,
+  maxCost: bigint,
+  market: MarketAccount
+): Promise<Instruction> {
+  const [escrow] = await getEscrowPDA(trader)
+  const [marketPda] = await getMarketPDA(marketId)
+  const [vaultPda] = await getVaultPDA(marketId)
+
+  const word = market.words[wordIndex]
+  const mintAddr = side === 'YES' ? word.yesMint : word.noMint
+  const ata = await getAssociatedTokenAddress(mintAddr, trader)
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: trader, role: AccountRole.WRITABLE_SIGNER },
+      { address: escrow, role: AccountRole.WRITABLE },
+      { address: marketPda, role: AccountRole.WRITABLE },
+      { address: vaultPda, role: AccountRole.WRITABLE },
+      { address: mintAddr, role: AccountRole.WRITABLE },
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+    ] as AccountMeta[],
+    data: concat(
+      DISC.buy,
+      new Uint8Array([wordIndex]),
+      new Uint8Array([side === 'YES' ? 0 : 1]), // Side enum: Yes=0, No=1
+      u64LE(quantity),
+      u64LE(maxCost)
+    ),
+  }
+}
+
+export async function createSellIx(
+  trader: Address,
+  marketId: bigint,
+  wordIndex: number,
+  side: 'YES' | 'NO',
+  quantity: bigint,
+  minReturn: bigint,
+  market: MarketAccount
+): Promise<Instruction> {
+  const [escrow] = await getEscrowPDA(trader)
+  const [marketPda] = await getMarketPDA(marketId)
+  const [vaultPda] = await getVaultPDA(marketId)
+
+  const word = market.words[wordIndex]
+  const mintAddr = side === 'YES' ? word.yesMint : word.noMint
+  const ata = await getAssociatedTokenAddress(mintAddr, trader)
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: trader, role: AccountRole.WRITABLE_SIGNER },
+      { address: escrow, role: AccountRole.WRITABLE },
+      { address: marketPda, role: AccountRole.WRITABLE },
+      { address: vaultPda, role: AccountRole.WRITABLE },
+      { address: mintAddr, role: AccountRole.WRITABLE },
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+    ] as AccountMeta[],
+    data: concat(
+      DISC.sell,
+      new Uint8Array([wordIndex]),
+      new Uint8Array([side === 'YES' ? 0 : 1]),
+      u64LE(quantity),
+      u64LE(minReturn)
+    ),
+  }
+}
+
+export async function createRedeemIx(
+  trader: Address,
+  marketId: bigint,
+  wordIndex: number,
+  side: 'YES' | 'NO',
+  market: MarketAccount
+): Promise<Instruction> {
+  const [escrow] = await getEscrowPDA(trader)
+  const [marketPda] = await getMarketPDA(marketId)
+  const [vaultPda] = await getVaultPDA(marketId)
+
+  const word = market.words[wordIndex]
+  const mintAddr = side === 'YES' ? word.yesMint : word.noMint
+  const ata = await getAssociatedTokenAddress(mintAddr, trader)
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: trader, role: AccountRole.WRITABLE_SIGNER },
+      { address: escrow, role: AccountRole.WRITABLE },
+      { address: marketPda, role: AccountRole.WRITABLE },
+      { address: vaultPda, role: AccountRole.WRITABLE },
+      { address: mintAddr, role: AccountRole.WRITABLE },
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+    ] as AccountMeta[],
+    data: concat(
+      DISC.redeem,
+      new Uint8Array([wordIndex]),
+      new Uint8Array([side === 'YES' ? 0 : 1])
+    ),
+  }
+}
+
+// ── ATA creation helper ─────────────────────────────────
+
+export async function createAtaIx(
+  payer: Address,
+  owner: Address,
+  mint: Address
+): Promise<Instruction> {
+  const ata = await getAssociatedTokenAddress(mint, owner)
+  return {
+    programAddress: ASSOCIATED_TOKEN_PROGRAM,
+    accounts: [
+      { address: payer, role: AccountRole.WRITABLE_SIGNER },
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY },
+      { address: mint, role: AccountRole.READONLY },
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
+      { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
+    ] as AccountMeta[],
+    data: new Uint8Array(0),
+  }
 }
 
 // ── Account deserialization ──────────────────────────────
 
-const addrDecoder = {
-  decode(bytes: Uint8Array): Address {
-    // Convert 32 raw bytes to base58 address
-    // We use getAddressEncoder in reverse via a lookup
-    // Simpler: encode to base58 manually
-    return base58Encode(bytes) as Address
-  },
-}
-
-// Minimal base58 for decoding 32-byte pubkeys
 const BASE58_ALPHABET =
   '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -366,7 +580,7 @@ function base58Encode(bytes: Uint8Array): string {
 }
 
 function readAddress(data: Uint8Array, offset: number): Address {
-  return addrDecoder.decode(data.slice(offset, offset + 32))
+  return base58Encode(data.slice(offset, offset + 32)) as Address
 }
 
 function readU64(data: Uint8Array, offset: number): bigint {
@@ -375,6 +589,14 @@ function readU64(data: Uint8Array, offset: number): bigint {
     data.byteOffset + offset,
     8
   ).getBigUint64(0, true)
+}
+
+function readI64(data: Uint8Array, offset: number): bigint {
+  return new DataView(
+    data.buffer,
+    data.byteOffset + offset,
+    8
+  ).getBigInt64(0, true)
 }
 
 function readU16(data: Uint8Array, offset: number): number {
@@ -393,6 +615,41 @@ function readU32(data: Uint8Array, offset: number): number {
   ).getUint32(0, true)
 }
 
+function readBorshString(data: Uint8Array, offset: number): [string, number] {
+  const len = readU32(data, offset)
+  offset += 4
+  const str = new TextDecoder().decode(data.slice(offset, offset + len))
+  offset += len
+  return [str, offset]
+}
+
+function readOptionPubkey(data: Uint8Array, offset: number): [Address | null, number] {
+  const flag = data[offset]
+  offset += 1
+  if (flag === 0) return [null, offset]
+  const addr = readAddress(data, offset)
+  offset += 32
+  return [addr, offset]
+}
+
+function readOptionBool(data: Uint8Array, offset: number): [boolean | null, number] {
+  const flag = data[offset]
+  offset += 1
+  if (flag === 0) return [null, offset]
+  const val = data[offset] !== 0
+  offset += 1
+  return [val, offset]
+}
+
+function readOptionI64(data: Uint8Array, offset: number): [bigint | null, number] {
+  const flag = data[offset]
+  offset += 1
+  if (flag === 0) return [null, offset]
+  const val = readI64(data, offset)
+  offset += 8
+  return [val, offset]
+}
+
 export function deserializeUserEscrow(data: Uint8Array): UserEscrow | null {
   if (data.length < 57) return null
   if (!arraysEqual(data.slice(0, 8), ACCT_DISC.userEscrow)) return null
@@ -406,47 +663,78 @@ export function deserializeUserEscrow(data: Uint8Array): UserEscrow | null {
   return { owner, balance, locked, bump }
 }
 
-export function deserializeWordMarket(data: Uint8Array): WordMarket | null {
-  if (data.length < 40) return null
-  if (!arraysEqual(data.slice(0, 8), ACCT_DISC.wordMarket)) return null
+export function deserializeMarketAccount(data: Uint8Array): MarketAccount | null {
+  if (data.length < 50) return null
+  if (!arraysEqual(data.slice(0, 8), ACCT_DISC.marketAccount)) return null
 
   let off = 8
-  const authority = readAddress(data, off); off += 32
+  const version = data[off]; off += 1
+  const bump = data[off]; off += 1
   const marketId = readU64(data, off); off += 8
-  const wordIndex = readU16(data, off); off += 2
 
-  // Borsh string
-  const labelLen = readU32(data, off); off += 4
-  const label = new TextDecoder().decode(data.slice(off, off + labelLen)); off += labelLen
+  let label: string
+  ;[label, off] = readBorshString(data, off)
 
-  const yesMint = readAddress(data, off); off += 32
-  const noMint = readAddress(data, off); off += 32
-  const vault = readAddress(data, off); off += 32
-  const totalCollateral = readU64(data, off); off += 8
+  const authority = readAddress(data, off); off += 32
+  const resolver = readAddress(data, off); off += 32
 
-  const status = data[off] as MarketStatus; off += 1
+  let router: Address | null
+  ;[router, off] = readOptionPubkey(data, off)
 
-  // Option<Outcome>
-  const optionFlag = data[off]; off += 1
-  let outcome: Outcome | null = null
-  if (optionFlag === 1) {
-    outcome = data[off] as Outcome; off += 1
+  const poolVault = readAddress(data, off); off += 32
+  const vaultBump = data[off]; off += 1
+  const totalLpShares = readU64(data, off); off += 8
+  const liquidityParamB = readU64(data, off); off += 8
+  const baseBPerSol = readU64(data, off); off += 8
+  const numWords = data[off]; off += 1
+
+  // Parse all 8 WordState entries (fixed array, variable-length strings)
+  const words: WordState[] = []
+  for (let i = 0; i < 8; i++) {
+    const wordIndex = data[off]; off += 1
+    let wordLabel: string
+    ;[wordLabel, off] = readBorshString(data, off)
+    const yesMint = readAddress(data, off); off += 32
+    const noMint = readAddress(data, off); off += 32
+    const yesQuantity = readI64(data, off); off += 8
+    const noQuantity = readI64(data, off); off += 8
+    let outcome: boolean | null
+    ;[outcome, off] = readOptionBool(data, off)
+    off += 32 // _reserved
+
+    words.push({
+      wordIndex, label: wordLabel, yesMint, noMint,
+      yesQuantity, noQuantity, outcome,
+    })
   }
 
-  const bump = data[off]; off += 1
-  const vaultBump = data[off]
+  const status = data[off] as MarketStatus; off += 1
+  const createdAt = readI64(data, off); off += 8
+  const resolvesAt = readI64(data, off); off += 8
+  let resolvedAt: bigint | null
+  ;[resolvedAt, off] = readOptionI64(data, off)
+  const tradeFeeBps = readU16(data, off); off += 2
+  const protocolFeeBps = readU16(data, off); off += 2
+  const accumulatedFees = readU64(data, off); off += 8
 
   return {
-    authority, marketId, wordIndex, label,
-    yesMint, noMint, vault, totalCollateral,
-    status, outcome, bump, vaultBump,
+    version, bump, marketId, label, authority, resolver, router,
+    poolVault, vaultBump, totalLpShares, liquidityParamB, baseBPerSol,
+    numWords, words: words.slice(0, numWords),
+    status, createdAt, resolvesAt, resolvedAt,
+    tradeFeeBps, protocolFeeBps, accumulatedFees,
   }
 }
 
 // ── Account fetching ─────────────────────────────────────
 
-function createRpc() {
+export function createRpc() {
   return createSolanaRpc(devnet(DEVNET_URL))
+}
+
+function decodeBase64(raw: unknown): Uint8Array {
+  const b64 = typeof raw === 'string' ? raw : (raw as readonly string[])[0]
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
 }
 
 export async function fetchEscrow(
@@ -458,36 +746,30 @@ export async function fetchEscrow(
     .getAccountInfo(pda, { encoding: 'base64' })
     .send()
   if (!result.value) return null
-  const raw = result.value.data
-  const b64 = typeof raw === 'string' ? raw : (raw as readonly string[])[0]
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+  const bytes = decodeBase64(result.value.data)
   return deserializeUserEscrow(bytes)
 }
 
-export async function fetchWordMarket(
-  marketId: bigint,
-  wordIndex: number
-): Promise<WordMarket | null> {
+export async function fetchMarket(
+  marketId: bigint
+): Promise<MarketAccount | null> {
   const rpc = createRpc()
-  const [pda] = await getWordMarketPDA(marketId, wordIndex)
+  const [pda] = await getMarketPDA(marketId)
   const result = await rpc
     .getAccountInfo(pda, { encoding: 'base64' })
     .send()
   if (!result.value) return null
-  const raw = result.value.data
-  const b64 = typeof raw === 'string' ? raw : (raw as readonly string[])[0]
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-  return deserializeWordMarket(bytes)
+  const bytes = decodeBase64(result.value.data)
+  return deserializeMarketAccount(bytes)
 }
 
-export async function fetchAllWordMarkets(): Promise<
-  Array<{ pubkey: Address; account: WordMarket }>
+export async function fetchAllMarkets(): Promise<
+  Array<{ pubkey: Address; account: MarketAccount }>
 > {
   const rpc = createRpc()
 
-  // Discriminator as base64 for memcmp filter
   const discB64 = btoa(
-    String.fromCharCode(...ACCT_DISC.wordMarket)
+    String.fromCharCode(...ACCT_DISC.marketAccount)
   )
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -506,12 +788,10 @@ export async function fetchAllWordMarkets(): Promise<
     })
     .send()
 
-  const out: Array<{ pubkey: Address; account: WordMarket }> = []
+  const out: Array<{ pubkey: Address; account: MarketAccount }> = []
   for (const item of result) {
-    const raw = item.account.data
-    const b64 = typeof raw === 'string' ? raw : (raw as readonly string[])[0]
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-    const parsed = deserializeWordMarket(bytes)
+    const bytes = decodeBase64(item.account.data)
+    const parsed = deserializeMarketAccount(bytes)
     if (parsed) {
       out.push({ pubkey: item.pubkey, account: parsed })
     }
@@ -531,16 +811,97 @@ export function solToLamports(sol: number): bigint {
 }
 
 export function marketStatusStr(s: MarketStatus): string {
-  return s === MarketStatus.Active
-    ? 'Active'
+  return s === MarketStatus.Open
+    ? 'Open'
     : s === MarketStatus.Paused
     ? 'Paused'
     : 'Resolved'
 }
 
-export function outcomeStr(o: Outcome | null): string {
+export function outcomeStr(o: boolean | null): string {
   if (o === null) return 'Unresolved'
-  return o === Outcome.Yes ? 'YES' : 'NO'
+  return o ? 'YES (Mentioned)' : 'NO (Not mentioned)'
+}
+
+/**
+ * Compute LMSR implied prices from on-chain quantities.
+ * Uses softmax trick: P(yes) = 1 / (1 + exp((q_no - q_yes) / b))
+ */
+export function lmsrImpliedPrice(
+  yesQty: bigint,
+  noQty: bigint,
+  b: bigint
+): { yes: number; no: number } {
+  if (b === 0n) return { yes: 0.5, no: 0.5 }
+  const diff = (Number(noQty) - Number(yesQty)) / Number(b)
+  const pYes = 1 / (1 + Math.exp(diff))
+  return { yes: pYes, no: 1 - pYes }
+}
+
+/**
+ * Log-sum-exp trick for numerical stability:
+ * ln(exp(a) + exp(b)) = max(a,b) + ln(exp(a-max) + exp(b-max))
+ */
+function logSumExp(a: number, b: number): number {
+  const m = Math.max(a, b)
+  return m + Math.log(Math.exp(a - m) + Math.exp(b - m))
+}
+
+/**
+ * LMSR cost function: C(q_yes, q_no) = b * ln(exp(q_yes/b) + exp(q_no/b))
+ * All inputs as floats in SOL/share units.
+ */
+function lmsrCostFn(qYes: number, qNo: number, b: number): number {
+  return b * logSumExp(qYes / b, qNo / b)
+}
+
+/**
+ * Calculate the LMSR cost to buy `amount` shares.
+ * Inputs: on-chain bigint quantities and b. Amount in shares (float).
+ * Returns cost in SOL.
+ */
+export function lmsrBuyCost(
+  yesQty: bigint,
+  noQty: bigint,
+  side: 'YES' | 'NO',
+  amount: number,
+  b: bigint
+): number {
+  const bF = Number(b) / 1e9
+  const qY = Number(yesQty) / 1e9
+  const qN = Number(noQty) / 1e9
+  if (bF === 0) return 0
+
+  const before = lmsrCostFn(qY, qN, bF)
+  const after = side === 'YES'
+    ? lmsrCostFn(qY + amount, qN, bF)
+    : lmsrCostFn(qY, qN + amount, bF)
+
+  return Math.max(0, after - before)
+}
+
+/**
+ * Calculate the LMSR return from selling `amount` shares.
+ * Returns gross return in SOL (before fees).
+ */
+export function lmsrSellReturn(
+  yesQty: bigint,
+  noQty: bigint,
+  side: 'YES' | 'NO',
+  amount: number,
+  b: bigint
+): number {
+  const bF = Number(b) / 1e9
+  const qY = Number(yesQty) / 1e9
+  const qN = Number(noQty) / 1e9
+  if (bF === 0) return 0
+
+  const before = lmsrCostFn(qY, qN, bF)
+  const after = side === 'YES'
+    ? lmsrCostFn(qY - amount, qN, bF)
+    : lmsrCostFn(qY, qN - amount, bF)
+
+  return Math.max(0, before - after)
 }
 
 // ── Transaction helper ───────────────────────────────────
@@ -564,38 +925,15 @@ export async function sendIxs(
 
 // ── Position fetching ───────────────────────────────────
 
-const TOKEN_DECIMALS = 6
-const TOKEN_BASE = 1_000_000
-
-function estimatePositionValue(
-  market: WordMarket,
-  side: 'YES' | 'NO',
-  shares: number
-): number {
-  if (market.status === MarketStatus.Resolved) {
-    const isWinner =
-      (market.outcome === Outcome.Yes && side === 'YES') ||
-      (market.outcome === Outcome.No && side === 'NO')
-    return isWinner ? shares * 1.0 : 0
-  }
-  return shares * 0.5
-}
-
-function isWinningSide(market: WordMarket, side: 'YES' | 'NO'): boolean {
-  return (
-    (market.outcome === Outcome.Yes && side === 'YES') ||
-    (market.outcome === Outcome.No && side === 'NO')
-  )
-}
+const TOKEN_BASE = 1_000_000_000 // 9 decimals
 
 export async function fetchUserPositions(
   userAddr: Address
 ): Promise<UserPosition[]> {
   const rpc = createRpc()
 
-  // Fetch all markets and user's token accounts in parallel
   const [allMarkets, tokenResult] = await Promise.all([
-    fetchAllWordMarkets(),
+    fetchAllMarkets(),
     rpc
       .getTokenAccountsByOwner(
         userAddr,
@@ -605,13 +943,29 @@ export async function fetchUserPositions(
       .send(),
   ])
 
-  // Build mint → market lookup maps
-  const yesMintMap = new Map<string, { pubkey: Address; account: WordMarket }>()
-  const noMintMap = new Map<string, { pubkey: Address; account: WordMarket }>()
+  // Build mint → position info lookup
+  const mintMap = new Map<
+    string,
+    { marketId: bigint; wordIndex: number; side: 'YES' | 'NO'; market: MarketAccount; word: WordState }
+  >()
 
   for (const m of allMarkets) {
-    yesMintMap.set(m.account.yesMint, { pubkey: m.pubkey, account: m.account })
-    noMintMap.set(m.account.noMint, { pubkey: m.pubkey, account: m.account })
+    for (const w of m.account.words) {
+      mintMap.set(w.yesMint as string, {
+        marketId: m.account.marketId,
+        wordIndex: w.wordIndex,
+        side: 'YES',
+        market: m.account,
+        word: w,
+      })
+      mintMap.set(w.noMint as string, {
+        marketId: m.account.marketId,
+        wordIndex: w.wordIndex,
+        side: 'NO',
+        market: m.account,
+        word: w,
+      })
+    }
   }
 
   const positions: UserPosition[] = []
@@ -625,31 +979,38 @@ export async function fetchUserPositions(
     const amountStr = parsed.info.tokenAmount?.amount as string
     if (!amountStr || amountStr === '0') continue
 
-    const rawAmount = BigInt(amountStr)
-    let side: 'YES' | 'NO'
-    let marketInfo: { pubkey: Address; account: WordMarket } | undefined
+    const info = mintMap.get(mint)
+    if (!info) continue
 
-    if (yesMintMap.has(mint)) {
-      side = 'YES'
-      marketInfo = yesMintMap.get(mint)!
-    } else if (noMintMap.has(mint)) {
-      side = 'NO'
-      marketInfo = noMintMap.get(mint)!
+    const rawAmount = BigInt(amountStr)
+    const shares = Number(rawAmount) / TOKEN_BASE
+    const { market, word, side } = info
+
+    let estimatedValueSol: number
+    let claimable = false
+
+    if (market.status === MarketStatus.Resolved && word.outcome !== null) {
+      const isWinner =
+        (word.outcome === true && side === 'YES') ||
+        (word.outcome === false && side === 'NO')
+      estimatedValueSol = isWinner ? shares * 1.0 : 0
+      claimable = isWinner && rawAmount > 0n
     } else {
-      continue // Not a market token
+      const price = lmsrImpliedPrice(
+        word.yesQuantity,
+        word.noQuantity,
+        market.liquidityParamB
+      )
+      const sidePrice = side === 'YES' ? price.yes : price.no
+      estimatedValueSol = shares * sidePrice
     }
 
-    const shares = Number(rawAmount) / TOKEN_BASE
-    const market = marketInfo.account
-    const estimatedValueSol = estimatePositionValue(market, side, shares)
-    const claimable =
-      market.status === MarketStatus.Resolved &&
-      isWinningSide(market, side) &&
-      rawAmount > 0n
-
     positions.push({
-      wordMarketPubkey: marketInfo.pubkey,
-      market,
+      marketId: info.marketId,
+      wordIndex: info.wordIndex,
+      wordLabel: word.label,
+      marketLabel: market.label,
+      marketStatus: market.status,
       side,
       rawAmount,
       shares,
@@ -659,4 +1020,241 @@ export async function fetchUserPositions(
   }
 
   return positions
+}
+
+// ── Trade history from on-chain events ──────────────────
+
+// Anchor event discriminator: sha256("event:TradeEvent")[0..8]
+const TRADE_EVENT_DISC = new Uint8Array([189, 219, 127, 211, 78, 230, 97, 238])
+
+export interface TradeHistoryPoint {
+  timestamp: number       // unix seconds
+  wordIndex: number
+  impliedYesPrice: number // 0..1
+  direction: 'YES' | 'NO'
+  quantity: number        // shares
+  cost: number            // SOL
+}
+
+function parseTradeEvent(data: Uint8Array): TradeHistoryPoint | null {
+  // Expected layout after 8-byte discriminator:
+  // market_id: u64(8) + word_index: u8(1) + direction: u8(1) + quantity: u64(8)
+  // + cost: u64(8) + fee: u64(8) + new_yes_qty: i64(8) + new_no_qty: i64(8)
+  // + implied_yes_price: u64(8) + trader: Pubkey(32) + timestamp: i64(8)
+  // Total: 8 + 98 = 106 bytes
+  if (data.length < 106) return null
+  if (!arraysEqual(data.slice(0, 8), TRADE_EVENT_DISC)) return null
+
+  const dv = new DataView(data.buffer, data.byteOffset)
+  const wordIndex = data[16]       // offset 8 (disc) + 8 (market_id)
+  const dirByte = data[17]         // offset 17
+  const quantity = dv.getBigUint64(18, true)
+  const cost = dv.getBigUint64(26, true)
+  // fee at 34, new_yes_qty at 42, new_no_qty at 50
+  const impliedYesPrice = dv.getBigUint64(58, true) // offset 58
+  // trader at 66 (32 bytes)
+  const timestamp = dv.getBigInt64(98, true)        // offset 98
+
+  return {
+    timestamp: Number(timestamp),
+    wordIndex,
+    impliedYesPrice: Number(impliedYesPrice) / 1e9,
+    direction: dirByte === 0 ? 'YES' : 'NO',
+    quantity: Number(quantity) / 1e9,
+    cost: Number(cost) / 1e9,
+  }
+}
+
+/**
+ * Fetch trade history for a market by parsing TradeEvent logs from transactions.
+ * Returns price points sorted chronologically.
+ */
+export async function fetchTradeHistory(
+  marketId: bigint,
+  limit = 100
+): Promise<TradeHistoryPoint[]> {
+  const rpc = createRpc()
+  const [marketPda] = await getMarketPDA(marketId)
+
+  // Get recent transaction signatures for the market account
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signatures = await (rpc as any)
+    .getSignaturesForAddress(marketPda, { limit })
+    .send()
+
+  if (!signatures || signatures.length === 0) return []
+
+  const points: TradeHistoryPoint[] = []
+
+  // Fetch transactions in parallel (batches of 10 to avoid rate limits)
+  for (let i = 0; i < signatures.length; i += 10) {
+    const batch = signatures.slice(i, i + 10)
+    const txResults = await Promise.all(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      batch.map((sig: any) =>
+        rpc
+          .getTransaction(sig.signature, {
+            encoding: 'json',
+            maxSupportedTransactionVersion: 0,
+          })
+          .send()
+          .catch(() => null)
+      )
+    )
+
+    for (const tx of txResults) {
+      if (!tx?.meta?.logMessages) continue
+
+      for (const log of tx.meta.logMessages) {
+        if (!log.startsWith('Program data: ')) continue
+        const b64 = log.slice('Program data: '.length)
+        try {
+          const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+          const event = parseTradeEvent(data)
+          if (event) points.push(event)
+        } catch {
+          // ignore malformed log entries
+        }
+      }
+    }
+  }
+
+  // Sort chronologically
+  points.sort((a, b) => a.timestamp - b.timestamp)
+  return points
+}
+
+// ── User trade history ─────────────────────────────────
+
+export interface UserTradeEntry {
+  timestamp: number
+  marketId: bigint
+  marketLabel: string
+  wordIndex: number
+  wordLabel: string
+  direction: 'YES' | 'NO'
+  quantity: number   // shares
+  cost: number       // SOL
+  isBuy: boolean     // true = buy, false = sell (cost < 0 heuristic not reliable, we use direction context)
+  txSignature: string
+}
+
+function parseFullTradeEvent(data: Uint8Array): {
+  marketId: bigint
+  wordIndex: number
+  direction: 'YES' | 'NO'
+  quantity: number
+  cost: number
+  trader: string
+  timestamp: number
+} | null {
+  if (data.length < 106) return null
+  if (!arraysEqual(data.slice(0, 8), TRADE_EVENT_DISC)) return null
+
+  const dv = new DataView(data.buffer, data.byteOffset)
+  const marketId = dv.getBigUint64(8, true)
+  const wordIndex = data[16]
+  const dirByte = data[17]
+  const quantity = dv.getBigUint64(18, true)
+  const cost = dv.getBigUint64(26, true)
+  const trader = base58Encode(data.slice(66, 98))
+  const timestamp = dv.getBigInt64(98, true)
+
+  return {
+    marketId,
+    wordIndex,
+    direction: dirByte === 0 ? 'YES' : 'NO',
+    quantity: Number(quantity) / 1e9,
+    cost: Number(cost) / 1e9,
+    trader,
+    timestamp: Number(timestamp),
+  }
+}
+
+/**
+ * Fetch all trades by a specific user across all markets.
+ * Scans the program's transaction history and filters by trader pubkey.
+ */
+export async function fetchUserTradeHistory(
+  userAddr: Address,
+  limit = 200
+): Promise<UserTradeEntry[]> {
+  const rpc = createRpc()
+  const userStr = userAddr as string
+
+  // Get recent transaction signatures for the program itself
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signatures = await (rpc as any)
+    .getSignaturesForAddress(PROGRAM_ID, { limit })
+    .send()
+
+  if (!signatures || signatures.length === 0) return []
+
+  // We need market labels — fetch all markets once
+  const allMarkets = await fetchAllMarkets()
+  const marketLabelMap = new Map<string, { label: string; words: WordState[] }>()
+  for (const m of allMarkets) {
+    marketLabelMap.set(m.account.marketId.toString(), {
+      label: m.account.label,
+      words: m.account.words,
+    })
+  }
+
+  const entries: UserTradeEntry[] = []
+
+  for (let i = 0; i < signatures.length; i += 10) {
+    const batch = signatures.slice(i, i + 10)
+    const txResults = await Promise.all(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      batch.map((sig: any) =>
+        rpc
+          .getTransaction(sig.signature, {
+            encoding: 'json',
+            maxSupportedTransactionVersion: 0,
+          })
+          .send()
+          .then((tx: unknown) => ({ tx, sig: sig.signature as string }))
+          .catch(() => null)
+      )
+    )
+
+    for (const result of txResults) {
+      if (!result) continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx = result.tx as any
+      if (!tx?.meta?.logMessages) continue
+
+      for (const log of tx.meta.logMessages) {
+        if (!log.startsWith('Program data: ')) continue
+        const b64 = log.slice('Program data: '.length)
+        try {
+          const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+          const event = parseFullTradeEvent(data)
+          if (!event || event.trader !== userStr) continue
+
+          const marketInfo = marketLabelMap.get(event.marketId.toString())
+          const wordInfo = marketInfo?.words.find((w) => w.wordIndex === event.wordIndex)
+
+          entries.push({
+            timestamp: event.timestamp,
+            marketId: event.marketId,
+            marketLabel: marketInfo?.label || `Market #${event.marketId}`,
+            wordIndex: event.wordIndex,
+            wordLabel: wordInfo?.label || `Word #${event.wordIndex}`,
+            direction: event.direction,
+            quantity: event.quantity,
+            cost: event.cost,
+            isBuy: true, // TradeEvent is emitted for both buy/sell; cost sign handled by contract
+            txSignature: result.sig,
+          })
+        } catch {
+          // ignore malformed log entries
+        }
+      }
+    }
+  }
+
+  // Sort newest first
+  entries.sort((a, b) => b.timestamp - a.timestamp)
+  return entries
 }

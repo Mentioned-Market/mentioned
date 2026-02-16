@@ -111,6 +111,39 @@ html {
   animation: scaleIn 0.3s ease-out;
 }
 
+/* Value change flash — brief green highlight that fades */
+@keyframes flashUpdate {
+  0% {
+    color: #34C759;
+    text-shadow: 0 0 8px rgba(52, 199, 89, 0.4);
+  }
+  100% {
+    color: inherit;
+    text-shadow: none;
+  }
+}
+
+.animate-flash-update {
+  animation: flashUpdate 1.2s ease-out;
+}
+
+/* Subtle pulse for containers when data refreshes */
+@keyframes pulseRefresh {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 199, 89, 0);
+  }
+}
+
+.animate-pulse-refresh {
+  animation: pulseRefresh 0.8s ease-out;
+}
+
 /* Glass morphism effect */
 .glass {
   background: rgba(255, 255, 255, 0.05);
