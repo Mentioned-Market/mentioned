@@ -10,49 +10,22 @@ import {
   PROGRAM_ID,
   createDepositIx,
   createWithdrawIx,
-  createMarketGroupIxs,
-  createPauseGroupIxs,
-  createResolveMarketIx,
+  createCreateMarketIx,
+  createPauseMarketIx,
+  createResolveWordIx,
+  createDepositLiquidityIx,
+  createWithdrawLiquidityIx,
   fetchEscrow,
-  fetchAllWordMarkets,
+  fetchAllMarkets,
   solToLamports,
   lamportsToSol,
   marketStatusStr,
   outcomeStr,
   sendIxs,
-  Outcome,
   MarketStatus,
   type UserEscrow,
-  type WordMarket,
+  type MarketAccount,
 } from "@/lib/mentionMarket";
-
-// Group markets by marketId for display
-type MarketGroup = {
-  marketId: bigint;
-  words: Array<{
-    pubkey: Address;
-    data: WordMarket;
-  }>;
-};
-
-function groupMarkets(
-  markets: Array<{ pubkey: Address; account: WordMarket }>
-): MarketGroup[] {
-  const map = new Map<string, MarketGroup>();
-  for (const m of markets) {
-    const key = m.account.marketId.toString();
-    if (!map.has(key)) {
-      map.set(key, { marketId: m.account.marketId, words: [] });
-    }
-    map.get(key)!.words.push({ pubkey: m.pubkey, data: m.account });
-  }
-  // Sort words within each group by wordIndex
-  const groups = Array.from(map.values());
-  for (const g of groups) {
-    g.words.sort((a, b) => a.data.wordIndex - b.data.wordIndex);
-  }
-  return groups;
-}
 
 // ── Component ────────────────────────────────────────────
 
@@ -71,12 +44,27 @@ export default function AdminPage() {
   const [depositAmt, setDepositAmt] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState("");
 
-  // Create market group
+  // Create market
   const [marketIdInput, setMarketIdInput] = useState("");
+  const [marketLabelInput, setMarketLabelInput] = useState("");
   const [wordsInput, setWordsInput] = useState("");
+  const [resolvesInHours, setResolvesInHours] = useState("24");
+  const [tradeFeeBpsInput, setTradeFeeBpsInput] = useState("50");
+  const [initialBInput, setInitialBInput] = useState("1");
+  const [baseBPerSolInput, setBaseBPerSolInput] = useState("1");
 
   // All markets
-  const [marketGroups, setMarketGroups] = useState<MarketGroup[]>([]);
+  const [markets, setMarkets] = useState<
+    Array<{ pubkey: Address; account: MarketAccount }>
+  >([]);
+
+  // Liquidity inputs per market (keyed by marketId string)
+  const [liquidityAmts, setLiquidityAmts] = useState<Record<string, string>>({});
+
+  // Bulk resolve selections: marketId -> wordIndex -> outcome (true=YES, false=NO, undefined=not set)
+  const [bulkResolves, setBulkResolves] = useState<
+    Record<string, Record<number, boolean>>
+  >({});
 
   const show = (msg: string, error = false) => {
     setStatus({ msg, error });
@@ -90,16 +78,16 @@ export default function AdminPage() {
     try {
       const data = await fetchEscrow(toAddress(publicKey));
       setEscrow(data);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Error loading escrow:", e);
     }
   }, [publicKey]);
 
   const loadMarkets = useCallback(async () => {
     try {
-      const all = await fetchAllWordMarkets();
-      setMarketGroups(groupMarkets(all));
-    } catch (e: any) {
+      const all = await fetchAllMarkets();
+      setMarkets(all);
+    } catch (e: unknown) {
       console.error("Error loading markets:", e);
     }
   }, []);
@@ -127,8 +115,8 @@ export default function AdminPage() {
       show(`Deposited ${sol} SOL`);
       setDepositAmt("");
       await loadEscrow();
-    } catch (e: any) {
-      show(e.message, true);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
     } finally {
       setLoading(false);
     }
@@ -151,18 +139,27 @@ export default function AdminPage() {
       show(`Withdrew ${sol} SOL`);
       setWithdrawAmt("");
       await loadEscrow();
-    } catch (e: any) {
-      show(e.message, true);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateMarketGroup = async () => {
+  const handleCreateMarket = async () => {
     if (!signer || !publicKey) return;
     const mId = parseInt(marketIdInput);
     if (isNaN(mId)) {
       show("Enter a valid market ID", true);
+      return;
+    }
+    const label = marketLabelInput.trim();
+    if (!label) {
+      show("Enter a market label", true);
+      return;
+    }
+    if (label.length > 64) {
+      show("Market label must be 64 characters or fewer", true);
       return;
     }
     const words = wordsInput
@@ -173,44 +170,86 @@ export default function AdminPage() {
       show("Enter at least one word", true);
       return;
     }
+    if (words.length > 8) {
+      show("Maximum 8 words per market", true);
+      return;
+    }
     if (words.some((w) => w.length > 32)) {
       show("Each word must be 32 characters or fewer", true);
       return;
     }
+
+    const hours = parseFloat(resolvesInHours);
+    if (isNaN(hours) || hours <= 0) {
+      show("Enter valid hours until resolution", true);
+      return;
+    }
+    const resolvesAt = BigInt(
+      Math.floor(Date.now() / 1000 + hours * 3600)
+    );
+
+    const feeBps = parseInt(tradeFeeBpsInput);
+    if (isNaN(feeBps) || feeBps < 0 || feeBps > 10000) {
+      show("Trade fee must be 0-10000 bps", true);
+      return;
+    }
+
+    const initialBSol = parseFloat(initialBInput);
+    if (isNaN(initialBSol) || initialBSol <= 0) {
+      show("Enter a valid initial B (SOL)", true);
+      return;
+    }
+    const initialB = solToLamports(initialBSol);
+
+    const baseBSol = parseFloat(baseBPerSolInput);
+    if (isNaN(baseBSol) || baseBSol <= 0) {
+      show("Enter a valid base B per SOL", true);
+      return;
+    }
+    const baseBPerSol = solToLamports(baseBSol);
+
     setLoading(true);
     try {
-      const ixs = await createMarketGroupIxs(
+      const ix = await createCreateMarketIx(
         toAddress(publicKey),
         BigInt(mId),
-        words
+        label,
+        words,
+        resolvesAt,
+        toAddress(publicKey), // resolver = authority
+        feeBps,
+        initialB,
+        baseBPerSol
       );
-      await sendIxs(signer, ixs);
+      await sendIxs(signer, [ix]);
       show(
-        `Created market #${mId} with ${words.length} word${words.length > 1 ? "s" : ""}: ${words.join(", ")}`
+        `Created market #${mId} "${label}" with ${words.length} word${words.length > 1 ? "s" : ""}: ${words.join(", ")}`
       );
+      setMarketIdInput("");
+      setMarketLabelInput("");
       setWordsInput("");
       await loadMarkets();
-    } catch (e: any) {
-      show(e.message, true);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePauseGroup = async (group: MarketGroup) => {
+  const handlePauseMarket = async (market: MarketAccount) => {
     if (!signer || !publicKey) return;
     setLoading(true);
     try {
-      const ixs = await createPauseGroupIxs(
+      const ix = await createPauseMarketIx(
         toAddress(publicKey),
-        group.marketId,
-        group.words.length
+        market.marketId
       );
-      await sendIxs(signer, ixs);
-      show(`Paused all words in market #${group.marketId}`);
+      await sendIxs(signer, [ix]);
+      const action = market.status === MarketStatus.Paused ? "Unpaused" : "Paused";
+      show(`${action} market #${market.marketId}`);
       await loadMarkets();
-    } catch (e: any) {
-      show(e.message, true);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
     } finally {
       setLoading(false);
     }
@@ -220,14 +259,14 @@ export default function AdminPage() {
     marketId: bigint,
     wordIndex: number,
     label: string,
-    outcome: Outcome
+    outcome: boolean
   ) => {
     if (!signer || !publicKey) return;
-    const outcomeLabel = outcome === Outcome.Yes ? "YES" : "NO";
+    const outcomeLabel = outcome ? "YES" : "NO";
     if (!confirm(`Resolve "${label}" as ${outcomeLabel}?`)) return;
     setLoading(true);
     try {
-      const ix = await createResolveMarketIx(
+      const ix = await createResolveWordIx(
         toAddress(publicKey),
         marketId,
         wordIndex,
@@ -236,8 +275,118 @@ export default function AdminPage() {
       await sendIxs(signer, [ix]);
       show(`Resolved "${label}" as ${outcomeLabel}`);
       await loadMarkets();
-    } catch (e: any) {
-      show(e.message, true);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDepositLiquidity = async (market: MarketAccount) => {
+    if (!signer || !publicKey) return;
+    const key = market.marketId.toString();
+    const sol = parseFloat(liquidityAmts[key] || "");
+    if (isNaN(sol) || sol <= 0) {
+      show("Enter a valid SOL amount", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const ix = await createDepositLiquidityIx(
+        toAddress(publicKey),
+        market.marketId,
+        solToLamports(sol)
+      );
+      await sendIxs(signer, [ix]);
+      show(`Deposited ${sol} SOL liquidity to market #${key}`);
+      setLiquidityAmts((prev) => ({ ...prev, [key]: "" }));
+      await loadMarkets();
+    } catch (e: unknown) {
+      show((e as Error).message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWithdrawLiquidity = async (market: MarketAccount) => {
+    if (!signer || !publicKey) return;
+    const key = market.marketId.toString();
+    const sol = parseFloat(liquidityAmts[key] || "");
+    if (isNaN(sol) || sol <= 0) {
+      show("Enter a valid amount of LP shares", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const ix = await createWithdrawLiquidityIx(
+        toAddress(publicKey),
+        market.marketId,
+        solToLamports(sol)
+      );
+      await sendIxs(signer, [ix]);
+      show(`Withdrew ${sol} LP shares from market #${key}`);
+      setLiquidityAmts((prev) => ({ ...prev, [key]: "" }));
+      await loadMarkets();
+    } catch (e: unknown) {
+      show((e as Error).message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setBulkOutcome = (
+    marketId: string,
+    wordIndex: number,
+    outcome: boolean
+  ) => {
+    setBulkResolves((prev) => {
+      const current = prev[marketId] || {};
+      // Toggle off if same value clicked
+      if (current[wordIndex] === outcome) {
+        const { [wordIndex]: _, ...rest } = current;
+        return { ...prev, [marketId]: rest };
+      }
+      return { ...prev, [marketId]: { ...current, [wordIndex]: outcome } };
+    });
+  };
+
+  const handleBulkResolve = async (market: MarketAccount) => {
+    if (!signer || !publicKey) return;
+    const key = market.marketId.toString();
+    const selections = bulkResolves[key] || {};
+    const entries = Object.entries(selections);
+    if (entries.length === 0) {
+      show("Select YES or NO for at least one word", true);
+      return;
+    }
+
+    const summary = entries
+      .map(([idx, outcome]) => {
+        const w = market.words.find((w) => w.wordIndex === Number(idx));
+        return `"${w?.label}" → ${outcome ? "YES" : "NO"}`;
+      })
+      .join(", ");
+
+    if (!confirm(`Resolve ${entries.length} word(s): ${summary}?`)) return;
+
+    setLoading(true);
+    try {
+      const ixs = await Promise.all(
+        entries.map(([idx, outcome]) =>
+          createResolveWordIx(
+            toAddress(publicKey!),
+            market.marketId,
+            Number(idx),
+            outcome
+          )
+        )
+      );
+      await sendIxs(signer, ixs);
+      show(`Resolved ${entries.length} word(s) in market #${key}`);
+      setBulkResolves((prev) => ({ ...prev, [key]: {} }));
+      await loadMarkets();
+    } catch (e: unknown) {
+      show((e as Error).message, true);
     } finally {
       setLoading(false);
     }
@@ -253,7 +402,7 @@ export default function AdminPage() {
           <div>
             <h1 className="text-3xl font-bold">Admin Panel</h1>
             <p className="text-neutral-400 text-sm mt-1">
-              mention_market &middot;{" "}
+              mention_market_amm &middot;{" "}
               <span className="font-mono text-xs">
                 {(PROGRAM_ID as string).slice(0, 20)}...
               </span>
@@ -373,18 +522,30 @@ export default function AdminPage() {
               </button>
             </Card>
 
-            {/* ── Create Market Group ── */}
+            {/* ── Create Market ── */}
             <Card title="Create Market">
               <div className="space-y-3">
-                <div>
-                  <label className="label">Market ID</label>
-                  <input
-                    type="number"
-                    value={marketIdInput}
-                    onChange={(e) => setMarketIdInput(e.target.value)}
-                    placeholder="e.g. 1"
-                    className="w-full input"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Market ID</label>
+                    <input
+                      type="number"
+                      value={marketIdInput}
+                      onChange={(e) => setMarketIdInput(e.target.value)}
+                      placeholder="e.g. 1"
+                      className="w-full input"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Label</label>
+                    <input
+                      type="text"
+                      value={marketLabelInput}
+                      onChange={(e) => setMarketLabelInput(e.target.value)}
+                      placeholder="e.g. SOTU 2025"
+                      className="w-full input"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="label">Words (comma-separated)</label>
@@ -396,13 +557,67 @@ export default function AdminPage() {
                     className="w-full input"
                   />
                   <p className="text-xs text-neutral-500 mt-1">
-                    Each word becomes a YES/NO market. All created in one
-                    transaction.
+                    Max 8 words. Each becomes a YES/NO binary market.
                   </p>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Resolves in (hours)</label>
+                    <input
+                      type="number"
+                      value={resolvesInHours}
+                      onChange={(e) => setResolvesInHours(e.target.value)}
+                      placeholder="24"
+                      className="w-full input"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Trade Fee (bps)</label>
+                    <input
+                      type="number"
+                      value={tradeFeeBpsInput}
+                      onChange={(e) => setTradeFeeBpsInput(e.target.value)}
+                      placeholder="50"
+                      className="w-full input"
+                    />
+                    <p className="text-xs text-neutral-500 mt-1">
+                      50 = 0.5%
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Initial B (SOL)</label>
+                    <input
+                      type="number"
+                      value={initialBInput}
+                      onChange={(e) => setInitialBInput(e.target.value)}
+                      placeholder="1"
+                      step="0.1"
+                      className="w-full input"
+                    />
+                    <p className="text-xs text-neutral-500 mt-1">
+                      LMSR liquidity parameter
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">Base B per SOL</label>
+                    <input
+                      type="number"
+                      value={baseBPerSolInput}
+                      onChange={(e) => setBaseBPerSolInput(e.target.value)}
+                      placeholder="1"
+                      step="0.1"
+                      className="w-full input"
+                    />
+                    <p className="text-xs text-neutral-500 mt-1">
+                      B scaling rate
+                    </p>
+                  </div>
+                </div>
                 <button
-                  onClick={handleCreateMarketGroup}
-                  disabled={loading || !marketIdInput || !wordsInput}
+                  onClick={handleCreateMarket}
+                  disabled={loading || !marketIdInput || !wordsInput || !marketLabelInput}
                   className="w-full btn bg-apple-blue hover:opacity-90"
                 >
                   {loading
@@ -432,139 +647,246 @@ export default function AdminPage() {
                   disabled={loading}
                   className="mb-4 text-xs text-neutral-400 hover:text-white transition-colors"
                 >
-                  Refresh ({marketGroups.length} group
-                  {marketGroups.length !== 1 ? "s" : ""})
+                  Refresh ({markets.length} market
+                  {markets.length !== 1 ? "s" : ""})
                 </button>
 
-                {marketGroups.length === 0 ? (
+                {markets.length === 0 ? (
                   <p className="text-neutral-500 text-sm">
                     No markets found. Create one above.
                   </p>
                 ) : (
                   <div className="space-y-4">
-                    {marketGroups.map((group) => {
+                    {markets.map((m) => {
+                      const market = m.account;
+                      const mKey = market.marketId.toString();
                       const isAuthority =
-                        publicKey === (group.words[0]?.data.authority as string);
-                      const allActive = group.words.every(
-                        (w) => w.data.status === MarketStatus.Active
+                        publicKey === (market.authority as string);
+                      const canPause =
+                        market.status === MarketStatus.Open ||
+                        market.status === MarketStatus.Paused;
+                      const allResolved =
+                        market.status === MarketStatus.Resolved;
+                      const unresolvedWords = market.words.filter(
+                        (w) => w.outcome === null
                       );
-                      const allResolved = group.words.every(
-                        (w) => w.data.status === MarketStatus.Resolved
-                      );
+                      const bulkSelections = bulkResolves[mKey] || {};
+                      const bulkCount = Object.keys(bulkSelections).length;
 
                       return (
                         <div
-                          key={group.marketId.toString()}
+                          key={mKey}
                           className="bg-neutral-800/50 border border-neutral-700 rounded-lg p-4"
                         >
-                          {/* Group header */}
+                          {/* Market header */}
                           <div className="flex justify-between items-center mb-3">
                             <div>
                               <h3 className="font-semibold">
-                                Market #{group.marketId.toString()}
+                                Market #{mKey}{" "}
+                                <span className="text-neutral-400 font-normal">
+                                  &mdash; {market.label}
+                                </span>
                               </h3>
                               <p className="text-xs text-neutral-500">
-                                {group.words.length} word
-                                {group.words.length !== 1 ? "s" : ""}{" "}
-                                &middot; Authority:{" "}
-                                {(group.words[0]?.data.authority as string)?.slice(0, 8)}
-                                ...
+                                {market.numWords} word
+                                {market.numWords !== 1 ? "s" : ""} &middot;{" "}
+                                <span
+                                  className={
+                                    market.status === MarketStatus.Open
+                                      ? "text-apple-green"
+                                      : market.status === MarketStatus.Paused
+                                      ? "text-apple-orange"
+                                      : "text-apple-blue"
+                                  }
+                                >
+                                  {marketStatusStr(market.status)}
+                                </span>{" "}
+                                &middot; B:{" "}
+                                {lamportsToSol(market.liquidityParamB)} SOL
+                                &middot; LP Shares:{" "}
+                                {lamportsToSol(market.totalLpShares)}
+                                &middot; Fees:{" "}
+                                {lamportsToSol(market.accumulatedFees)} SOL
+                              </p>
+                              <p className="text-xs text-neutral-600">
+                                Authority:{" "}
+                                {(market.authority as string).slice(0, 8)}...
                               </p>
                             </div>
-                            {isAuthority && allActive && (
+                            {isAuthority && canPause && (
                               <button
-                                onClick={() => handlePauseGroup(group)}
+                                onClick={() => handlePauseMarket(market)}
                                 disabled={loading}
                                 className="btn bg-apple-orange/80 hover:bg-apple-orange text-xs"
                               >
-                                Pause All
+                                {market.status === MarketStatus.Paused
+                                  ? "Unpause"
+                                  : "Pause"}
                               </button>
                             )}
                           </div>
 
+                          {/* Liquidity Management */}
+                          {isAuthority && (
+                            <div className="bg-neutral-900/50 rounded-lg p-3 mb-3">
+                              <div className="text-xs text-neutral-400 font-medium mb-2">
+                                Liquidity
+                              </div>
+                              <div className="flex gap-2">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="SOL"
+                                  value={liquidityAmts[mKey] || ""}
+                                  onChange={(e) =>
+                                    setLiquidityAmts((prev) => ({
+                                      ...prev,
+                                      [mKey]: e.target.value,
+                                    }))
+                                  }
+                                  className="flex-1 input text-xs"
+                                />
+                                {!allResolved && (
+                                  <button
+                                    onClick={() =>
+                                      handleDepositLiquidity(market)
+                                    }
+                                    disabled={loading}
+                                    className="btn bg-apple-green/60 hover:bg-apple-green text-xs py-1 px-3"
+                                  >
+                                    Add Liquidity
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() =>
+                                    handleWithdrawLiquidity(market)
+                                  }
+                                  disabled={loading}
+                                  className="btn bg-apple-orange/60 hover:bg-apple-orange text-xs py-1 px-3"
+                                >
+                                  Withdraw
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Words */}
                           <div className="space-y-2">
-                            {group.words.map((w) => {
-                              const statusColor =
-                                w.data.status === MarketStatus.Active
-                                  ? "text-apple-green"
-                                  : w.data.status === MarketStatus.Paused
-                                  ? "text-apple-orange"
-                                  : "text-apple-blue";
+                            {market.words.map((w) => {
+                              const resolved = w.outcome !== null;
+                              const canResolve =
+                                isAuthority && !resolved && !allResolved;
+                              const bulkOutcome =
+                                bulkSelections[w.wordIndex];
 
                               return (
                                 <div
-                                  key={w.pubkey as string}
+                                  key={`${mKey}-${w.wordIndex}`}
                                   className="flex items-center justify-between bg-neutral-900/50 rounded px-3 py-2"
                                 >
                                   <div className="flex items-center gap-3">
                                     <span className="font-medium">
-                                      &ldquo;{w.data.label}&rdquo;
+                                      &ldquo;{w.label}&rdquo;
                                     </span>
-                                    <span
-                                      className={`text-xs font-medium ${statusColor}`}
-                                    >
-                                      {marketStatusStr(w.data.status)}
-                                    </span>
-                                    {w.data.status ===
-                                      MarketStatus.Resolved && (
+                                    {resolved ? (
+                                      <span className="text-xs text-apple-blue">
+                                        {outcomeStr(w.outcome)}
+                                      </span>
+                                    ) : (
                                       <span className="text-xs text-neutral-400">
-                                        = {outcomeStr(w.data.outcome)}
+                                        Unresolved
                                       </span>
                                     )}
                                     <span className="text-xs text-neutral-600">
-                                      idx:{w.data.wordIndex}
+                                      idx:{w.wordIndex}
+                                    </span>
+                                    <span className="text-xs text-neutral-600">
+                                      Y:{Number(w.yesQuantity) / 1e9} / N:
+                                      {Number(w.noQuantity) / 1e9}
                                     </span>
                                   </div>
 
-                                  {isAuthority &&
-                                    w.data.status === MarketStatus.Active && (
-                                      <div className="flex gap-1">
-                                        <button
-                                          onClick={() =>
-                                            handleResolveWord(
-                                              w.data.marketId,
-                                              w.data.wordIndex,
-                                              w.data.label,
-                                              Outcome.Yes
-                                            )
-                                          }
-                                          disabled={loading}
-                                          className="btn bg-apple-green/60 hover:bg-apple-green text-xs py-1 px-2"
-                                        >
-                                          YES
-                                        </button>
-                                        <button
-                                          onClick={() =>
-                                            handleResolveWord(
-                                              w.data.marketId,
-                                              w.data.wordIndex,
-                                              w.data.label,
-                                              Outcome.No
-                                            )
-                                          }
-                                          disabled={loading}
-                                          className="btn bg-apple-red/60 hover:bg-apple-red text-xs py-1 px-2"
-                                        >
-                                          NO
-                                        </button>
-                                      </div>
-                                    )}
+                                  {canResolve && (
+                                    <div className="flex gap-1">
+                                      <button
+                                        onClick={() =>
+                                          setBulkOutcome(
+                                            mKey,
+                                            w.wordIndex,
+                                            true
+                                          )
+                                        }
+                                        disabled={loading}
+                                        className={`btn text-xs py-1 px-2 ${
+                                          bulkOutcome === true
+                                            ? "bg-apple-green text-white"
+                                            : "bg-apple-green/30 hover:bg-apple-green/60"
+                                        }`}
+                                      >
+                                        YES
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          setBulkOutcome(
+                                            mKey,
+                                            w.wordIndex,
+                                            false
+                                          )
+                                        }
+                                        disabled={loading}
+                                        className={`btn text-xs py-1 px-2 ${
+                                          bulkOutcome === false
+                                            ? "bg-apple-red text-white"
+                                            : "bg-apple-red/30 hover:bg-apple-red/60"
+                                        }`}
+                                      >
+                                        NO
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
                           </div>
 
-                          {/* Collateral */}
+                          {/* Bulk Resolve Button */}
+                          {isAuthority &&
+                            unresolvedWords.length > 0 &&
+                            !allResolved && (
+                              <div className="mt-3 flex items-center justify-between">
+                                <span className="text-xs text-neutral-500">
+                                  {bulkCount > 0
+                                    ? `${bulkCount} word${bulkCount !== 1 ? "s" : ""} selected`
+                                    : "Click YES/NO to select words for bulk resolve"}
+                                </span>
+                                <button
+                                  onClick={() => handleBulkResolve(market)}
+                                  disabled={loading || bulkCount === 0}
+                                  className="btn bg-apple-blue/80 hover:bg-apple-blue text-xs"
+                                >
+                                  Resolve {bulkCount > 0 ? bulkCount : ""} Word
+                                  {bulkCount !== 1 ? "s" : ""}
+                                </button>
+                              </div>
+                            )}
+
+                          {/* Market info */}
                           <p className="text-xs text-neutral-600 mt-2">
-                            Total collateral:{" "}
-                            {lamportsToSol(
-                              group.words.reduce(
-                                (sum, w) => sum + w.data.totalCollateral,
-                                0n
-                              )
-                            )}{" "}
-                            SOL
+                            Trade fee: {market.tradeFeeBps} bps &middot;
+                            Resolves:{" "}
+                            {new Date(
+                              Number(market.resolvesAt) * 1000
+                            ).toLocaleString()}
+                            {market.resolvedAt && (
+                              <>
+                                {" "}
+                                &middot; Resolved:{" "}
+                                {new Date(
+                                  Number(market.resolvedAt) * 1000
+                                ).toLocaleString()}
+                              </>
+                            )}
                           </p>
                         </div>
                       );

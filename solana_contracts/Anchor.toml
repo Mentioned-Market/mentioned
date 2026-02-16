@@ -4,9 +4,11 @@ skip-lint = false
 
 [programs.localnet]
 mention_market = "AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN"
+mention_market_amm = "2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU"
 
 [programs.devnet]
 mention_market = "AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN"
+mention_market_amm = "2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU"
 
 [registry]
 url = "https://api.apr.dev"
