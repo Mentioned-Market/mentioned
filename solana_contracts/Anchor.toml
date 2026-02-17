@@ -17,5 +17,13 @@ url = "https://api.apr.dev"
 cluster = "Devnet"
 wallet = "./deployer-keypair.json"
 
+[test.validator]
+url = "https://api.mainnet-beta.solana.com"
+startup_wait = 30000
+bind_address = "127.0.0.1"
+
+[[test.validator.clone]]
+address = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

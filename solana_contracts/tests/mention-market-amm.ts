@@ -7,6 +7,7 @@ import {
   LAMPORTS_PER_SOL,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
+  ComputeBudgetProgram,
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -74,6 +75,22 @@ describe("mention-market-amm", () => {
     return pda;
   }
 
+  const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+  );
+
+  function getMetadataPda(mint: PublicKey): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata"),
+        TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+        mint.toBuffer(),
+      ],
+      TOKEN_METADATA_PROGRAM_ID
+    );
+    return pda;
+  }
+
   function getLpPositionPda(marketId: BN, wallet: PublicKey): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
       [
@@ -86,7 +103,7 @@ describe("mention-market-amm", () => {
     return pda;
   }
 
-  /** Build remaining accounts array for create_market (yes_mint, no_mint pairs) */
+  /** Build remaining accounts array for create_market (yes_mint, yes_metadata, no_mint, no_metadata per word) */
   function getMintRemainingAccounts(
     marketId: BN,
     numWords: number
@@ -97,13 +114,25 @@ describe("mention-market-amm", () => {
       isWritable: boolean;
     }[] = [];
     for (let i = 0; i < numWords; i++) {
+      const yesMint = getYesMintPda(marketId, i);
+      const noMint = getNoMintPda(marketId, i);
       accounts.push({
-        pubkey: getYesMintPda(marketId, i),
+        pubkey: yesMint,
         isSigner: false,
         isWritable: true,
       });
       accounts.push({
-        pubkey: getNoMintPda(marketId, i),
+        pubkey: getMetadataPda(yesMint),
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: noMint,
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: getMetadataPda(noMint),
         isSigner: false,
         isWritable: true,
       });
@@ -281,8 +310,12 @@ describe("mention-market-amm", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
+          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
         })
         .remainingAccounts(remainingAccounts)
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }),
+        ])
         .rpc();
 
       const market = await program.account.marketAccount.fetch(marketPda);
@@ -313,6 +346,26 @@ describe("mention-market-amm", () => {
           getNoMintPda(MARKET_ID, i).toBase58()
         );
       }
+
+      // Verify metadata accounts exist and are owned by the metadata program
+      for (let i = 0; i < WORDS.length; i++) {
+        const yesMint = getYesMintPda(MARKET_ID, i);
+        const noMint = getNoMintPda(MARKET_ID, i);
+        const yesMetadata = getMetadataPda(yesMint);
+        const noMetadata = getMetadataPda(noMint);
+
+        const yesMetaAccount = await provider.connection.getAccountInfo(yesMetadata);
+        expect(yesMetaAccount).to.not.be.null;
+        expect(yesMetaAccount!.owner.toBase58()).to.equal(
+          TOKEN_METADATA_PROGRAM_ID.toBase58()
+        );
+
+        const noMetaAccount = await provider.connection.getAccountInfo(noMetadata);
+        expect(noMetaAccount).to.not.be.null;
+        expect(noMetaAccount!.owner.toBase58()).to.equal(
+          TOKEN_METADATA_PROGRAM_ID.toBase58()
+        );
+      }
     });
 
     it("fails with market label too long", async () => {
@@ -340,6 +393,7 @@ describe("mention-market-amm", () => {
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
+            tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
           })
           .remainingAccounts(remainingAccounts)
           .rpc();
@@ -373,6 +427,7 @@ describe("mention-market-amm", () => {
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
+            tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
           })
           .rpc();
         expect.fail("Should have thrown");

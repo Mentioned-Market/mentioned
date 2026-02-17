@@ -33,6 +33,14 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     **escrow.to_account_info().try_borrow_mut_lamports()? -= amount;
     **ctx.accounts.user.to_account_info().try_borrow_mut_lamports()? += amount;
 
+    emit!(super::deposit::EscrowEvent {
+        user: ctx.accounts.user.key(),
+        action: super::deposit::EscrowAction::Withdraw,
+        amount,
+        new_balance: escrow.balance,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+
     msg!("Withdrew {} lamports. Remaining balance: {}", amount, escrow.balance);
     Ok(())
 }
