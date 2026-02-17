@@ -1,5 +1,12 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token};
+use anchor_spl::metadata::{
+    create_metadata_accounts_v3,
+    mpl_token_metadata,
+    CreateMetadataAccountsV3,
+    Metadata,
+};
+use anchor_spl::metadata::mpl_token_metadata::types::DataV2;
 use crate::state::{MarketAccount, MarketStatus, WordState, MAX_WORDS, MAX_MARKET_LABEL, MAX_WORD_LABEL};
 use crate::errors::AmmError;
 
@@ -29,9 +36,13 @@ pub struct CreateMarket<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+    pub token_metadata_program: Program<'info, Metadata>,
 
-    // remaining_accounts: pairs of (yes_mint, no_mint) for each word
-    // Each mint is a PDA: ["yes_mint", market_id, word_index] / ["no_mint", market_id, word_index]
+    // remaining_accounts: for each word i:
+    //   [i*4 + 0] = yes_mint   (writable)
+    //   [i*4 + 1] = yes_metadata (writable)
+    //   [i*4 + 2] = no_mint    (writable)
+    //   [i*4 + 3] = no_metadata (writable)
 }
 
 pub fn handle_create_market<'info>(
@@ -54,21 +65,25 @@ pub fn handle_create_market<'info>(
 
     let num_words = word_labels.len();
 
-    // We expect 2 * num_words remaining accounts (yes_mint, no_mint per word)
+    // We expect 4 * num_words remaining accounts (yes_mint, yes_metadata, no_mint, no_metadata per word)
     require!(
-        ctx.remaining_accounts.len() == 2 * num_words,
+        ctx.remaining_accounts.len() == 4 * num_words,
         AmmError::TooManyWords // reuse error for wrong account count
     );
 
     let market_id_bytes = market_id.to_le_bytes();
     let market_key = ctx.accounts.market.key();
+    let market_bump = ctx.bumps.market;
+    let market_seeds: &[&[u8]] = &[b"market", market_id_bytes.as_ref(), &[market_bump]];
 
     // Initialize each mint via CPI
     let mut words: [WordState; MAX_WORDS] = core::array::from_fn(|_| WordState::default());
 
     for i in 0..num_words {
-        let yes_mint_info = &ctx.remaining_accounts[i * 2];
-        let no_mint_info = &ctx.remaining_accounts[i * 2 + 1];
+        let yes_mint_info    = &ctx.remaining_accounts[i * 4];
+        let yes_metadata_info = &ctx.remaining_accounts[i * 4 + 1];
+        let no_mint_info     = &ctx.remaining_accounts[i * 4 + 2];
+        let no_metadata_info  = &ctx.remaining_accounts[i * 4 + 3];
         let word_index = i as u8;
         let word_index_bytes = word_index.to_le_bytes();
 
@@ -86,7 +101,20 @@ pub fn handle_create_market<'info>(
         );
         require!(no_mint_info.key() == no_mint_pda, AmmError::InvalidWordIndex);
 
-        // Create yes_mint account
+        // Verify metadata PDAs
+        let (yes_metadata_pda, _) = Pubkey::find_program_address(
+            &[b"metadata", mpl_token_metadata::ID.as_ref(), yes_mint_pda.as_ref()],
+            &mpl_token_metadata::ID,
+        );
+        require!(yes_metadata_info.key() == yes_metadata_pda, AmmError::InvalidWordIndex);
+
+        let (no_metadata_pda, _) = Pubkey::find_program_address(
+            &[b"metadata", mpl_token_metadata::ID.as_ref(), no_mint_pda.as_ref()],
+            &mpl_token_metadata::ID,
+        );
+        require!(no_metadata_info.key() == no_metadata_pda, AmmError::InvalidWordIndex);
+
+        // ── Create & init YES mint ──────────────────────────────────
         let yes_seeds: &[&[u8]] = &[b"yes_mint", market_id_bytes.as_ref(), word_index_bytes.as_ref(), &[yes_bump]];
         let mint_space = Mint::LEN;
         let rent_lamports = Rent::get()?.minimum_balance(mint_space);
@@ -112,12 +140,41 @@ pub fn handle_create_market<'info>(
                     mint: yes_mint_info.clone(),
                 },
             ),
-            9, // decimals = 9 to match PRECISION
+            9,
             &market_key,
             None,
         )?;
 
-        // Create no_mint account
+        // Attach metadata to YES mint
+        create_metadata_accounts_v3(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_metadata_program.to_account_info(),
+                CreateMetadataAccountsV3 {
+                    metadata: yes_metadata_info.clone(),
+                    mint: yes_mint_info.clone(),
+                    mint_authority: ctx.accounts.market.to_account_info(),
+                    payer: ctx.accounts.authority.to_account_info(),
+                    update_authority: ctx.accounts.market.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    rent: ctx.accounts.rent.to_account_info(),
+                },
+                &[market_seeds],
+            ),
+            DataV2 {
+                name: build_name(&word_labels[i], "YES"),
+                symbol: build_symbol(&word_labels[i], "Y"),
+                uri: String::new(),
+                seller_fee_basis_points: 0,
+                creators: None,
+                collection: None,
+                uses: None,
+            },
+            true,  // is_mutable
+            true,  // update_authority_is_signer
+            None,  // collection_details
+        )?;
+
+        // ── Create & init NO mint ───────────────────────────────────
         let no_seeds: &[&[u8]] = &[b"no_mint", market_id_bytes.as_ref(), word_index_bytes.as_ref(), &[no_bump]];
 
         anchor_lang::system_program::create_account(
@@ -146,6 +203,35 @@ pub fn handle_create_market<'info>(
             None,
         )?;
 
+        // Attach metadata to NO mint
+        create_metadata_accounts_v3(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_metadata_program.to_account_info(),
+                CreateMetadataAccountsV3 {
+                    metadata: no_metadata_info.clone(),
+                    mint: no_mint_info.clone(),
+                    mint_authority: ctx.accounts.market.to_account_info(),
+                    payer: ctx.accounts.authority.to_account_info(),
+                    update_authority: ctx.accounts.market.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    rent: ctx.accounts.rent.to_account_info(),
+                },
+                &[market_seeds],
+            ),
+            DataV2 {
+                name: build_name(&word_labels[i], "NO"),
+                symbol: build_symbol(&word_labels[i], "N"),
+                uri: String::new(),
+                seller_fee_basis_points: 0,
+                creators: None,
+                collection: None,
+                uses: None,
+            },
+            true,
+            true,
+            None,
+        )?;
+
         words[i] = WordState {
             word_index,
             label: word_labels[i].clone(),
@@ -163,7 +249,7 @@ pub fn handle_create_market<'info>(
     market.version = 1;
     market.bump = ctx.bumps.market;
     market.market_id = market_id;
-    market.label = label;
+    market.label = label.clone();
     market.authority = ctx.accounts.authority.key();
     market.resolver = resolver;
     market.router = None;
@@ -183,6 +269,18 @@ pub fn handle_create_market<'info>(
     market.accumulated_fees = 0;
     market._reserved = [0u8; 256];
 
+    emit!(MarketCreatedEvent {
+        market_id,
+        label,
+        num_words: num_words as u8,
+        authority: ctx.accounts.authority.key(),
+        resolver,
+        resolves_at,
+        trade_fee_bps,
+        initial_b,
+        timestamp: clock.unix_timestamp,
+    });
+
     msg!(
         "Market created: {} (id={}, words={})",
         market.label,
@@ -191,4 +289,46 @@ pub fn handle_create_market<'info>(
     );
 
     Ok(())
+}
+
+/// Build token name, truncated to 32 chars.
+/// e.g. "Bitcoin YES", "Economy NO"
+fn build_name(word_label: &str, side: &str) -> String {
+    let name = format!("{} {}", word_label, side);
+    if name.len() > 32 {
+        name[..32].to_string()
+    } else {
+        name
+    }
+}
+
+/// Build token symbol (max 10 chars).
+/// Takes first 4 alphanumeric chars of word, uppercased, plus "-Y" or "-N".
+/// e.g. "Bitcoin" + "Y" -> "BITC-Y", "Economy" + "N" -> "ECON-N"
+fn build_symbol(word_label: &str, side: &str) -> String {
+    let prefix: String = word_label
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .take(4)
+        .collect::<String>()
+        .to_uppercase();
+    let sym = format!("{}-{}", prefix, side);
+    if sym.len() > 10 {
+        sym[..10].to_string()
+    } else {
+        sym
+    }
+}
+
+#[event]
+pub struct MarketCreatedEvent {
+    pub market_id: u64,
+    pub label: String,
+    pub num_words: u8,
+    pub authority: Pubkey,
+    pub resolver: Pubkey,
+    pub resolves_at: i64,
+    pub trade_fee_bps: u16,
+    pub initial_b: u64,
+    pub timestamp: i64,
 }

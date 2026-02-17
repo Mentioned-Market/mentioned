@@ -34,6 +34,12 @@ export const RENT_SYSVAR = toAddress(
 export const ASSOCIATED_TOKEN_PROGRAM = toAddress(
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 )
+export const TOKEN_METADATA_PROGRAM = toAddress(
+  'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
+)
+export const COMPUTE_BUDGET_PROGRAM = toAddress(
+  'ComputeBudget111111111111111111111111111111'
+)
 export const DEVNET_URL = 'https://api.devnet.solana.com'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
@@ -55,6 +61,7 @@ const DISC = {
 const ACCT_DISC = {
   userEscrow: new Uint8Array([242, 233, 85, 38, 26, 5, 142, 109]),
   marketAccount: new Uint8Array([201, 78, 187, 225, 240, 198, 201, 251]),
+  lpPosition: new Uint8Array([105, 241, 37, 200, 224, 2, 252, 90]),
 }
 
 // ── Types ────────────────────────────────────────────────
@@ -64,6 +71,15 @@ export interface UserEscrow {
   balance: bigint
   locked: bigint
   bump: number
+}
+
+export interface LpPosition {
+  version: number
+  bump: number
+  market: Address
+  owner: Address
+  shares: bigint
+  depositedAt: bigint
 }
 
 export enum MarketStatus {
@@ -117,6 +133,8 @@ export interface UserPosition {
   shares: number
   estimatedValueSol: number
   claimable: boolean
+  /** null = unresolved, true = winning side, false = losing side */
+  won: boolean | null
 }
 
 // ── Encoding helpers ─────────────────────────────────────
@@ -225,6 +243,20 @@ export async function getNoMintPDA(
   return [pda, bump]
 }
 
+export async function getMetadataPDA(
+  mint: Address
+): Promise<[Address, number]> {
+  const [pda, bump] = await getProgramDerivedAddress({
+    programAddress: TOKEN_METADATA_PROGRAM,
+    seeds: [
+      'metadata',
+      addrEncoder.encode(TOKEN_METADATA_PROGRAM),
+      addrEncoder.encode(mint),
+    ],
+  })
+  return [pda, bump]
+}
+
 export async function getLpPositionPDA(
   marketId: bigint,
   lpWallet: Address
@@ -252,6 +284,17 @@ export async function getAssociatedTokenAddress(
 }
 
 // ── Instruction builders ─────────────────────────────────
+
+export function createSetComputeUnitLimitIx(units: number): Instruction {
+  const data = new Uint8Array(5)
+  data[0] = 2 // SetComputeUnitLimit discriminator
+  new DataView(data.buffer).setUint32(1, units, true)
+  return {
+    programAddress: COMPUTE_BUDGET_PROGRAM,
+    accounts: [],
+    data,
+  }
+}
 
 export async function createDepositIx(
   user: Address,
@@ -299,13 +342,17 @@ export async function createCreateMarketIx(
   const [marketPda] = await getMarketPDA(marketId)
   const [vaultPda] = await getVaultPDA(marketId)
 
-  // Build remaining accounts: pairs of (yes_mint, no_mint) per word
+  // Build remaining accounts: (yes_mint, yes_metadata, no_mint, no_metadata) per word
   const remainingAccounts: AccountMeta[] = []
   for (let i = 0; i < wordLabels.length; i++) {
     const [yesMint] = await getYesMintPDA(marketId, i)
+    const [yesMetadata] = await getMetadataPDA(yesMint)
     const [noMint] = await getNoMintPDA(marketId, i)
+    const [noMetadata] = await getMetadataPDA(noMint)
     remainingAccounts.push({ address: yesMint, role: AccountRole.WRITABLE })
+    remainingAccounts.push({ address: yesMetadata, role: AccountRole.WRITABLE })
     remainingAccounts.push({ address: noMint, role: AccountRole.WRITABLE })
+    remainingAccounts.push({ address: noMetadata, role: AccountRole.WRITABLE })
   }
 
   // Encode Vec<String> for word_labels
@@ -324,6 +371,7 @@ export async function createCreateMarketIx(
       { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
       { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
       { address: RENT_SYSVAR, role: AccountRole.READONLY },
+      { address: TOKEN_METADATA_PROGRAM, role: AccountRole.READONLY },
       ...remainingAccounts,
     ] as AccountMeta[],
     data: concat(
@@ -663,6 +711,48 @@ export function deserializeUserEscrow(data: Uint8Array): UserEscrow | null {
   return { owner, balance, locked, bump }
 }
 
+export function deserializeLpPosition(data: Uint8Array): LpPosition | null {
+  // 8 (disc) + 1 + 1 + 32 + 32 + 8 + 8 + 64 = 154
+  if (data.length < 8 + 146) return null
+  if (!arraysEqual(data.slice(0, 8), ACCT_DISC.lpPosition)) return null
+
+  let off = 8
+  const version = data[off]; off += 1
+  const bump = data[off]; off += 1
+  const market = readAddress(data, off); off += 32
+  const owner = readAddress(data, off); off += 32
+  const shares = readU64(data, off); off += 8
+  const depositedAt = readI64(data, off)
+
+  return { version, bump, market, owner, shares, depositedAt }
+}
+
+export async function fetchLpPosition(
+  marketId: bigint,
+  lpWallet: Address
+): Promise<LpPosition | null> {
+  const rpc = createRpc()
+  const [pda] = await getLpPositionPDA(marketId, lpWallet)
+  const result = await rpc
+    .getAccountInfo(pda, { encoding: 'base64' })
+    .send()
+  if (!result.value) return null
+  const bytes = decodeBase64(result.value.data)
+  return deserializeLpPosition(bytes)
+}
+
+export async function fetchVaultBalance(
+  marketId: bigint
+): Promise<bigint> {
+  const rpc = createRpc()
+  const [vaultPda] = await getVaultPDA(marketId)
+  const result = await rpc
+    .getAccountInfo(vaultPda, { encoding: 'base64' })
+    .send()
+  if (!result.value) return 0n
+  return BigInt(result.value.lamports)
+}
+
 export function deserializeMarketAccount(data: Uint8Array): MarketAccount | null {
   if (data.length < 50) return null
   if (!arraysEqual(data.slice(0, 8), ACCT_DISC.marketAccount)) return null
@@ -977,24 +1067,27 @@ export async function fetchUserPositions(
 
     const mint = parsed.info.mint as string
     const amountStr = parsed.info.tokenAmount?.amount as string
-    if (!amountStr || amountStr === '0') continue
 
     const info = mintMap.get(mint)
     if (!info) continue
 
-    const rawAmount = BigInt(amountStr)
+    const rawAmount = amountStr ? BigInt(amountStr) : 0n
+    // Skip 0-balance positions unless market is resolved (show closed/sold positions)
+    if (rawAmount === 0n && info.market.status !== MarketStatus.Resolved) continue
+
     const shares = Number(rawAmount) / TOKEN_BASE
     const { market, word, side } = info
 
     let estimatedValueSol: number
     let claimable = false
+    let won: boolean | null = null
 
     if (market.status === MarketStatus.Resolved && word.outcome !== null) {
-      const isWinner =
+      won =
         (word.outcome === true && side === 'YES') ||
         (word.outcome === false && side === 'NO')
-      estimatedValueSol = isWinner ? shares * 1.0 : 0
-      claimable = isWinner && rawAmount > 0n
+      estimatedValueSol = won ? shares * 1.0 : 0
+      claimable = won && rawAmount > 0n
     } else {
       const price = lmsrImpliedPrice(
         word.yesQuantity,
@@ -1016,6 +1109,7 @@ export async function fetchUserPositions(
       shares,
       estimatedValueSol,
       claimable,
+      won,
     })
   }
 
@@ -1145,6 +1239,8 @@ function parseFullTradeEvent(data: Uint8Array): {
   direction: 'YES' | 'NO'
   quantity: number
   cost: number
+  newYesQty: number
+  newNoQty: number
   trader: string
   timestamp: number
 } | null {
@@ -1157,6 +1253,9 @@ function parseFullTradeEvent(data: Uint8Array): {
   const dirByte = data[17]
   const quantity = dv.getBigUint64(18, true)
   const cost = dv.getBigUint64(26, true)
+  // fee at offset 34
+  const newYesQty = dv.getBigInt64(42, true)
+  const newNoQty = dv.getBigInt64(50, true)
   const trader = base58Encode(data.slice(66, 98))
   const timestamp = dv.getBigInt64(98, true)
 
@@ -1166,6 +1265,8 @@ function parseFullTradeEvent(data: Uint8Array): {
     direction: dirByte === 0 ? 'YES' : 'NO',
     quantity: Number(quantity) / 1e9,
     cost: Number(cost) / 1e9,
+    newYesQty: Number(newYesQty) / 1e9,
+    newNoQty: Number(newNoQty) / 1e9,
     trader,
     timestamp: Number(timestamp),
   }
@@ -1173,7 +1274,9 @@ function parseFullTradeEvent(data: Uint8Array): {
 
 /**
  * Fetch all trades by a specific user across all markets.
- * Scans the program's transaction history and filters by trader pubkey.
+ * Scans the program's transaction history, collects ALL trade events to
+ * track global quantities per word (needed to determine buy vs sell),
+ * then returns only the user's events.
  */
 export async function fetchUserTradeHistory(
   userAddr: Address,
@@ -1200,7 +1303,9 @@ export async function fetchUserTradeHistory(
     })
   }
 
-  const entries: UserTradeEntry[] = []
+  // Collect ALL trade events (not just user's) so we can track global qty
+  type RawEvent = ReturnType<typeof parseFullTradeEvent> & { txSig: string }
+  const allEvents: NonNullable<RawEvent>[] = []
 
   for (let i = 0; i < signatures.length; i += 10) {
     const batch = signatures.slice(i, i + 10)
@@ -1230,23 +1335,7 @@ export async function fetchUserTradeHistory(
         try {
           const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
           const event = parseFullTradeEvent(data)
-          if (!event || event.trader !== userStr) continue
-
-          const marketInfo = marketLabelMap.get(event.marketId.toString())
-          const wordInfo = marketInfo?.words.find((w) => w.wordIndex === event.wordIndex)
-
-          entries.push({
-            timestamp: event.timestamp,
-            marketId: event.marketId,
-            marketLabel: marketInfo?.label || `Market #${event.marketId}`,
-            wordIndex: event.wordIndex,
-            wordLabel: wordInfo?.label || `Word #${event.wordIndex}`,
-            direction: event.direction,
-            quantity: event.quantity,
-            cost: event.cost,
-            isBuy: true, // TradeEvent is emitted for both buy/sell; cost sign handled by contract
-            txSignature: result.sig,
-          })
+          if (event) allEvents.push({ ...event, txSig: result.sig })
         } catch {
           // ignore malformed log entries
         }
@@ -1254,7 +1343,49 @@ export async function fetchUserTradeHistory(
     }
   }
 
-  // Sort newest first
+  // Sort ALL events chronologically (oldest first) to track global quantities
+  allEvents.sort((a, b) => a.timestamp - b.timestamp)
+
+  // Track previous global quantities per (marketId, wordIndex) to determine buy/sell.
+  // Key: "marketId-wordIndex"
+  const prevQtyMap = new Map<string, { yes: number; no: number }>()
+
+  // Determine isBuy for each event and collect user entries
+  const entries: UserTradeEntry[] = []
+
+  for (const event of allEvents) {
+    const wordKey = `${event.marketId}-${event.wordIndex}`
+    const prev = prevQtyMap.get(wordKey) || { yes: 0, no: 0 }
+
+    // Determine buy/sell: if the relevant quantity increased, it's a buy
+    const relevantQtyBefore = event.direction === 'YES' ? prev.yes : prev.no
+    const relevantQtyAfter = event.direction === 'YES' ? event.newYesQty : event.newNoQty
+    const isBuy = relevantQtyAfter > relevantQtyBefore
+
+    // Update tracked quantities for this word
+    prevQtyMap.set(wordKey, { yes: event.newYesQty, no: event.newNoQty })
+
+    // Only include the user's events
+    if (event.trader !== userStr) continue
+
+    const marketInfo = marketLabelMap.get(event.marketId.toString())
+    const wordInfo = marketInfo?.words.find((w) => w.wordIndex === event.wordIndex)
+
+    entries.push({
+      timestamp: event.timestamp,
+      marketId: event.marketId,
+      marketLabel: marketInfo?.label || `Market #${event.marketId}`,
+      wordIndex: event.wordIndex,
+      wordLabel: wordInfo?.label || `Word #${event.wordIndex}`,
+      direction: event.direction,
+      quantity: event.quantity,
+      cost: event.cost,
+      isBuy,
+      txSignature: event.txSig,
+    })
+  }
+
+  // Sort newest first for display
   entries.sort((a, b) => b.timestamp - a.timestamp)
   return entries
 }

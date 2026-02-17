@@ -274,6 +274,8 @@ export default function MarketPage() {
           ? tradeHistory.filter((t) => t.wordIndex === wordIdx)
           : []
 
+        const isResolved = onChainStatus === MarketStatus.Resolved
+
         if (wordHistory.length > 0) {
           // Start at 0.50 (initial LMSR price), then add each trade's resulting price
           data.push({
@@ -286,12 +288,18 @@ export default function MarketPage() {
               price: point.impliedYesPrice,
             })
           }
-          // Add current price at now
-          data.push({ timestamp: now, price: endPrice })
+          // Only extend to "now" if the market is still active
+          if (!isResolved) {
+            data.push({ timestamp: now, price: endPrice })
+          }
         } else {
           // No trades yet: flat line at current price
           data.push({ timestamp: now - 24 * 60 * 60 * 1000, price: 0.50 })
-          data.push({ timestamp: now, price: endPrice })
+          if (!isResolved) {
+            data.push({ timestamp: now, price: endPrice })
+          } else {
+            data.push({ timestamp: now - 24 * 60 * 60 * 1000 + 1, price: 0.50 })
+          }
         }
       } else {
         // Demo market: generate mock chart data
@@ -313,7 +321,7 @@ export default function MarketPage() {
         currentPrice: endPrice,
       }
     }).filter(Boolean) as { label: string; color: string; data: { timestamp: number; price: number }[]; currentPrice: number }[]
-  }, [trackedWords, market.words, isNumericMarket, onChainMarket, tradeHistory])
+  }, [trackedWords, market.words, isNumericMarket, onChainMarket, onChainStatus, tradeHistory])
 
   const yesCents = Math.round(parseFloat(selectedWordData.yesPrice) * 100)
   const noCents = Math.round(parseFloat(selectedWordData.noPrice) * 100)
@@ -402,12 +410,12 @@ export default function MarketPage() {
     }
   }, [isNumericMarket, marketId, publicKey])
 
-  // Auto-poll every 15s so other users' trades appear
+  // Auto-poll every 15s so other users' trades appear (stop when resolved)
   useEffect(() => {
-    if (!isNumericMarket || loading) return
+    if (!isNumericMarket || loading || onChainStatus === MarketStatus.Resolved) return
     const interval = setInterval(refreshData, 15_000)
     return () => clearInterval(interval)
-  }, [isNumericMarket, loading, refreshData])
+  }, [isNumericMarket, loading, onChainStatus, refreshData])
 
   const handleTrade = async () => {
     if (!signer || !publicKey || !onChainMarket || !selectedWord) return

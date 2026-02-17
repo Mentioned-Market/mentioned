@@ -42,6 +42,29 @@ pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         .ok_or(AmmError::MathOverflow)?;
     escrow.bump = ctx.bumps.escrow;
 
+    emit!(EscrowEvent {
+        user: ctx.accounts.user.key(),
+        action: EscrowAction::Deposit,
+        amount,
+        new_balance: escrow.balance,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+
     msg!("Deposited {} lamports. New balance: {}", amount, escrow.balance);
     Ok(())
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum EscrowAction {
+    Deposit,
+    Withdraw,
+}
+
+#[event]
+pub struct EscrowEvent {
+    pub user: Pubkey,
+    pub action: EscrowAction,
+    pub amount: u64,
+    pub new_balance: u64,
+    pub timestamp: i64,
 }

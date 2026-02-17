@@ -15,8 +15,11 @@ import {
   createResolveWordIx,
   createDepositLiquidityIx,
   createWithdrawLiquidityIx,
+  createSetComputeUnitLimitIx,
   fetchEscrow,
   fetchAllMarkets,
+  fetchLpPosition,
+  fetchVaultBalance,
   solToLamports,
   lamportsToSol,
   marketStatusStr,
@@ -25,6 +28,7 @@ import {
   MarketStatus,
   type UserEscrow,
   type MarketAccount,
+  type LpPosition,
 } from "@/lib/mentionMarket";
 
 // ── Component ────────────────────────────────────────────
@@ -66,6 +70,11 @@ export default function AdminPage() {
     Record<string, Record<number, boolean>>
   >({});
 
+  // LP positions per market (keyed by marketId string)
+  const [lpPositions, setLpPositions] = useState<Record<string, LpPosition | null>>({});
+  // Vault balances per market (keyed by marketId string)
+  const [vaultBalances, setVaultBalances] = useState<Record<string, bigint>>({});
+
   const show = (msg: string, error = false) => {
     setStatus({ msg, error });
     setTimeout(() => setStatus(null), 8000);
@@ -87,17 +96,41 @@ export default function AdminPage() {
     try {
       const all = await fetchAllMarkets();
       setMarkets(all);
+      return all;
     } catch (e: unknown) {
       console.error("Error loading markets:", e);
+      return [];
     }
   }, []);
+
+  const loadLpData = useCallback(async (
+    marketList: Array<{ pubkey: Address; account: MarketAccount }>
+  ) => {
+    if (!publicKey) return;
+    const addr = toAddress(publicKey);
+    const lpResults: Record<string, LpPosition | null> = {};
+    const vaultResults: Record<string, bigint> = {};
+    await Promise.all(
+      marketList.map(async (m) => {
+        const key = m.account.marketId.toString();
+        const [lp, vault] = await Promise.all([
+          fetchLpPosition(m.account.marketId, addr).catch(() => null),
+          fetchVaultBalance(m.account.marketId).catch(() => 0n),
+        ]);
+        lpResults[key] = lp;
+        vaultResults[key] = vault;
+      })
+    );
+    setLpPositions(lpResults);
+    setVaultBalances(vaultResults);
+  }, [publicKey]);
 
   useEffect(() => {
     if (publicKey && connected) {
       loadEscrow();
-      loadMarkets();
+      loadMarkets().then((all) => loadLpData(all));
     }
-  }, [publicKey, connected, loadEscrow, loadMarkets]);
+  }, [publicKey, connected, loadEscrow, loadMarkets, loadLpData]);
 
   // ── Actions ──
 
@@ -221,7 +254,8 @@ export default function AdminPage() {
         initialB,
         baseBPerSol
       );
-      await sendIxs(signer, [ix]);
+      const computeIx = createSetComputeUnitLimitIx(800_000);
+      await sendIxs(signer, [computeIx, ix]);
       show(
         `Created market #${mId} "${label}" with ${words.length} word${words.length > 1 ? "s" : ""}: ${words.join(", ")}`
       );
@@ -300,7 +334,8 @@ export default function AdminPage() {
       await sendIxs(signer, [ix]);
       show(`Deposited ${sol} SOL liquidity to market #${key}`);
       setLiquidityAmts((prev) => ({ ...prev, [key]: "" }));
-      await loadMarkets();
+      const all = await loadMarkets();
+      await loadLpData(all);
     } catch (e: unknown) {
       show((e as Error).message, true);
     } finally {
@@ -326,7 +361,8 @@ export default function AdminPage() {
       await sendIxs(signer, [ix]);
       show(`Withdrew ${sol} LP shares from market #${key}`);
       setLiquidityAmts((prev) => ({ ...prev, [key]: "" }));
-      await loadMarkets();
+      const all = await loadMarkets();
+      await loadLpData(all);
     } catch (e: unknown) {
       show((e as Error).message, true);
     } finally {
@@ -770,6 +806,94 @@ export default function AdminPage() {
                               </div>
                             </div>
                           )}
+
+                          {/* LP Position Overview */}
+                          {(() => {
+                            const lp = lpPositions[mKey];
+                            const vaultBal = vaultBalances[mKey] ?? 0n;
+                            const totalShares = market.totalLpShares;
+                            const lpShares = lp?.shares ?? 0n;
+                            const lpSharePct = totalShares > 0n
+                              ? (Number(lpShares) / Number(totalShares)) * 100
+                              : 0;
+                            // LP's pro-rata share of the vault
+                            const lpVaultValue = totalShares > 0n
+                              ? (Number(lpShares) * Number(vaultBal)) / Number(totalShares)
+                              : 0;
+                            // LP's share of accumulated fees (fees sit in the vault too)
+                            const lpFeeShare = totalShares > 0n
+                              ? (Number(lpShares) * Number(market.accumulatedFees)) / Number(totalShares)
+                              : 0;
+                            // Original deposit: for first LP, 1 share = 1 lamport
+                            const depositedSol = Number(lpShares) / 1e9;
+                            const currentValueSol = lpVaultValue / 1e9;
+                            const pnl = currentValueSol - depositedSol;
+
+                            return (
+                              <div className="bg-neutral-900/50 rounded-lg p-3 mb-3">
+                                <div className="text-xs text-neutral-400 font-medium mb-2">
+                                  LP Position
+                                </div>
+                                {!lp || lpShares === 0n ? (
+                                  <div className="text-xs text-neutral-600">
+                                    No LP position in this market
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Your Shares</div>
+                                        <div className="text-sm font-semibold text-white">
+                                          {lamportsToSol(lpShares)}
+                                          <span className="text-neutral-500 text-xs ml-1">
+                                            ({lpSharePct.toFixed(1)}%)
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Pool Value</div>
+                                        <div className="text-sm font-semibold text-white">
+                                          {currentValueSol.toFixed(4)} SOL
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Deposited</div>
+                                        <div className="text-sm font-semibold text-white">
+                                          {depositedSol.toFixed(4)} SOL
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">LP P&L</div>
+                                        <div className={`text-sm font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                          {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} SOL
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-3">
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Vault Balance</div>
+                                        <div className="text-xs text-neutral-300">
+                                          {(Number(vaultBal) / 1e9).toFixed(4)} SOL
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Total LP Shares</div>
+                                        <div className="text-xs text-neutral-300">
+                                          {lamportsToSol(totalShares)}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Fee Share</div>
+                                        <div className="text-xs text-neutral-300">
+                                          {(lpFeeShare / 1e9).toFixed(4)} SOL
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Words */}
                           <div className="space-y-2">

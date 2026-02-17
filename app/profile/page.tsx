@@ -80,8 +80,17 @@ export default function ProfilePage() {
     for (const trade of tradeHistory) {
       const key = `${trade.marketId}-${trade.wordIndex}-${trade.direction}`
       const existing = map[key] || { totalCost: 0, totalShares: 0 }
-      existing.totalCost += trade.cost
-      existing.totalShares += trade.quantity
+      if (trade.isBuy) {
+        existing.totalCost += trade.cost
+        existing.totalShares += trade.quantity
+      } else {
+        // Sells reduce cost basis proportionally and reduce shares
+        existing.totalCost -= trade.cost
+        existing.totalShares -= trade.quantity
+      }
+      // Clamp to 0 to avoid negative cost basis from rounding
+      if (existing.totalCost < 0) existing.totalCost = 0
+      if (existing.totalShares < 0) existing.totalShares = 0
       map[key] = existing
     }
     return map
@@ -92,12 +101,26 @@ export default function ProfilePage() {
     return costBasisMap[key] || { totalCost: 0, totalShares: 0 }
   }
 
+  // Net invested = sum of buy costs minus sell returns
   const totalInvested = useMemo(
-    () => tradeHistory.reduce((sum, t) => sum + t.cost, 0),
+    () => tradeHistory.reduce((sum, t) => sum + (t.isBuy ? t.cost : -t.cost), 0),
     [tradeHistory]
   )
+
+  // Realized returns from redeemed (claimed) positions: won + 0 balance = already redeemed
+  // Each winning token paid out 1 SOL, so payout = net shares from trades
+  const totalRealizedReturns = useMemo(() => {
+    return positions
+      .filter((p) => p.won === true && p.rawAmount === 0n)
+      .reduce((sum, p) => {
+        const basis = getCostBasis(p)
+        return sum + basis.totalShares // each redeemed share = 1 SOL
+      }, 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions, costBasisMap])
+
   const totalCurrentValue = positions.reduce((sum, p) => sum + p.estimatedValueSol, 0)
-  const totalPnl = totalCurrentValue - totalInvested
+  const totalPnl = totalCurrentValue + totalRealizedReturns - totalInvested
   const totalPnlPct = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0
 
   const handleClaim = async (positionsToClaim: UserPosition[]) => {
@@ -206,18 +229,18 @@ export default function ProfilePage() {
                     </div>
                     <div className="glass rounded-xl p-4 md:p-5">
                       <div className="text-neutral-400 text-[10px] md:text-xs font-medium uppercase tracking-wider mb-1">
-                        Total Invested
+                        Net Invested
                       </div>
                       <div className="text-xl md:text-2xl font-bold text-white">
-                        {totalInvested.toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
+                        {Math.max(0, totalInvested).toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
                       </div>
                     </div>
                     <div className="glass rounded-xl p-4 md:p-5">
                       <div className="text-neutral-400 text-[10px] md:text-xs font-medium uppercase tracking-wider mb-1">
-                        Current Value
+                        Total Returns
                       </div>
                       <div className="text-xl md:text-2xl font-bold text-white">
-                        {totalCurrentValue.toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
+                        {(totalCurrentValue + totalRealizedReturns).toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
                       </div>
                     </div>
                     <div className="glass rounded-xl p-4 md:p-5">
@@ -486,14 +509,38 @@ export default function ProfilePage() {
                       ) : (
                         resolvedPositions.map((pos, i) => {
                           const basis = getCostBasis(pos)
-                          const pnl = pos.estimatedValueSol - basis.totalCost
-                          const isWinner = pos.claimable || pos.estimatedValueSol > 0
+                          const isClaimed = pos.won === true && pos.rawAmount === 0n
+                          const isSold = pos.won === false && pos.rawAmount === 0n
+                          // For claimed positions: payout = shares redeemed (from cost basis) * 1 SOL each
+                          const payout = isClaimed
+                            ? basis.totalShares
+                            : pos.won && pos.rawAmount > 0n
+                              ? pos.shares
+                              : 0
+                          const pnl = payout - basis.totalCost
+
+                          let statusLabel: string
+                          let statusClass: string
+                          if (isClaimed) {
+                            statusLabel = 'Claimed'
+                            statusClass = 'bg-apple-green/15 text-apple-green'
+                          } else if (isSold) {
+                            statusLabel = 'Sold'
+                            statusClass = 'bg-neutral-500/15 text-neutral-400'
+                          } else if (pos.won) {
+                            statusLabel = 'Won'
+                            statusClass = 'bg-apple-green/15 text-apple-green'
+                          } else {
+                            statusLabel = 'Lost'
+                            statusClass = 'bg-apple-red/15 text-apple-red'
+                          }
+
                           return (
                             <a
-                              key={`${pos.marketId}-${pos.wordIndex}-${i}`}
+                              key={`${pos.marketId}-${pos.wordIndex}-${pos.side}-${i}`}
                               href={`/market/${pos.marketId.toString()}`}
                               className={`block glass rounded-xl p-4 md:p-5 hover:bg-white/[0.04] transition-colors ${
-                                isWinner ? 'border border-apple-green/20' : 'border border-white/5'
+                                pos.won ? 'border border-apple-green/20' : 'border border-white/5'
                               }`}
                             >
                               <div className="flex items-start justify-between mb-3">
@@ -512,18 +559,14 @@ export default function ProfilePage() {
                                     }`}>
                                       {pos.side}
                                     </span>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                      isWinner
-                                        ? 'bg-apple-green/15 text-apple-green'
-                                        : 'bg-apple-red/15 text-apple-red'
-                                    }`}>
-                                      {isWinner ? 'Won' : 'Lost'}
+                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${statusClass}`}>
+                                      {statusLabel}
                                     </span>
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <div className="text-white font-semibold text-base">
-                                    {pos.estimatedValueSol.toFixed(4)} SOL
+                                  <div className={`font-semibold text-base ${payout > 0 ? 'text-apple-green' : 'text-white'}`}>
+                                    {payout.toFixed(4)} SOL
                                   </div>
                                   {basis.totalCost > 0 && (
                                     <div className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
@@ -533,10 +576,17 @@ export default function ProfilePage() {
                                 </div>
                               </div>
                               <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                                <div>
-                                  <span className="text-neutral-400">Shares </span>
-                                  <span className="text-white font-medium">{pos.shares.toFixed(2)}</span>
-                                </div>
+                                {isClaimed ? (
+                                  <div>
+                                    <span className="text-neutral-400">Redeemed </span>
+                                    <span className="text-white font-medium">{basis.totalShares.toFixed(2)} shares</span>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <span className="text-neutral-400">Shares </span>
+                                    <span className="text-white font-medium">{pos.shares.toFixed(2)}</span>
+                                  </div>
+                                )}
                                 {basis.totalCost > 0 && (
                                   <div>
                                     <span className="text-neutral-400">Cost Basis </span>
@@ -545,8 +595,8 @@ export default function ProfilePage() {
                                 )}
                                 <div>
                                   <span className="text-neutral-400">Payout </span>
-                                  <span className={`font-medium ${isWinner ? 'text-apple-green' : 'text-neutral-500'}`}>
-                                    {isWinner ? `${pos.estimatedValueSol.toFixed(4)} SOL` : '0 SOL'}
+                                  <span className={`font-medium ${payout > 0 ? 'text-apple-green' : 'text-neutral-500'}`}>
+                                    {payout > 0 ? `${payout.toFixed(4)} SOL` : '0 SOL'}
                                   </span>
                                 </div>
                               </div>
@@ -583,6 +633,13 @@ export default function ProfilePage() {
                                     {trade.wordLabel}
                                   </span>
                                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                    trade.isBuy
+                                      ? 'bg-apple-green/15 text-apple-green'
+                                      : 'bg-orange-500/15 text-orange-400'
+                                  }`}>
+                                    {trade.isBuy ? 'Buy' : 'Sell'}
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                                     trade.direction === 'YES'
                                       ? 'bg-apple-green/15 text-apple-green'
                                       : 'bg-apple-red/15 text-apple-red'
@@ -592,8 +649,8 @@ export default function ProfilePage() {
                                 </div>
                               </div>
                               <div className="text-right">
-                                <div className="text-white font-semibold text-base">
-                                  {trade.cost.toFixed(4)} SOL
+                                <div className={`font-semibold text-base ${trade.isBuy ? 'text-white' : 'text-apple-green'}`}>
+                                  {trade.isBuy ? '-' : '+'}{trade.cost.toFixed(4)} SOL
                                 </div>
                                 <div className="text-neutral-500 text-xs">
                                   {trade.quantity.toFixed(2)} shares @ {trade.quantity > 0 ? ((trade.cost / trade.quantity) * 100).toFixed(0) : 0}c
