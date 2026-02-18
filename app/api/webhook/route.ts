@@ -17,6 +17,8 @@ export async function POST(req: NextRequest) {
   const allEvents: { event: ReturnType<typeof extractTradeEvents>[number]['event']; signature: string }[] = []
 
   for (const tx of transactions) {
+    // Log top-level keys for debugging Helius payload format
+    console.log('Webhook tx keys:', Object.keys(tx), 'signature:', tx.signature ?? 'MISSING')
     const events = extractTradeEvents(tx)
     allEvents.push(...events)
   }

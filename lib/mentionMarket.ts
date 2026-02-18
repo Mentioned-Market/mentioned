@@ -1116,10 +1116,7 @@ export async function fetchUserPositions(
   return positions
 }
 
-// ── Trade history from on-chain events ──────────────────
-
-// Anchor event discriminator: sha256("event:TradeEvent")[0..8]
-const TRADE_EVENT_DISC = new Uint8Array([189, 219, 127, 211, 78, 230, 97, 238])
+// ── Trade history from indexer API ──────────────────────
 
 export interface TradeHistoryPoint {
   timestamp: number       // unix seconds
@@ -1130,91 +1127,37 @@ export interface TradeHistoryPoint {
   cost: number            // SOL
 }
 
-function parseTradeEvent(data: Uint8Array): TradeHistoryPoint | null {
-  // Expected layout after 8-byte discriminator:
-  // market_id: u64(8) + word_index: u8(1) + direction: u8(1) + quantity: u64(8)
-  // + cost: u64(8) + fee: u64(8) + new_yes_qty: i64(8) + new_no_qty: i64(8)
-  // + implied_yes_price: u64(8) + trader: Pubkey(32) + timestamp: i64(8)
-  // Total: 8 + 98 = 106 bytes
-  if (data.length < 106) return null
-  if (!arraysEqual(data.slice(0, 8), TRADE_EVENT_DISC)) return null
-
-  const dv = new DataView(data.buffer, data.byteOffset)
-  const wordIndex = data[16]       // offset 8 (disc) + 8 (market_id)
-  const dirByte = data[17]         // offset 17
-  const quantity = dv.getBigUint64(18, true)
-  const cost = dv.getBigUint64(26, true)
-  // fee at 34, new_yes_qty at 42, new_no_qty at 50
-  const impliedYesPrice = dv.getBigUint64(58, true) // offset 58
-  // trader at 66 (32 bytes)
-  const timestamp = dv.getBigInt64(98, true)        // offset 98
-
-  return {
-    timestamp: Number(timestamp),
-    wordIndex,
-    impliedYesPrice: Number(impliedYesPrice) / 1e9,
-    direction: dirByte === 0 ? 'YES' : 'NO',
-    quantity: Number(quantity) / 1e9,
-    cost: Number(cost) / 1e9,
-  }
-}
-
 /**
- * Fetch trade history for a market by parsing TradeEvent logs from transactions.
+ * Fetch trade history for a market from the indexer API.
  * Returns price points sorted chronologically.
  */
 export async function fetchTradeHistory(
   marketId: bigint,
-  limit = 100
+  limit = 500
 ): Promise<TradeHistoryPoint[]> {
-  const rpc = createRpc()
-  const [marketPda] = await getMarketPDA(marketId)
+  const res = await fetch(`/api/trades?marketId=${marketId}&limit=${limit}`)
+  if (!res.ok) return []
+  const { trades } = await res.json()
 
-  // Get recent transaction signatures for the market account
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const signatures = await (rpc as any)
-    .getSignaturesForAddress(marketPda, { limit })
-    .send()
+  // Map API response to TradeHistoryPoint, sorted chronologically
+  const points: TradeHistoryPoint[] = trades.map((t: {
+    wordIndex: number
+    impliedPrice: number
+    direction: string
+    quantity: number
+    cost: number
+    timestamp: string
+  }) => ({
+    timestamp: Math.floor(new Date(t.timestamp).getTime() / 1000),
+    wordIndex: t.wordIndex,
+    impliedYesPrice: t.impliedPrice,
+    direction: t.direction as 'YES' | 'NO',
+    quantity: t.quantity,
+    cost: t.cost,
+  }))
 
-  if (!signatures || signatures.length === 0) return []
-
-  const points: TradeHistoryPoint[] = []
-
-  // Fetch transactions in parallel (batches of 10 to avoid rate limits)
-  for (let i = 0; i < signatures.length; i += 10) {
-    const batch = signatures.slice(i, i + 10)
-    const txResults = await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      batch.map((sig: any) =>
-        rpc
-          .getTransaction(sig.signature, {
-            encoding: 'json',
-            maxSupportedTransactionVersion: 0,
-          })
-          .send()
-          .catch(() => null)
-      )
-    )
-
-    for (const tx of txResults) {
-      if (!tx?.meta?.logMessages) continue
-
-      for (const log of tx.meta.logMessages) {
-        if (!log.startsWith('Program data: ')) continue
-        const b64 = log.slice('Program data: '.length)
-        try {
-          const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-          const event = parseTradeEvent(data)
-          if (event) points.push(event)
-        } catch {
-          // ignore malformed log entries
-        }
-      }
-    }
-  }
-
-  // Sort chronologically
-  points.sort((a, b) => a.timestamp - b.timestamp)
+  // API returns newest-first, we need chronological
+  points.sort((a: TradeHistoryPoint, b: TradeHistoryPoint) => a.timestamp - b.timestamp)
   return points
 }
 
@@ -1229,72 +1172,26 @@ export interface UserTradeEntry {
   direction: 'YES' | 'NO'
   quantity: number   // shares
   cost: number       // SOL
-  isBuy: boolean     // true = buy, false = sell (cost < 0 heuristic not reliable, we use direction context)
+  isBuy: boolean
   txSignature: string
 }
 
-function parseFullTradeEvent(data: Uint8Array): {
-  marketId: bigint
-  wordIndex: number
-  direction: 'YES' | 'NO'
-  quantity: number
-  cost: number
-  newYesQty: number
-  newNoQty: number
-  trader: string
-  timestamp: number
-} | null {
-  if (data.length < 106) return null
-  if (!arraysEqual(data.slice(0, 8), TRADE_EVENT_DISC)) return null
-
-  const dv = new DataView(data.buffer, data.byteOffset)
-  const marketId = dv.getBigUint64(8, true)
-  const wordIndex = data[16]
-  const dirByte = data[17]
-  const quantity = dv.getBigUint64(18, true)
-  const cost = dv.getBigUint64(26, true)
-  // fee at offset 34
-  const newYesQty = dv.getBigInt64(42, true)
-  const newNoQty = dv.getBigInt64(50, true)
-  const trader = base58Encode(data.slice(66, 98))
-  const timestamp = dv.getBigInt64(98, true)
-
-  return {
-    marketId,
-    wordIndex,
-    direction: dirByte === 0 ? 'YES' : 'NO',
-    quantity: Number(quantity) / 1e9,
-    cost: Number(cost) / 1e9,
-    newYesQty: Number(newYesQty) / 1e9,
-    newNoQty: Number(newNoQty) / 1e9,
-    trader,
-    timestamp: Number(timestamp),
-  }
-}
-
 /**
- * Fetch all trades by a specific user across all markets.
- * Scans the program's transaction history, collects ALL trade events to
- * track global quantities per word (needed to determine buy vs sell),
- * then returns only the user's events.
+ * Fetch all trades by a specific user across all markets from the indexer API.
  */
 export async function fetchUserTradeHistory(
   userAddr: Address,
   limit = 200
 ): Promise<UserTradeEntry[]> {
-  const rpc = createRpc()
-  const userStr = userAddr as string
+  const [res, allMarkets] = await Promise.all([
+    fetch(`/api/trades?trader=${userAddr}&limit=${limit}`),
+    fetchAllMarkets(),
+  ])
 
-  // Get recent transaction signatures for the program itself
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const signatures = await (rpc as any)
-    .getSignaturesForAddress(PROGRAM_ID, { limit })
-    .send()
+  if (!res.ok) return []
+  const { trades } = await res.json()
 
-  if (!signatures || signatures.length === 0) return []
-
-  // We need market labels — fetch all markets once
-  const allMarkets = await fetchAllMarkets()
+  // Build market label lookup
   const marketLabelMap = new Map<string, { label: string; words: WordState[] }>()
   for (const m of allMarkets) {
     marketLabelMap.set(m.account.marketId.toString(), {
@@ -1303,89 +1200,30 @@ export async function fetchUserTradeHistory(
     })
   }
 
-  // Collect ALL trade events (not just user's) so we can track global qty
-  type RawEvent = ReturnType<typeof parseFullTradeEvent> & { txSig: string }
-  const allEvents: NonNullable<RawEvent>[] = []
+  return trades.map((t: {
+    signature: string
+    marketId: string
+    wordIndex: number
+    direction: string
+    isBuy: boolean
+    quantity: number
+    cost: number
+    timestamp: string
+  }) => {
+    const marketInfo = marketLabelMap.get(t.marketId)
+    const wordInfo = marketInfo?.words.find((w) => w.wordIndex === t.wordIndex)
 
-  for (let i = 0; i < signatures.length; i += 10) {
-    const batch = signatures.slice(i, i + 10)
-    const txResults = await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      batch.map((sig: any) =>
-        rpc
-          .getTransaction(sig.signature, {
-            encoding: 'json',
-            maxSupportedTransactionVersion: 0,
-          })
-          .send()
-          .then((tx: unknown) => ({ tx, sig: sig.signature as string }))
-          .catch(() => null)
-      )
-    )
-
-    for (const result of txResults) {
-      if (!result) continue
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tx = result.tx as any
-      if (!tx?.meta?.logMessages) continue
-
-      for (const log of tx.meta.logMessages) {
-        if (!log.startsWith('Program data: ')) continue
-        const b64 = log.slice('Program data: '.length)
-        try {
-          const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-          const event = parseFullTradeEvent(data)
-          if (event) allEvents.push({ ...event, txSig: result.sig })
-        } catch {
-          // ignore malformed log entries
-        }
-      }
+    return {
+      timestamp: Math.floor(new Date(t.timestamp).getTime() / 1000),
+      marketId: BigInt(t.marketId),
+      marketLabel: marketInfo?.label || `Market #${t.marketId}`,
+      wordIndex: t.wordIndex,
+      wordLabel: wordInfo?.label || `Word #${t.wordIndex}`,
+      direction: t.direction as 'YES' | 'NO',
+      quantity: t.quantity,
+      cost: t.cost,
+      isBuy: t.isBuy,
+      txSignature: t.signature,
     }
-  }
-
-  // Sort ALL events chronologically (oldest first) to track global quantities
-  allEvents.sort((a, b) => a.timestamp - b.timestamp)
-
-  // Track previous global quantities per (marketId, wordIndex) to determine buy/sell.
-  // Key: "marketId-wordIndex"
-  const prevQtyMap = new Map<string, { yes: number; no: number }>()
-
-  // Determine isBuy for each event and collect user entries
-  const entries: UserTradeEntry[] = []
-
-  for (const event of allEvents) {
-    const wordKey = `${event.marketId}-${event.wordIndex}`
-    const prev = prevQtyMap.get(wordKey) || { yes: 0, no: 0 }
-
-    // Determine buy/sell: if the relevant quantity increased, it's a buy
-    const relevantQtyBefore = event.direction === 'YES' ? prev.yes : prev.no
-    const relevantQtyAfter = event.direction === 'YES' ? event.newYesQty : event.newNoQty
-    const isBuy = relevantQtyAfter > relevantQtyBefore
-
-    // Update tracked quantities for this word
-    prevQtyMap.set(wordKey, { yes: event.newYesQty, no: event.newNoQty })
-
-    // Only include the user's events
-    if (event.trader !== userStr) continue
-
-    const marketInfo = marketLabelMap.get(event.marketId.toString())
-    const wordInfo = marketInfo?.words.find((w) => w.wordIndex === event.wordIndex)
-
-    entries.push({
-      timestamp: event.timestamp,
-      marketId: event.marketId,
-      marketLabel: marketInfo?.label || `Market #${event.marketId}`,
-      wordIndex: event.wordIndex,
-      wordLabel: wordInfo?.label || `Word #${event.wordIndex}`,
-      direction: event.direction,
-      quantity: event.quantity,
-      cost: event.cost,
-      isBuy,
-      txSignature: event.txSig,
-    })
-  }
-
-  // Sort newest first for display
-  entries.sort((a, b) => b.timestamp - a.timestamp)
-  return entries
+  })
 }
