@@ -82,11 +82,12 @@ export function parseTradeEvent(base64Data: string): ParsedTradeEvent | null {
  * Extract all TradeEvents from a Helius webhook transaction payload.
  */
 export function extractTradeEvents(
-  tx: { signature?: string; meta?: { logMessages?: string[] } }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: Record<string, any>
 ): { event: ParsedTradeEvent; signature: string }[] {
   const results: { event: ParsedTradeEvent; signature: string }[] = []
-  const sig = tx.signature ?? ''
-  const logs = tx.meta?.logMessages ?? []
+  const sig = tx.signature ?? tx.transaction?.signatures?.[0] ?? ''
+  const logs = tx.meta?.logMessages ?? tx.transaction?.meta?.logMessages ?? []
 
   for (const log of logs) {
     if (!log.startsWith('Program data: ')) continue
