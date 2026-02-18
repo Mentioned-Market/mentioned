@@ -54,7 +54,7 @@ export const articleSchema = (title: string, description: string, datePublished:
     name: 'Mentioned Markets',
     logo: {
       '@type': 'ImageObject',
-      url: 'https://mentioned.markets/src/logo.png',
+      url: 'https://mentioned.markets/src/img/White%20Icon.svg',
     },
   },
 })

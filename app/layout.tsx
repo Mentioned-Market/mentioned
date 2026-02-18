@@ -54,9 +54,9 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: '/src/logo.png',
-    shortcut: '/src/logo.png',
-    apple: '/src/logo.png',
+    icon: '/src/img/White Icon.svg',
+    shortcut: '/src/img/White Icon.svg',
+    apple: '/src/img/White Icon.svg',
   },
   manifest: '/manifest.json',
   openGraph: {
@@ -68,7 +68,7 @@ export const metadata: Metadata = {
     description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more. Join Mentioned markets today.',
     images: [
       {
-        url: '/src/logo.png',
+        url: '/src/img/White Icon.svg',
         width: 1200,
         height: 630,
         alt: 'Mentioned - Mention Markets Platform',
@@ -81,7 +81,7 @@ export const metadata: Metadata = {
     creator: '@mentionedmarket',
     title: 'Mentioned - Mention Markets | Predict & Trade What Gets Said',
     description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more.',
-    images: ['/src/logo.png'],
+    images: ['/src/img/White Icon.svg'],
   },
   robots: {
     index: true,
@@ -115,7 +115,7 @@ export default function RootLayout({
     name: 'Mentioned',
     alternateName: ['Mentioned Markets', 'Mention Markets'],
     url: 'https://mentioned.markets',
-    logo: 'https://mentioned.markets/src/logo.png',
+    logo: 'https://mentioned.markets/src/img/White%20Icon.svg',
     description: 'Mentioned is the premier mention markets platform for trading predictions on what gets mentioned in speeches, podcasts, and events.',
     sameAs: [
       'https://x.com/mentionedmarket',

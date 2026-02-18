@@ -88,24 +88,15 @@ export default function Header() {
   return (
     <>
       <header className="flex items-center justify-between py-3 md:py-5 backdrop-blur-xl bg-black/30 sticky top-0 z-50 -mx-4 md:-mx-10 lg:-mx-20 px-4 md:px-10 lg:px-20 border-b border-white/10">
-        <a href="/" className="flex items-center gap-2 md:gap-3 text-white hover:opacity-70 transition-opacity duration-300 flex-shrink-0" aria-label="Mentioned - Mention Markets Home">
-          <div className="relative w-8 h-8 md:w-10 md:h-10 flex-shrink-0">
-            <Image
-              src="/src/logo.png"
-              alt="Mentioned - Mention Markets Platform Logo"
-              fill
-              className="object-contain"
-              priority
-            />
-          </div>
-          <div className="flex flex-col">
-            <h1 className="text-white text-lg md:text-xl font-semibold tracking-tight">
-              Mentioned
-            </h1>
-            <span className="hidden md:block text-xs text-neutral-400 font-medium">
-              Mention Markets
-            </span>
-          </div>
+        <a href="/" className="flex items-center text-white hover:opacity-70 transition-opacity duration-300 flex-shrink-0" aria-label="Mentioned - Mention Markets Home">
+          <Image
+            src="/src/img/White Logo.svg"
+            alt="Mentioned - Mention Markets Platform Logo"
+            width={160}
+            height={26}
+            className="h-6 md:h-7 w-auto"
+            priority
+          />
         </a>
         <div className="flex items-center gap-2 md:gap-3">
           {connected ? (
