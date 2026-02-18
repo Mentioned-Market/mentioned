@@ -29,6 +29,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_sig_unique ON trade_events(signature
 CREATE INDEX IF NOT EXISTS idx_trade_market ON trade_events(market_id, block_time);
 CREATE INDEX IF NOT EXISTS idx_trade_trader ON trade_events(trader, block_time);
 CREATE INDEX IF NOT EXISTS idx_trade_word   ON trade_events(market_id, word_index);
+
+CREATE TABLE IF NOT EXISTS market_transcripts (
+  id            SERIAL PRIMARY KEY,
+  market_id     BIGINT NOT NULL UNIQUE,
+  transcript    TEXT NOT NULL,
+  source_url    TEXT,
+  submitted_by  TEXT NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_transcript_market ON market_transcripts(market_id);
 `
 
 async function main() {

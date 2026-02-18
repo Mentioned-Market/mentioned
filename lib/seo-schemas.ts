@@ -6,7 +6,7 @@ export const organizationSchema = {
   name: 'Mentioned',
   alternateName: ['Mentioned Markets', 'Mention Markets', 'Mentioned.markets'],
   url: 'https://mentioned.markets',
-  logo: 'https://mentioned.markets/src/logo.png',
+  logo: 'https://mentioned.markets/src/img/White%20Icon.svg',
   description: 'Mentioned is the premier mention markets platform for trading predictions on what gets mentioned in speeches, podcasts, and events.',
   sameAs: [
     'https://x.com/mentionedmarket',
@@ -77,7 +77,7 @@ export const webApplicationSchema = {
     priceCurrency: 'USD',
   },
   featureList: 'Prediction markets, Mention trading, Speech predictions, Podcast predictions, Event predictions, Decentralized trading',
-  screenshot: 'https://mentioned.markets/src/logo.png',
+  screenshot: 'https://mentioned.markets/src/img/White%20Icon.svg',
 }
 
 export const breadcrumbSchema = (items: { name: string; url: string }[]) => ({

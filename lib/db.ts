@@ -121,4 +121,43 @@ export async function getTradesByWord(
   return result.rows
 }
 
+// ── Transcripts ─────────────────────────────────────────
+
+export interface TranscriptRow {
+  id: number
+  market_id: string
+  transcript: string
+  source_url: string | null
+  submitted_by: string
+  created_at: string
+}
+
+export async function upsertTranscript(
+  marketId: string,
+  transcript: string,
+  sourceUrl: string | null,
+  submittedBy: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO market_transcripts (market_id, transcript, source_url, submitted_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (market_id) DO UPDATE SET
+       transcript = EXCLUDED.transcript,
+       source_url = EXCLUDED.source_url,
+       submitted_by = EXCLUDED.submitted_by,
+       created_at = NOW()`,
+    [marketId, transcript, sourceUrl, submittedBy],
+  )
+}
+
+export async function getTranscript(
+  marketId: string,
+): Promise<TranscriptRow | null> {
+  const result = await pool.query(
+    `SELECT * FROM market_transcripts WHERE market_id = $1`,
+    [marketId],
+  )
+  return result.rows[0] || null
+}
+
 export { pool }

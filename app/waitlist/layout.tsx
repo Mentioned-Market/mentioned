@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     siteName: 'Mentioned - Mention Markets',
     images: [
       {
-        url: '/src/logo.png',
+        url: '/src/img/White Icon.svg',
         width: 1200,
         height: 630,
         alt: 'Join Mentioned - Mention Markets Waitlist',
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Join the Mentioned Waitlist - Early Access to Mention Markets',
     description: 'Get early access to Mentioned, the premier mention markets platform.',
-    images: ['/src/logo.png'],
+    images: ['/src/img/White Icon.svg'],
   },
   alternates: {
     canonical: 'https://mentioned.markets/waitlist',

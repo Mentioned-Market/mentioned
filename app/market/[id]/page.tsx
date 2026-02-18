@@ -171,7 +171,7 @@ export default function MarketPage() {
         category: 'Mentions · On-Chain',
         eventTime: new Date(Number(onChainMarket.resolvesAt) * 1000),
         eventDateLabel: new Date(Number(onChainMarket.resolvesAt) * 1000).toLocaleDateString(),
-        imageUrl: '/src/logo.png',
+        imageUrl: '/src/img/White Icon.svg',
         words: onChainMarket.words.map((w) => {
           const price = lmsrImpliedPrice(
             w.yesQuantity,
