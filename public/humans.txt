@@ -2,7 +2,7 @@
 
 /* TEAM */
 Name: Mentioned Team
-Site: mentioned.markets
+Site: mentioned.market
 Twitter: @mentionedmarket
 Discord: discord.gg/gsD7vf6YRx
 Location: Worldwide

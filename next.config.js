@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    domains: ['images.unsplash.com', 'lh3.googleusercontent.com', 'mentioned.markets'],
+    domains: ['images.unsplash.com', 'lh3.googleusercontent.com', 'mentioned.market'],
     formats: ['image/avif', 'image/webp'],
   },
   async headers() {

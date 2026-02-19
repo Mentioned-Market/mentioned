@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Join the Mentioned Waitlist - Early Access to Mention Markets',
     description: 'Get early access to Mentioned, the premier mention markets platform. Join our waitlist to trade predictions on mentions.',
-    url: 'https://mentioned.markets/waitlist',
+    url: 'https://mentioned.market/waitlist',
     siteName: 'Mentioned - Mention Markets',
     images: [
       {
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     images: ['/src/img/White Icon.svg'],
   },
   alternates: {
-    canonical: 'https://mentioned.markets/waitlist',
+    canonical: 'https://mentioned.market/waitlist',
   },
 }
 
