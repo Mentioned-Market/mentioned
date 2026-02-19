@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Header from '@/components/Header'
 import CountdownTimer from '@/components/CountdownTimer'
@@ -73,6 +73,7 @@ export default function MarketPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [userPositions, setUserPositions] = useState<UserPosition[]>([])
   const [tradeHistory, setTradeHistory] = useState<TradeHistoryPoint[]>([])
+  const [marketImageUrl, setMarketImageUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isNumericMarket) return
@@ -138,11 +139,26 @@ export default function MarketPage() {
     return () => { cancelled = true }
   }, [isNumericMarket, marketId])
 
+  // Fetch market image
+  useEffect(() => {
+    if (!isNumericMarket) return
+    let cancelled = false
+
+    fetch(`/api/market-image?marketId=${marketId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data.imageUrl) setMarketImageUrl(data.imageUrl)
+      })
+      .catch(() => {})
+
+    return () => { cancelled = true }
+  }, [isNumericMarket, marketId])
+
   interface MarketData {
     id: string
     title: string
     category: string
-    eventTime: Date
+    eventTime: Date | null
     eventDateLabel: string
     imageUrl: string
     words: Word[]
@@ -165,13 +181,28 @@ export default function MarketPage() {
 
     // On-chain market data
     if (isNumericMarket && onChainMarket && onChainMarket.words.length > 0) {
+      // Compute per-word volume from trade history (sum of absolute cost in SOL, converted to USD)
+      const wordVolumes: Record<number, number> = {}
+      let totalVol = 0
+      for (const t of tradeHistory) {
+        const costUsd = Math.abs(t.cost) * SOL_USD_RATE
+        wordVolumes[t.wordIndex] = (wordVolumes[t.wordIndex] || 0) + costUsd
+        totalVol += costUsd
+      }
+
+      // Treat resolvesAt > 1 year from now as "TBD"
+      const resolvesMs = Number(onChainMarket.resolvesAt) * 1000
+      const oneYearFromNow = now + 365 * 24 * 60 * 60 * 1000
+      const isTbd = resolvesMs > oneYearFromNow
+      const eventDate = isTbd ? null : new Date(resolvesMs)
+
       return {
         id: marketId,
         title: onChainMarket.label || `Market #${marketId}`,
         category: 'Mentions · On-Chain',
-        eventTime: new Date(Number(onChainMarket.resolvesAt) * 1000),
-        eventDateLabel: new Date(Number(onChainMarket.resolvesAt) * 1000).toLocaleDateString(),
-        imageUrl: '/src/img/White Icon.svg',
+        eventTime: eventDate,
+        eventDateLabel: eventDate ? eventDate.toLocaleDateString() : 'TBD',
+        imageUrl: marketImageUrl || '/src/img/White Icon.svg',
         words: onChainMarket.words.map((w) => {
           const price = lmsrImpliedPrice(
             w.yesQuantity,
@@ -182,12 +213,12 @@ export default function MarketPage() {
             word: w.label,
             yesPrice: price.yes.toFixed(2),
             noPrice: price.no.toFixed(2),
-            volume: 0,
+            volume: Math.round(wordVolumes[w.wordIndex] || 0),
             change: 0,
             outcome: w.outcome,
           }
         }),
-        totalVolume: 0,
+        totalVolume: Math.round(totalVol),
         rules: {
           summary: `If the speaker says this word during the event, then the market resolves to Yes. Outcome verified from the official broadcast.`,
           details: 'The exact phrase/word, or a plural or possessive form of the phrase/word, must be used. Grammatical/tense inflections are otherwise not included. Commentary will count once the speech has started and end once the speech has concluded.',
@@ -238,7 +269,7 @@ export default function MarketPage() {
       },
     }
     return marketData[marketId] || marketData['trump-speech']
-  }, [marketId, isNumericMarket, onChainMarket])
+  }, [marketId, isNumericMarket, onChainMarket, tradeHistory, marketImageUrl])
 
   // Initialize tracked words and selected word
   useMemo(() => {
@@ -531,7 +562,7 @@ export default function MarketPage() {
           <img
             src={market.imageUrl}
             alt={market.title}
-            className="w-full h-full object-cover"
+            className={`w-full h-full ${market.imageUrl.endsWith('.svg') ? 'object-contain p-1' : 'object-cover'}`}
           />
         </div>
         <span className="text-sm text-neutral-300 font-medium">
@@ -865,7 +896,7 @@ export default function MarketPage() {
                   <img
                     src={market.imageUrl}
                     alt={market.title}
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full ${market.imageUrl.endsWith('.svg') ? 'object-contain p-1.5' : 'object-cover'}`}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -889,13 +920,27 @@ export default function MarketPage() {
                 </div>
               </div>
 
-              {/* Countdown + Date — full width */}
+              {/* Event time + Date — full width */}
               <div className="flex items-center justify-between mb-4 md:mb-5">
                 <div className="flex items-center gap-2 text-xs md:text-sm text-neutral-400">
-                  <span>Begins in</span>
-                  <CountdownTimer targetTime={market.eventTime} />
-                  <span className="text-neutral-600">·</span>
-                  <span className="hidden sm:inline">{market.eventDateLabel}</span>
+                  {onChainStatus === MarketStatus.Resolved ? (
+                    <span className="text-neutral-400 font-medium">Resolved</span>
+                  ) : market.eventTime ? (
+                    <>
+                      {market.eventTime.getTime() > Date.now() ? (
+                        <>
+                          <span>Event starts in</span>
+                          <CountdownTimer targetTime={market.eventTime} />
+                        </>
+                      ) : (
+                        <span className="text-neutral-400 font-medium">Event started</span>
+                      )}
+                      <span className="text-neutral-600">·</span>
+                      <span className="hidden sm:inline">{market.eventDateLabel}</span>
+                    </>
+                  ) : (
+                    <span className="text-neutral-400 font-medium">Event time TBD</span>
+                  )}
                 </div>
                 <span className="text-base md:text-lg font-semibold text-white tracking-tight">
                   Mentioned
@@ -1071,6 +1116,11 @@ export default function MarketPage() {
                     )}
                   </div>
 
+                  {/* Resolution Proof — only visible when resolved */}
+                  {onChainStatus === MarketStatus.Resolved && (
+                    <ResolutionProof marketId={marketId} words={market.words} />
+                  )}
+
                   {/* Rules Section */}
                   <div className="mt-8">
                     <h2 className="text-lg font-semibold text-white mb-4">Rules</h2>
@@ -1207,6 +1257,106 @@ export default function MarketPage() {
         )}
       </div>
       )}
+    </div>
+  )
+}
+
+function ResolutionProof({ marketId, words }: { marketId: string; words: Word[] }) {
+  const [transcript, setTranscript] = useState<string | null>(null)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
+  const [submittedBy, setSubmittedBy] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/transcript?marketId=${marketId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setTranscript(data.transcript)
+        setSourceUrl(data.sourceUrl || null)
+        setSubmittedBy(data.submittedBy || null)
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [marketId])
+
+  if (!loaded || !transcript) return null
+
+  // Build highlighted transcript: case-insensitive word boundary match
+  const wordLabels = words.map((w) => w.word)
+  const escaped = wordLabels.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = new RegExp(`\\b(${escaped.join('|')})\\b`, 'gi')
+
+  const parts: { text: string; match: Word | null }[] = []
+  let lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = pattern.exec(transcript)) !== null) {
+    if (m.index > lastIndex) {
+      parts.push({ text: transcript.slice(lastIndex, m.index), match: null })
+    }
+    const matched = m[0]
+    const word = words.find((w) => w.word.toLowerCase() === matched.toLowerCase()) || null
+    parts.push({ text: matched, match: word })
+    lastIndex = pattern.lastIndex
+  }
+  if (lastIndex < transcript.length) {
+    parts.push({ text: transcript.slice(lastIndex), match: null })
+  }
+
+  return (
+    <div className="mt-8">
+      <h2 className="text-lg font-semibold text-white mb-4">Resolution Proof</h2>
+      <div className="glass rounded-2xl p-4 md:p-5">
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-apple-blue hover:opacity-80 transition-opacity mb-3 inline-block"
+          >
+            View original source &rarr;
+          </a>
+        )}
+        <div className="text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap">
+          {parts.map((part, i) => {
+            if (!part.match) return <span key={i}>{part.text}</span>
+            const isYes = part.match.outcome === true
+            return (
+              <span
+                key={i}
+                className={`font-semibold px-0.5 rounded ${
+                  isYes
+                    ? 'bg-apple-green/20 text-apple-green'
+                    : 'bg-apple-red/20 text-apple-red'
+                }`}
+                title={`"${part.match.word}" — resolved ${isYes ? 'YES' : 'NO'}`}
+              >
+                {part.text}
+              </span>
+            )
+          })}
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-white/10">
+          {words.map((w) => (
+            <span key={w.word} className="flex items-center gap-1.5 text-xs">
+              <span className={`w-2 h-2 rounded-full ${
+                w.outcome === true ? 'bg-apple-green' : 'bg-apple-red'
+              }`} />
+              <span className="text-neutral-400">{w.word}</span>
+              <span className={w.outcome === true ? 'text-apple-green' : 'text-apple-red'}>
+                {w.outcome === true ? 'YES' : 'NO'}
+              </span>
+            </span>
+          ))}
+        </div>
+
+        {submittedBy && (
+          <p className="text-xs text-neutral-600 mt-3">
+            Submitted by {submittedBy.slice(0, 4)}...{submittedBy.slice(-4)}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

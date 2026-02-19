@@ -160,4 +160,69 @@ export async function getTranscript(
   return result.rows[0] || null
 }
 
+// ── Market Metadata ────────────────────────────────────
+
+export interface MarketMetadataRow {
+  id: number
+  market_id: string
+  image_url: string | null
+  created_at: string
+}
+
+export async function upsertMarketImage(
+  marketId: string,
+  imageUrl: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO market_metadata (market_id, image_url)
+     VALUES ($1, $2)
+     ON CONFLICT (market_id) DO UPDATE SET
+       image_url = EXCLUDED.image_url`,
+    [marketId, imageUrl],
+  )
+}
+
+export async function getMarketImage(
+  marketId: string,
+): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT image_url FROM market_metadata WHERE market_id = $1`,
+    [marketId],
+  )
+  return result.rows[0]?.image_url || null
+}
+
+export async function getMarketImages(
+  marketIds: string[],
+): Promise<Record<string, string>> {
+  if (marketIds.length === 0) return {}
+  const result = await pool.query(
+    `SELECT market_id, image_url FROM market_metadata WHERE market_id = ANY($1) AND image_url IS NOT NULL`,
+    [marketIds],
+  )
+  const map: Record<string, string> = {}
+  for (const row of result.rows) {
+    map[row.market_id] = row.image_url
+  }
+  return map
+}
+
+export async function getVolumeByMarkets(
+  marketIds: string[],
+): Promise<Record<string, number>> {
+  if (marketIds.length === 0) return {}
+  const result = await pool.query(
+    `SELECT market_id, COALESCE(SUM(ABS(cost)), 0) as total_cost
+     FROM trade_events
+     WHERE market_id = ANY($1)
+     GROUP BY market_id`,
+    [marketIds],
+  )
+  const map: Record<string, number> = {}
+  for (const row of result.rows) {
+    map[row.market_id] = parseFloat(row.total_cost)
+  }
+  return map
+}
+
 export { pool }

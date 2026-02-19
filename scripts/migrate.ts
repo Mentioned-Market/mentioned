@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS market_transcripts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_transcript_market ON market_transcripts(market_id);
+
+CREATE TABLE IF NOT EXISTS market_metadata (
+  id            SERIAL PRIMARY KEY,
+  market_id     BIGINT NOT NULL UNIQUE,
+  image_url     TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_metadata_market ON market_metadata(market_id);
 `
 
 async function main() {
