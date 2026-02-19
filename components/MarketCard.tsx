@@ -14,7 +14,7 @@ interface MarketCardProps {
   id: string
   category: string
   title: string
-  eventTime: Date
+  eventTime: Date | null
   imageUrl: string
   imageAlt: string
   imageFilter?: string
@@ -68,8 +68,14 @@ export default function MarketCard({
               )}
               <div className="mt-auto pt-3 border-t border-white/10">
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-neutral-400 font-medium">Ends in</span>
-                  <CountdownTimer targetTime={eventTime} />
+                  {eventTime ? (
+                    <>
+                      <span className="text-neutral-400 font-medium">Event starts in</span>
+                      <CountdownTimer targetTime={eventTime} />
+                    </>
+                  ) : (
+                    <span className="text-neutral-400 font-medium">Event time TBD</span>
+                  )}
                 </div>
               </div>
             </div>

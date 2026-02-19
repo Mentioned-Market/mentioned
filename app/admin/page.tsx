@@ -51,8 +51,11 @@ export default function AdminPage() {
   // Create market
   const [marketIdInput, setMarketIdInput] = useState("");
   const [marketLabelInput, setMarketLabelInput] = useState("");
+  const [marketImageUrlInput, setMarketImageUrlInput] = useState("");
   const [wordsInput, setWordsInput] = useState("");
-  const [resolvesInHours, setResolvesInHours] = useState("24");
+  const [eventDateInput, setEventDateInput] = useState("");
+  const [eventTimeInput, setEventTimeInput] = useState("");
+  const [eventTimeTbd, setEventTimeTbd] = useState(false);
   const [tradeFeeBpsInput, setTradeFeeBpsInput] = useState("50");
   const [initialBInput, setInitialBInput] = useState("1");
   const [baseBPerSolInput, setBaseBPerSolInput] = useState("1");
@@ -74,6 +77,11 @@ export default function AdminPage() {
   const [lpPositions, setLpPositions] = useState<Record<string, LpPosition | null>>({});
   // Vault balances per market (keyed by marketId string)
   const [vaultBalances, setVaultBalances] = useState<Record<string, bigint>>({});
+
+  // Transcripts per market (keyed by marketId string)
+  const [transcripts, setTranscripts] = useState<Record<string, string>>({});
+  const [transcriptUrls, setTranscriptUrls] = useState<Record<string, string>>({});
+  const [savedTranscripts, setSavedTranscripts] = useState<Record<string, boolean>>({});
 
   const show = (msg: string, error = false) => {
     setStatus({ msg, error });
@@ -125,12 +133,41 @@ export default function AdminPage() {
     setVaultBalances(vaultResults);
   }, [publicKey]);
 
+  const loadTranscripts = useCallback(async (
+    marketList: Array<{ pubkey: Address; account: MarketAccount }>
+  ) => {
+    const texts: Record<string, string> = {};
+    const urls: Record<string, string> = {};
+    const saved: Record<string, boolean> = {};
+    await Promise.all(
+      marketList.map(async (m) => {
+        const key = m.account.marketId.toString();
+        try {
+          const res = await fetch(`/api/transcript?marketId=${key}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.transcript) {
+            texts[key] = data.transcript;
+            urls[key] = data.sourceUrl || "";
+            saved[key] = true;
+          }
+        } catch { /* ignore */ }
+      })
+    );
+    setTranscripts((prev) => ({ ...prev, ...texts }));
+    setTranscriptUrls((prev) => ({ ...prev, ...urls }));
+    setSavedTranscripts((prev) => ({ ...prev, ...saved }));
+  }, []);
+
   useEffect(() => {
     if (publicKey && connected) {
       loadEscrow();
-      loadMarkets().then((all) => loadLpData(all));
+      loadMarkets().then((all) => {
+        loadLpData(all);
+        loadTranscripts(all);
+      });
     }
-  }, [publicKey, connected, loadEscrow, loadMarkets, loadLpData]);
+  }, [publicKey, connected, loadEscrow, loadMarkets, loadLpData, loadTranscripts]);
 
   // ── Actions ──
 
@@ -212,14 +249,25 @@ export default function AdminPage() {
       return;
     }
 
-    const hours = parseFloat(resolvesInHours);
-    if (isNaN(hours) || hours <= 0) {
-      show("Enter valid hours until resolution", true);
-      return;
+    let resolvesAt: bigint;
+    if (eventTimeTbd) {
+      // ~10 years from now — frontend treats >1 year as TBD
+      resolvesAt = BigInt(Math.floor(Date.now() / 1000 + 10 * 365 * 24 * 3600));
+    } else {
+      if (!eventDateInput) {
+        show("Select an event date", true);
+        return;
+      }
+      const dateStr = eventTimeInput
+        ? `${eventDateInput}T${eventTimeInput}`
+        : `${eventDateInput}T00:00`;
+      const ts = new Date(dateStr).getTime();
+      if (isNaN(ts)) {
+        show("Invalid date/time", true);
+        return;
+      }
+      resolvesAt = BigInt(Math.floor(ts / 1000));
     }
-    const resolvesAt = BigInt(
-      Math.floor(Date.now() / 1000 + hours * 3600)
-    );
 
     const feeBps = parseInt(tradeFeeBpsInput);
     if (isNaN(feeBps) || feeBps < 0 || feeBps > 10000) {
@@ -256,12 +304,29 @@ export default function AdminPage() {
       );
       const computeIx = createSetComputeUnitLimitIx(800_000);
       await sendIxs(signer, [computeIx, ix]);
+
+      // Save market image URL if provided
+      const imgUrl = marketImageUrlInput.trim();
+      if (imgUrl) {
+        try {
+          await fetch("/api/market-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ marketId: mId.toString(), imageUrl: imgUrl }),
+          });
+        } catch { /* non-critical */ }
+      }
+
       show(
         `Created market #${mId} "${label}" with ${words.length} word${words.length > 1 ? "s" : ""}: ${words.join(", ")}`
       );
       setMarketIdInput("");
       setMarketLabelInput("");
+      setMarketImageUrlInput("");
       setWordsInput("");
+      setEventDateInput("");
+      setEventTimeInput("");
+      setEventTimeTbd(false);
       await loadMarkets();
     } catch (e: unknown) {
       show((e as Error).message, true);
@@ -363,6 +428,35 @@ export default function AdminPage() {
       setLiquidityAmts((prev) => ({ ...prev, [key]: "" }));
       const all = await loadMarkets();
       await loadLpData(all);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveTranscript = async (marketId: string) => {
+    if (!publicKey) return;
+    const text = transcripts[marketId]?.trim();
+    if (!text) {
+      show("Enter a transcript", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marketId,
+          transcript: text,
+          sourceUrl: transcriptUrls[marketId]?.trim() || null,
+          submittedBy: publicKey,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save transcript");
+      setSavedTranscripts((prev) => ({ ...prev, [marketId]: true }));
+      show(`Transcript saved for market #${marketId}`);
     } catch (e: unknown) {
       show((e as Error).message, true);
     } finally {
@@ -584,6 +678,16 @@ export default function AdminPage() {
                   </div>
                 </div>
                 <div>
+                  <label className="label">Image URL (optional)</label>
+                  <input
+                    type="url"
+                    value={marketImageUrlInput}
+                    onChange={(e) => setMarketImageUrlInput(e.target.value)}
+                    placeholder="https://example.com/image.jpg"
+                    className="w-full input"
+                  />
+                </div>
+                <div>
                   <label className="label">Words (comma-separated)</label>
                   <input
                     type="text"
@@ -598,14 +702,32 @@ export default function AdminPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Resolves in (hours)</label>
-                    <input
-                      type="number"
-                      value={resolvesInHours}
-                      onChange={(e) => setResolvesInHours(e.target.value)}
-                      placeholder="24"
-                      className="w-full input"
-                    />
+                    <label className="label">Event date &amp; time</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={eventDateInput}
+                        onChange={(e) => setEventDateInput(e.target.value)}
+                        disabled={eventTimeTbd}
+                        className={`flex-1 input ${eventTimeTbd ? "opacity-40" : ""}`}
+                      />
+                      <input
+                        type="time"
+                        value={eventTimeInput}
+                        onChange={(e) => setEventTimeInput(e.target.value)}
+                        disabled={eventTimeTbd}
+                        className={`w-[100px] input ${eventTimeTbd ? "opacity-40" : ""}`}
+                      />
+                    </div>
+                    <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={eventTimeTbd}
+                        onChange={(e) => setEventTimeTbd(e.target.checked)}
+                        className="accent-apple-blue"
+                      />
+                      <span className="text-xs text-neutral-400">Event time TBD</span>
+                    </label>
                   </div>
                   <div>
                     <label className="label">Trade Fee (bps)</label>
@@ -994,6 +1116,53 @@ export default function AdminPage() {
                                 </button>
                               </div>
                             )}
+
+                          {/* Transcript */}
+                          {isAuthority && (
+                            <div className="bg-neutral-900/50 rounded-lg p-3 mt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs text-neutral-400 font-medium">
+                                  Resolution Transcript
+                                </div>
+                                {savedTranscripts[mKey] && (
+                                  <span className="text-[10px] text-apple-green">Saved</span>
+                                )}
+                              </div>
+                              <textarea
+                                placeholder="Paste the full transcript/script here..."
+                                value={transcripts[mKey] || ""}
+                                onChange={(e) =>
+                                  setTranscripts((prev) => ({
+                                    ...prev,
+                                    [mKey]: e.target.value,
+                                  }))
+                                }
+                                className="w-full input text-xs min-h-[100px] resize-y mb-2"
+                                rows={4}
+                              />
+                              <div className="flex gap-2">
+                                <input
+                                  type="url"
+                                  placeholder="Source URL (optional)"
+                                  value={transcriptUrls[mKey] || ""}
+                                  onChange={(e) =>
+                                    setTranscriptUrls((prev) => ({
+                                      ...prev,
+                                      [mKey]: e.target.value,
+                                    }))
+                                  }
+                                  className="flex-1 input text-xs"
+                                />
+                                <button
+                                  onClick={() => handleSaveTranscript(mKey)}
+                                  disabled={loading || !transcripts[mKey]?.trim()}
+                                  className="btn bg-apple-blue/80 hover:bg-apple-blue text-xs"
+                                >
+                                  {savedTranscripts[mKey] ? "Update" : "Save"} Transcript
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Market info */}
                           <p className="text-xs text-neutral-600 mt-2">
