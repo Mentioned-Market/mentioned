@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import CountdownTimer from './CountdownTimer'
 
 interface Word {
@@ -17,7 +18,6 @@ interface MarketCardProps {
   eventTime: Date | null
   imageUrl: string
   imageAlt: string
-  imageFilter?: string
   featured?: boolean
   className?: string
   words?: Word[]
@@ -31,7 +31,6 @@ export default function MarketCard({
   eventTime,
   imageUrl,
   imageAlt,
-  imageFilter = "grayscale(1) contrast(2) brightness(1.2)",
   featured = false,
   className = "",
   words = [],
@@ -49,15 +48,15 @@ export default function MarketCard({
       <div className="flex flex-col h-[280px]">
         {!showWords ? (
           <>
-            <div
-              className="w-full bg-center bg-no-repeat aspect-video bg-cover flex-shrink-0"
-              style={{
-                backgroundImage: `url("${imageUrl}")`,
-                filter: imageFilter,
-                height: '120px',
-              }}
-              aria-label={imageAlt}
-            />
+            <div className="w-full flex-shrink-0 relative overflow-hidden" style={{ height: '120px' }}>
+              <Image
+                src={imageUrl}
+                alt={imageAlt}
+                fill
+                sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
+                className="object-cover"
+              />
+            </div>
             <div className="flex flex-col flex-1 p-4">
               <div className="text-xs font-medium text-neutral-400 mb-2">{category}</div>
               <h3 className="text-white text-base font-semibold leading-tight mb-3 line-clamp-2">{title}</h3>
@@ -104,9 +103,6 @@ export default function MarketCard({
               <div className="flex-1 flex items-center justify-center">
                 <p className="text-neutral-500 text-sm">No words available yet</p>
               </div>
-            )}
-            {words.length > 6 && (
-              <p className="text-neutral-500 text-xs mt-2 text-center font-medium">+{words.length - 6} more</p>
             )}
           </div>
         )}

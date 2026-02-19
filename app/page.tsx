@@ -18,7 +18,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 2 * 60 * 60 * 1000),
         imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCPwsL0smxRVROhCkwShqqarIa-4xnAdVdAomChQJ_T5mRI0s77w-xoaIXYP2m8tRl-uEGpY2db-WBf6yZIfORA6Azp8_G7mOSTRPFRKHgyuo-4Ltlj_aMHH0t0PkSvdDO95rJOZpBgoS7jAKqkQ_7C86iSDgLJC9vDfV4YSshAaEhuIv2qI0WDcGs0VSLKNYTrz72KduCuH-fH8XBkROiM1zDK2dJlV6R0sCiMjP_Y3Ml19Uglhnihkb8ZD1prCuWa0i_wip0TXSI',
         imageAlt: 'Donald Trump',
-        imageFilter: 'grayscale(1) contrast(2) brightness(1.2)',
+
         featured: false,
         volume: 125000,
         words: [
@@ -37,7 +37,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 4 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80',
         imageAlt: 'Music recording',
-        imageFilter: 'grayscale(1) contrast(1.8) brightness(0.9)',
+
         featured: false,
         volume: 89000,
         words: [
@@ -56,7 +56,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 5 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1478737270239-2f02b77fc618?w=800&q=80',
         imageAlt: 'Podcast microphone',
-        imageFilter: 'grayscale(1) contrast(2) brightness(1.0)',
+
         featured: false,
         volume: 156000,
         words: [
@@ -75,7 +75,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 6 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&q=80',
         imageAlt: 'TV studio',
-        imageFilter: 'grayscale(1) contrast(1.9) brightness(1.1)',
+
         featured: false,
         volume: 67000,
         words: [
@@ -94,7 +94,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 8 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&q=80',
         imageAlt: 'Movie theater',
-        imageFilter: 'grayscale(1) contrast(2) brightness(0.85)',
+
         featured: false,
         volume: 98000,
         words: [
@@ -113,7 +113,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 9 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=800&q=80',
         imageAlt: 'YouTube content',
-        imageFilter: 'grayscale(1) contrast(1.7) brightness(0.95)',
+
         featured: false,
         volume: 234000,
         words: [
@@ -132,7 +132,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 10 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1504450758481-7338eba7524a?w=800&q=80',
         imageAlt: 'NBA game',
-        imageFilter: 'grayscale(1) contrast(2.1) brightness(1.0)',
+
         featured: false,
         volume: 178000,
         words: [
@@ -151,7 +151,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 11 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?w=800&q=80',
         imageAlt: 'World Cup',
-        imageFilter: 'grayscale(1) contrast(2) brightness(0.9)',
+
         featured: false,
         volume: 145000,
         words: [
@@ -170,7 +170,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 12 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&q=80',
         imageAlt: 'Gaming',
-        imageFilter: 'grayscale(1) contrast(1.5) brightness(0.8)',
+
         featured: false,
         volume: 72000,
         words: [
@@ -189,7 +189,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 13 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&q=80',
         imageAlt: 'Valorant',
-        imageFilter: 'grayscale(1) contrast(1.7) brightness(0.85)',
+
         featured: false,
         volume: 87000,
         words: [
@@ -208,7 +208,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 14 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=800&q=80',
         imageAlt: 'Apple',
-        imageFilter: 'grayscale(1) contrast(2) brightness(1.0)',
+
         featured: false,
         volume: 201000,
         words: [
@@ -227,7 +227,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 15 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=800&q=80',
         imageAlt: 'Google',
-        imageFilter: 'grayscale(1) contrast(1.7) brightness(1.0)',
+
         featured: false,
         volume: 189000,
         words: [
@@ -246,7 +246,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 16 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=800&q=80',
         imageAlt: 'Tesla',
-        imageFilter: 'grayscale(1) contrast(1.9) brightness(0.95)',
+
         featured: false,
         volume: 134000,
         words: [
@@ -265,7 +265,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 17 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1591488320449-011701bb6704?w=800&q=80',
         imageAlt: 'Technology',
-        imageFilter: 'grayscale(1) contrast(1.8) brightness(0.9)',
+
         featured: false,
         volume: 167000,
         words: [
@@ -284,7 +284,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 18 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1616509091215-57bbece93654?w=800&q=80',
         imageAlt: 'Reddit',
-        imageFilter: 'grayscale(1) contrast(1.6) brightness(0.95)',
+
         featured: false,
         volume: 143000,
         words: [
@@ -303,7 +303,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 19 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?w=800&q=80',
         imageAlt: 'Obama',
-        imageFilter: 'grayscale(1) contrast(2) brightness(1.0)',
+
         featured: false,
         volume: 198000,
         words: [
@@ -322,7 +322,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 20 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80',
         imageAlt: 'Newspaper',
-        imageFilter: 'grayscale(1) contrast(2.2) brightness(0.9)',
+
         featured: false,
         volume: 54000,
         words: [
@@ -341,7 +341,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 21 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=800&q=80',
         imageAlt: 'Biden speech',
-        imageFilter: 'grayscale(1) contrast(1.9) brightness(1.0)',
+
         featured: false,
         volume: 78000,
         words: [
@@ -360,7 +360,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 22 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800&q=80',
         imageAlt: 'TV show',
-        imageFilter: 'grayscale(1) contrast(1.8) brightness(0.85)',
+
         featured: false,
         volume: 112000,
         words: [
@@ -379,7 +379,7 @@ export default function Home() {
         eventTime: new Date(now.getTime() + 23 * 60 * 60 * 1000),
         imageUrl: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800&q=80',
         imageAlt: 'Minecraft',
-        imageFilter: 'grayscale(1) contrast(1.7) brightness(0.9)',
+
         featured: false,
         volume: 187000,
         words: [
@@ -406,16 +406,6 @@ export default function Home() {
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
             <main className="flex-1 pt-4 pb-4">
-              {/* Hero section */}
-              <section className="mb-8 pt-4">
-                <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">
-                  Mention Markets
-                </h1>
-                <p className="text-neutral-400 text-sm md:text-base max-w-2xl leading-relaxed">
-                  Trade predictions on what gets said. Buy YES or NO positions on specific words being mentioned in speeches, podcasts, earnings calls, and live events — powered by Solana.
-                </p>
-              </section>
-
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-fade-in">
                 {markets.map((market, index) => (
                   <MarketCard key={index} {...market} />

@@ -78,6 +78,9 @@ export default function AdminPage() {
   // Vault balances per market (keyed by marketId string)
   const [vaultBalances, setVaultBalances] = useState<Record<string, bigint>>({});
 
+  // Market images per market (keyed by marketId string)
+  const [marketImages, setMarketImages] = useState<Record<string, string>>({});
+
   // Transcripts per market (keyed by marketId string)
   const [transcripts, setTranscripts] = useState<Record<string, string>>({});
   const [transcriptUrls, setTranscriptUrls] = useState<Record<string, string>>({});
@@ -133,6 +136,41 @@ export default function AdminPage() {
     setVaultBalances(vaultResults);
   }, [publicKey]);
 
+  const loadMarketImages = useCallback(async (
+    marketList: Array<{ pubkey: Address; account: MarketAccount }>
+  ) => {
+    if (marketList.length === 0) return;
+    const ids = marketList.map((m) => m.account.marketId.toString());
+    try {
+      const res = await fetch(`/api/market-image?marketIds=${ids.join(",")}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.images) setMarketImages(data.images);
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleUpdateImage = async (marketId: string) => {
+    const url = marketImages[marketId]?.trim();
+    if (!url) {
+      show("Enter an image URL", true);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/market-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marketId, imageUrl: url }),
+      });
+      if (!res.ok) throw new Error("Failed to save image");
+      show(`Image updated for market #${marketId}`);
+    } catch (e: unknown) {
+      show((e as Error).message, true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadTranscripts = useCallback(async (
     marketList: Array<{ pubkey: Address; account: MarketAccount }>
   ) => {
@@ -165,9 +203,10 @@ export default function AdminPage() {
       loadMarkets().then((all) => {
         loadLpData(all);
         loadTranscripts(all);
+        loadMarketImages(all);
       });
     }
-  }, [publicKey, connected, loadEscrow, loadMarkets, loadLpData, loadTranscripts]);
+  }, [publicKey, connected, loadEscrow, loadMarkets, loadLpData, loadTranscripts, loadMarketImages]);
 
   // ── Actions ──
 
@@ -408,23 +447,50 @@ export default function AdminPage() {
     }
   };
 
-  const handleWithdrawLiquidity = async (market: MarketAccount) => {
+  const handleWithdrawLiquidity = async (market: MarketAccount, maxShares?: bigint) => {
     if (!signer || !publicKey) return;
     const key = market.marketId.toString();
-    const sol = parseFloat(liquidityAmts[key] || "");
-    if (isNaN(sol) || sol <= 0) {
-      show("Enter a valid amount of LP shares", true);
+
+    let sharesToBurn: bigint;
+    if (maxShares !== undefined) {
+      sharesToBurn = maxShares;
+    } else {
+      // Input is a SOL amount — convert to equivalent shares
+      const sol = parseFloat(liquidityAmts[key] || "");
+      if (isNaN(sol) || sol <= 0) {
+        show("Enter a valid SOL amount", true);
+        return;
+      }
+      const vaultBal = vaultBalances[key] ?? 0n;
+      const totalShares = market.totalLpShares;
+      if (vaultBal === 0n || totalShares === 0n) {
+        show("Pool is empty", true);
+        return;
+      }
+      // shares = desiredSol * totalShares / vaultBalance
+      const desiredLamports = solToLamports(sol);
+      sharesToBurn = BigInt(desiredLamports) * totalShares / vaultBal;
+      // Cap to user's shares
+      const lp = lpPositions[key];
+      const userShares = lp?.shares ?? 0n;
+      if (sharesToBurn > userShares) sharesToBurn = userShares;
+    }
+
+    if (sharesToBurn <= 0n) {
+      show("Nothing to withdraw", true);
       return;
     }
+
     setLoading(true);
     try {
       const ix = await createWithdrawLiquidityIx(
         toAddress(publicKey),
         market.marketId,
-        solToLamports(sol)
+        sharesToBurn
       );
       await sendIxs(signer, [ix]);
-      show(`Withdrew ${sol} LP shares from market #${key}`);
+      const solOut = Number(sharesToBurn * (vaultBalances[key] ?? 0n) / market.totalLpShares) / 1e9;
+      show(`Withdrew ~${solOut.toFixed(4)} SOL from market #${key}`);
       setLiquidityAmts((prev) => ({ ...prev, [key]: "" }));
       const all = await loadMarkets();
       await loadLpData(all);
@@ -925,6 +991,18 @@ export default function AdminPage() {
                                 >
                                   Withdraw
                                 </button>
+                                <button
+                                  onClick={() => {
+                                    const lp = lpPositions[mKey];
+                                    const shares = lp?.shares ?? 0n;
+                                    if (shares > 0n) handleWithdrawLiquidity(market, shares);
+                                    else show("No LP position to withdraw", true);
+                                  }}
+                                  disabled={loading}
+                                  className="btn bg-apple-red/60 hover:bg-apple-red text-xs py-1 px-3"
+                                >
+                                  Max
+                                </button>
                               </div>
                             </div>
                           )}
@@ -1159,6 +1237,36 @@ export default function AdminPage() {
                                   className="btn bg-apple-blue/80 hover:bg-apple-blue text-xs"
                                 >
                                   {savedTranscripts[mKey] ? "Update" : "Save"} Transcript
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Market Image */}
+                          {isAuthority && (
+                            <div className="bg-neutral-900/50 rounded-lg p-3 mt-3">
+                              <div className="text-xs text-neutral-400 font-medium mb-2">
+                                Market Image
+                              </div>
+                              <div className="flex gap-2">
+                                <input
+                                  type="url"
+                                  placeholder="https://example.com/image.jpg"
+                                  value={marketImages[mKey] || ""}
+                                  onChange={(e) =>
+                                    setMarketImages((prev) => ({
+                                      ...prev,
+                                      [mKey]: e.target.value,
+                                    }))
+                                  }
+                                  className="flex-1 input text-xs"
+                                />
+                                <button
+                                  onClick={() => handleUpdateImage(mKey)}
+                                  disabled={loading || !marketImages[mKey]?.trim()}
+                                  className="btn bg-apple-blue/80 hover:bg-apple-blue text-xs"
+                                >
+                                  {marketImages[mKey] ? "Update" : "Save"} Image
                                 </button>
                               </div>
                             </div>
