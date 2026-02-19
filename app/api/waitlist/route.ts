@@ -68,12 +68,14 @@ export async function POST(request: NextRequest) {
           <!DOCTYPE html>
           <html>
             <head>
+              <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
               <style>
-                body { font-family: 'Space Grotesk', Arial, sans-serif; background-color: #000000; color: #ffffff; padding: 20px; }
+                body { font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #000000; color: #ffffff; padding: 20px; }
                 .container { max-width: 600px; margin: 0 auto; background-color: #161616; border: 2px solid #2a2a2a; border-radius: 12px; padding: 40px; }
-                .logo { font-size: 32px; font-weight: bold; text-align: center; margin-bottom: 10px; }
+                .logo { text-align: center; margin-bottom: 10px; }
+                .logo img { height: 28px; width: auto; }
                 .subtitle { text-align: center; color: #fbbf24; font-size: 12px; font-weight: bold; margin-bottom: 30px; }
-                h1 { color: #ffffff; font-size: 24px; margin-bottom: 20px; }
+                h1 { color: #ffffff; font-size: 24px; margin-bottom: 20px; font-weight: 700; }
                 p { color: #d1d5db; line-height: 1.6; margin-bottom: 15px; }
                 .social-links { text-align: center; margin: 30px 0; }
                 .social-link { display: inline-block; margin: 0 10px; color: #ffffff; text-decoration: none; font-weight: bold; }
@@ -82,30 +84,32 @@ export async function POST(request: NextRequest) {
             </head>
             <body>
               <div class="container">
-                <div class="logo">MENTIONED</div>
+                <div class="logo">
+                  <img src="https://mentioned.markets/src/img/White%20Logo.svg" alt="Mentioned" />
+                </div>
                 <div class="subtitle">DEVNET • MAINNET SOON</div>
-                
-                <h1>You're on the list! 🎉</h1>
-                
+
+                <h1>You're on the list!</h1>
+
                 <p>Thanks for joining the Mentioned waitlist. You'll be among the first to know when we launch on mainnet.</p>
-                
+
                 <p>Mentioned is the first prediction market platform specifically built for mention markets. Trade on which words will be mentioned in speeches, podcasts, songs, and more.</p>
-                
+
                 <p><strong>What happens next?</strong></p>
                 <ul style="color: #d1d5db; line-height: 1.8;">
                   <li>We'll notify you when mainnet launches</li>
                   <li>Get exclusive early access to new markets</li>
                   <li>Receive updates on platform development</li>
                 </ul>
-                
+
                 <div class="social-links">
                   <a href="https://x.com/mentionedmarket" class="social-link">𝕏 Twitter</a>
                   <span style="color: #2a2a2a;">|</span>
                   <a href="https://discord.gg/gsD7vf6YRx" class="social-link">Discord</a>
                 </div>
-                
+
                 <p>Want to try it out? Our <strong>devnet version</strong> is live now! Start trading with test SOL and get familiar with the platform.</p>
-                
+
                 <div class="footer">
                   <p>Questions? Join our <a href="https://discord.gg/gsD7vf6YRx" style="color: #fbbf24;">Discord community</a></p>
                 </div>
