@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMarketImage, getMarketImages, upsertMarketImage } from '@/lib/db'
+import { getMarketImage, getMarketImages, getAllMarketImages, upsertMarketImage } from '@/lib/db'
 
 export async function GET(req: NextRequest) {
   const marketId = req.nextUrl.searchParams.get('marketId')
   const marketIds = req.nextUrl.searchParams.get('marketIds')
+
+  // All mode: no params — return every market image
+  if (!marketId && !marketIds) {
+    const images = await getAllMarketImages()
+    return NextResponse.json({ images })
+  }
 
   // Batch mode: ?marketIds=1,2,3
   if (marketIds) {
@@ -13,11 +19,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Single mode: ?marketId=1
-  if (!marketId) {
-    return NextResponse.json({ error: 'marketId or marketIds is required' }, { status: 400 })
-  }
-
-  const imageUrl = await getMarketImage(marketId)
+  const imageUrl = await getMarketImage(marketId!)
   return NextResponse.json({ imageUrl })
 }
 

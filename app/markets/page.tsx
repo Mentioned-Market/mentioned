@@ -15,7 +15,7 @@ import type { Address } from '@solana/kit'
 
 const SOL_USD_RATE = 175
 
-type Filter = 'all' | 'open' | 'resolved'
+type Filter = 'active' | 'resolved'
 
 export default function MarketsPage() {
   const [markets, setMarkets] = useState<
@@ -23,7 +23,7 @@ export default function MarketsPage() {
   >([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<Filter>('active')
   const [marketImages, setMarketImages] = useState<Record<string, string>>({})
   const [marketVolumes, setMarketVolumes] = useState<Record<string, number>>({})
 
@@ -32,24 +32,22 @@ export default function MarketsPage() {
     setLoading(true)
     setError(null)
 
-    fetchAllMarkets()
-      .then(async (all) => {
+    // Fetch everything in parallel — no waterfall
+    Promise.all([
+      fetchAllMarkets(),
+      fetch('/api/market-image').then((r) => r.json()).catch(() => ({ images: {} })),
+    ])
+      .then(async ([all, imgRes]) => {
         if (cancelled) return
         setMarkets(all)
+        if (imgRes.images) setMarketImages(imgRes.images)
         setLoading(false)
 
+        // Volumes are less critical — fetch after render
         if (all.length === 0) return
-        const ids = all.map((m) => m.account.marketId.toString())
-
-        // Fetch images + volumes in parallel
-        const [imgRes, volRes] = await Promise.all([
-          fetch(`/api/market-image?marketIds=${ids.join(',')}`).then((r) => r.json()).catch(() => ({ images: {} })),
-          fetch(`/api/trades/volume?marketIds=${ids.join(',')}`).then((r) => r.json()).catch(() => ({ volumes: {} })),
-        ])
-
-        if (cancelled) return
-        if (imgRes.images) setMarketImages(imgRes.images)
-        if (volRes.volumes) setMarketVolumes(volRes.volumes)
+        const ids = all.map((m: { account: MarketAccount }) => m.account.marketId.toString())
+        const volRes = await fetch(`/api/trades/volume?marketIds=${ids.join(',')}`).then((r) => r.json()).catch(() => ({ volumes: {} }))
+        if (!cancelled && volRes.volumes) setMarketVolumes(volRes.volumes)
       })
       .catch((err) => {
         if (cancelled) return
@@ -62,14 +60,12 @@ export default function MarketsPage() {
   }, [])
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return markets
-    if (filter === 'open') return markets.filter((m) => m.account.status === MarketStatus.Open || m.account.status === MarketStatus.Paused)
+    if (filter === 'active') return markets.filter((m) => m.account.status === MarketStatus.Open || m.account.status === MarketStatus.Paused)
     return markets.filter((m) => m.account.status === MarketStatus.Resolved)
   }, [markets, filter])
 
   const filters: { key: Filter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'open', label: 'Open' },
+    { key: 'active', label: 'Active' },
     { key: 'resolved', label: 'Resolved' },
   ]
 
@@ -127,12 +123,10 @@ export default function MarketsPage() {
               {!loading && !error && filtered.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-32 gap-3">
                   <span className="text-neutral-400 text-lg font-medium">
-                    {filter === 'all' ? 'No markets yet' : `No ${filter} markets`}
+                    No {filter} markets
                   </span>
                   <span className="text-neutral-500 text-sm">
-                    {filter === 'all'
-                      ? 'Markets created on-chain will appear here'
-                      : 'Try a different filter'}
+                    Try a different filter
                   </span>
                 </div>
               )}
@@ -180,7 +174,6 @@ export default function MarketsPage() {
                         eventTime={eventTime}
                         imageUrl={imageUrl}
                         imageAlt={market.label || `Market #${mKey}`}
-                        imageFilter={imageUrl.endsWith('.svg') ? 'none' : 'grayscale(1) contrast(2) brightness(1.2)'}
                         words={words}
                         volume={volUsd}
                       />

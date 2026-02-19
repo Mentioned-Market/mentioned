@@ -207,6 +207,17 @@ export async function getMarketImages(
   return map
 }
 
+export async function getAllMarketImages(): Promise<Record<string, string>> {
+  const result = await pool.query(
+    `SELECT market_id, image_url FROM market_metadata WHERE image_url IS NOT NULL`,
+  )
+  const map: Record<string, string> = {}
+  for (const row of result.rows) {
+    map[row.market_id] = row.image_url
+  }
+  return map
+}
+
 export async function getVolumeByMarkets(
   marketIds: string[],
 ): Promise<Record<string, number>> {
