@@ -4,9 +4,9 @@ export const organizationSchema = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
   name: 'Mentioned',
-  alternateName: ['Mentioned Markets', 'Mention Markets', 'Mentioned.markets'],
-  url: 'https://mentioned.markets',
-  logo: 'https://mentioned.markets/src/img/White%20Icon.svg',
+  alternateName: ['Mentioned Markets', 'Mention Markets'],
+  url: 'https://mentioned.market',
+  logo: 'https://mentioned.market/src/img/White%20Icon.svg',
   description: 'Mentioned is the premier mention markets platform for trading predictions on what gets mentioned in speeches, podcasts, and events.',
   sameAs: [
     'https://x.com/mentionedmarket',
@@ -57,7 +57,7 @@ export const faqSchema = {
       name: 'Is Mentioned available now?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Mentioned is currently in development. Join our waitlist at mentioned.markets/waitlist to get early access when we launch on mainnet.',
+        text: 'Mentioned is currently in development. Join our waitlist at mentioned.market/waitlist to get early access when we launch on mainnet.',
       },
     },
   ],
@@ -68,7 +68,7 @@ export const webApplicationSchema = {
   '@type': 'WebApplication',
   name: 'Mentioned',
   alternateName: 'Mention Markets',
-  url: 'https://mentioned.markets',
+  url: 'https://mentioned.market',
   applicationCategory: 'FinanceApplication',
   operatingSystem: 'Web Browser',
   offers: {
@@ -77,7 +77,7 @@ export const webApplicationSchema = {
     priceCurrency: 'USD',
   },
   featureList: 'Prediction markets, Mention trading, Speech predictions, Podcast predictions, Event predictions, Decentralized trading',
-  screenshot: 'https://mentioned.markets/src/img/White%20Icon.svg',
+  screenshot: 'https://mentioned.market/src/img/White%20Icon.svg',
 }
 
 export const breadcrumbSchema = (items: { name: string; url: string }[]) => ({

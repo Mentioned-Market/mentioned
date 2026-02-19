@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     'prediction markets',
     'speech prediction markets',
     'mention trading',
-    'mentioned.markets',
+    'mentioned.market',
     'bet on mentions',
     'prediction trading platform',
     'event prediction markets',
@@ -22,10 +22,10 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Mentioned - The Premier Mention Markets Platform',
     description: 'Trade predictions on what gets mentioned. Mentioned is the leading mention markets platform for speeches, podcasts, and events.',
-    url: 'https://mentioned.markets',
+    url: 'https://mentioned.market',
   },
   alternates: {
-    canonical: 'https://mentioned.markets',
+    canonical: 'https://mentioned.market',
   },
 }
 

@@ -49,10 +49,10 @@ Trade mention predictions in real-time as events unfold. Mentioned offers live m
 
 ## Join Mentioned Today
 
-Ready to start trading on the premier **mention markets platform**? Visit **mentioned.markets/waitlist** to join early access.
+Ready to start trading on the premier **mention markets platform**? Visit **mentioned.market/waitlist** to join early access.
 
 ### Connect with Mentioned
-- **Website**: mentioned.markets
+- **Website**: mentioned.market
 - **Twitter**: @mentionedmarket
 - **Discord**: discord.gg/gsD7vf6YRx
 
@@ -68,7 +68,7 @@ Mentioned is the only platform dedicated exclusively to mention markets, offerin
 Mentioned uses official transcripts, verified recordings, and community governance to ensure fair, transparent market resolution.
 
 ### Can I trade on Mentioned now?
-Mentioned is in beta. Join the waitlist at mentioned.markets/waitlist for early access.
+Mentioned is in beta. Join the waitlist at mentioned.market/waitlist for early access.
 
 ---
 

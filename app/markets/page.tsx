@@ -82,7 +82,10 @@ export default function MarketsPage() {
             <main className="flex-1 pt-4 pb-4">
               {/* Page title + filter tabs */}
               <div className="flex items-center justify-between mb-6">
-                <h1 className="text-xl md:text-2xl font-bold text-white">Markets</h1>
+                <div>
+                  <h1 className="text-xl md:text-2xl font-bold text-white">Mention Markets</h1>
+                  <p className="text-neutral-500 text-xs mt-1 hidden md:block">Live on-chain prediction markets for word mentions</p>
+                </div>
                 <div className="flex items-center gap-1">
                   {filters.map((f) => (
                     <button

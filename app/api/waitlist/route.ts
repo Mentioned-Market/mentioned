@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
             <body>
               <div class="container">
                 <div class="logo">
-                  <img src="https://mentioned.markets/src/img/email_logo.jpg" alt="Mentioned" />
+                  <img src="https://mentioned.market/src/img/email_logo.jpg" alt="Mentioned" />
                 </div>
                 <div class="subtitle">DEVNET • MAINNET SOON</div>
 

@@ -7,15 +7,23 @@
   
   <!-- Home page - Mentioned Markets -->
   <url>
-    <loc>https://mentioned.markets/</loc>
+    <loc>https://mentioned.market/</loc>
     <lastmod>2024-12-30</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   
+  <!-- Markets page - Browse Mention Markets -->
+  <url>
+    <loc>https://mentioned.market/markets</loc>
+    <lastmod>2024-12-30</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+
   <!-- Waitlist page - Join Mentioned -->
   <url>
-    <loc>https://mentioned.markets/waitlist</loc>
+    <loc>https://mentioned.market/waitlist</loc>
     <lastmod>2024-12-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
@@ -23,7 +31,7 @@
   
   <!-- Profile page -->
   <url>
-    <loc>https://mentioned.markets/profile</loc>
+    <loc>https://mentioned.market/profile</loc>
     <lastmod>2024-12-30</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>

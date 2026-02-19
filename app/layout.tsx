@@ -12,10 +12,10 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://mentioned.markets'),
+  metadataBase: new URL('https://mentioned.market'),
   title: {
-    default: 'Mentioned - Mention Markets | Predict & Trade What Gets Said',
-    template: '%s | Mentioned - Mention Markets'
+    default: 'Mention Markets | Mentioned - Trade Predictions on What Gets Said',
+    template: '%s | Mentioned'
   },
   description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more. Join Mentioned markets today - the future of prediction markets.',
   keywords: [
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     'mentioned markets',
     'mentioned platform',
     'prediction markets',
-    'mentioned.markets',
+    'mentioned.market',
     'mention trading',
     'speech prediction markets',
     'word prediction platform',
@@ -62,16 +62,16 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://mentioned.markets',
+    url: 'https://mentioned.market',
     siteName: 'Mentioned - Mention Markets',
-    title: 'Mentioned - Mention Markets | Predict & Trade What Gets Said',
+    title: 'Mention Markets | Mentioned - Trade Predictions on What Gets Said',
     description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more. Join Mentioned markets today.',
     images: [
       {
         url: '/src/img/White Icon.svg',
         width: 1200,
         height: 630,
-        alt: 'Mentioned - Mention Markets Platform',
+        alt: 'Mention Markets Platform - Mentioned',
       },
     ],
   },
@@ -79,7 +79,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     site: '@mentionedmarket',
     creator: '@mentionedmarket',
-    title: 'Mentioned - Mention Markets | Predict & Trade What Gets Said',
+    title: 'Mention Markets | Mentioned - Trade Predictions on What Gets Said',
     description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more.',
     images: ['/src/img/White Icon.svg'],
   },
@@ -99,7 +99,7 @@ export const metadata: Metadata = {
     yandex: 'your-yandex-verification-code',
   },
   alternates: {
-    canonical: 'https://mentioned.markets',
+    canonical: 'https://mentioned.market',
   },
   category: 'finance',
 }
@@ -114,8 +114,8 @@ export default function RootLayout({
     '@type': 'Organization',
     name: 'Mentioned',
     alternateName: ['Mentioned Markets', 'Mention Markets'],
-    url: 'https://mentioned.markets',
-    logo: 'https://mentioned.markets/src/img/White%20Icon.svg',
+    url: 'https://mentioned.market',
+    logo: 'https://mentioned.market/src/img/White%20Icon.svg',
     description: 'Mentioned is the premier mention markets platform for trading predictions on what gets mentioned in speeches, podcasts, and events.',
     sameAs: [
       'https://x.com/mentionedmarket',
@@ -127,7 +127,7 @@ export default function RootLayout({
     },
     potentialAction: {
       '@type': 'SearchAction',
-      target: 'https://mentioned.markets/?s={search_term_string}',
+      target: 'https://mentioned.market/?s={search_term_string}',
       'query-input': 'required name=search_term_string',
     },
   }
@@ -137,7 +137,7 @@ export default function RootLayout({
     '@type': 'WebSite',
     name: 'Mentioned - Mention Markets',
     alternateName: ['Mentioned', 'Mention Markets', 'Mentioned Markets'],
-    url: 'https://mentioned.markets',
+    url: 'https://mentioned.market',
     description: 'Trade predictions on mention markets. Mentioned is the leading platform for predicting what gets mentioned in speeches, podcasts, events, and more.',
     keywords: 'mentioned, mention markets, mentioned markets, prediction markets, mentioned platform, speech predictions, mention trading',
   }
@@ -189,8 +189,8 @@ export default function RootLayout({
         {/* Open Directory Project */}
         <meta name="dmoz" content="Business/Financial Services/Trading" />
         {/* Canonical Link */}
-        <link rel="canonical" href="https://mentioned.markets" />
-        <link rel="alternate" href="https://mentioned.markets" hrefLang="en" />
+        <link rel="canonical" href="https://mentioned.market" />
+        <link rel="alternate" href="https://mentioned.market" hrefLang="en" />
         {/* Preconnect for Performance */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

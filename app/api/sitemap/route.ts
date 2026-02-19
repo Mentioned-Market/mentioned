@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  const baseUrl = 'https://mentioned.markets'
+  const baseUrl = 'https://mentioned.market'
   const currentDate = new Date().toISOString().split('T')[0]
 
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -19,6 +19,14 @@ export async function GET() {
     <priority>1.0</priority>
   </url>
   
+  <!-- Mention Markets -->
+  <url>
+    <loc>${baseUrl}/markets</loc>
+    <lastmod>${currentDate}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+
   <!-- Mentioned Waitlist -->
   <url>
     <loc>${baseUrl}/waitlist</loc>

@@ -15,11 +15,6 @@ export const productSchema = {
     priceCurrency: 'USD',
     availability: 'https://schema.org/InStock',
   },
-  aggregateRating: {
-    '@type': 'AggregateRating',
-    ratingValue: '4.8',
-    reviewCount: '127',
-  },
 }
 
 export const softwareAppSchema = {
@@ -27,15 +22,10 @@ export const softwareAppSchema = {
   '@type': 'SoftwareApplication',
   name: 'Mentioned',
   applicationCategory: 'FinanceApplication',
-  operatingSystem: 'Web, iOS, Android',
+  operatingSystem: 'Web',
   offers: {
     '@type': 'Offer',
     price: '0',
-  },
-  aggregateRating: {
-    '@type': 'AggregateRating',
-    ratingValue: '4.8',
-    ratingCount: '127',
   },
 }
 
@@ -54,7 +44,7 @@ export const articleSchema = (title: string, description: string, datePublished:
     name: 'Mentioned Markets',
     logo: {
       '@type': 'ImageObject',
-      url: 'https://mentioned.markets/src/img/White%20Icon.svg',
+      url: 'https://mentioned.market/src/img/White%20Icon.svg',
     },
   },
 })
@@ -69,7 +59,7 @@ export const howToSchema = {
       '@type': 'HowToStep',
       position: 1,
       name: 'Join Mentioned',
-      text: 'Visit mentioned.markets and join the waitlist for early access to mention markets',
+      text: 'Visit mentioned.market and join the waitlist for early access to mention markets',
     },
     {
       '@type': 'HowToStep',
