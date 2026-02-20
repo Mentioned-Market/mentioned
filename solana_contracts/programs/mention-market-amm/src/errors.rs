@@ -61,4 +61,6 @@ pub enum AmmError {
     NotWinningDirection,
     #[msg("No tokens to redeem")]
     NothingToRedeem,
+    #[msg("Liquidity is locked until market is resolved")]
+    MarketNotResolved,
 }

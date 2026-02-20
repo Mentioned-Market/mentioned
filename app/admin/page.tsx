@@ -495,7 +495,12 @@ export default function AdminPage() {
       const all = await loadMarkets();
       await loadLpData(all);
     } catch (e: unknown) {
-      show((e as Error).message, true);
+      const msg = (e as Error).message || "";
+      if (msg.includes("MarketNotResolved")) {
+        show("Liquidity is locked until market is fully resolved", true);
+      } else {
+        show(msg, true);
+      }
     } finally {
       setLoading(false);
     }
@@ -986,10 +991,11 @@ export default function AdminPage() {
                                   onClick={() =>
                                     handleWithdrawLiquidity(market)
                                   }
-                                  disabled={loading}
-                                  className="btn bg-apple-orange/60 hover:bg-apple-orange text-xs py-1 px-3"
+                                  disabled={loading || !allResolved}
+                                  title={!allResolved ? "Locked until market is resolved" : ""}
+                                  className="btn bg-apple-orange/60 hover:bg-apple-orange text-xs py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
-                                  Withdraw
+                                  Withdraw{!allResolved ? " 🔒" : ""}
                                 </button>
                                 <button
                                   onClick={() => {
@@ -998,10 +1004,11 @@ export default function AdminPage() {
                                     if (shares > 0n) handleWithdrawLiquidity(market, shares);
                                     else show("No LP position to withdraw", true);
                                   }}
-                                  disabled={loading}
-                                  className="btn bg-apple-red/60 hover:bg-apple-red text-xs py-1 px-3"
+                                  disabled={loading || !allResolved}
+                                  title={!allResolved ? "Locked until market is resolved" : ""}
+                                  className="btn bg-apple-red/60 hover:bg-apple-red text-xs py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
-                                  Max
+                                  Max{!allResolved ? " 🔒" : ""}
                                 </button>
                               </div>
                             </div>

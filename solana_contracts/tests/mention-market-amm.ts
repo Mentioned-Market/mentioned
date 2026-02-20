@@ -821,60 +821,17 @@ describe("mention-market-amm", () => {
   });
 
   // =========================================================
-  // Withdraw liquidity
+  // Withdraw liquidity (locked before resolution)
   // =========================================================
-  describe("withdraw_liquidity", () => {
-    it("LP withdraws partial shares", async () => {
-      const marketPda = getMarketPda(MARKET_ID);
-      const vaultPda = getVaultPda(MARKET_ID);
-      const lpPda = getLpPositionPda(MARKET_ID, user.publicKey);
-
-      const lpBefore = await program.account.lpPosition.fetch(lpPda);
-      const walletBefore = await provider.connection.getBalance(
-        user.publicKey
-      );
-
-      // Withdraw half the shares
-      const sharesToBurn = lpBefore.shares.div(new BN(2));
-
-      await program.methods
-        .withdrawLiquidity(sharesToBurn)
-        .accounts({
-          lpWallet: user.publicKey,
-          market: marketPda,
-          vault: vaultPda,
-          lpPosition: lpPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-      const lpAfter = await program.account.lpPosition.fetch(lpPda);
-      expect(lpAfter.shares.toNumber()).to.equal(
-        lpBefore.shares.toNumber() - sharesToBurn.toNumber()
-      );
-
-      const market = await program.account.marketAccount.fetch(marketPda);
-      expect(market.totalLpShares.toNumber()).to.be.lessThan(
-        lpBefore.shares.toNumber() * 2
-      ); // total decreased
-
-      const walletAfter = await provider.connection.getBalance(user.publicKey);
-      expect(walletAfter).to.be.greaterThan(walletBefore);
-
-      console.log(`  LP withdrew ${sharesToBurn.toNumber()} shares`);
-      console.log(
-        `  SOL received: ${walletAfter - walletBefore} lamports (approx, minus fee)`
-      );
-    });
-
-    it("fails with insufficient shares", async () => {
+  describe("withdraw_liquidity (locked)", () => {
+    it("fails to withdraw before market is resolved", async () => {
       const marketPda = getMarketPda(MARKET_ID);
       const vaultPda = getVaultPda(MARKET_ID);
       const lpPda = getLpPositionPda(MARKET_ID, user.publicKey);
 
       try {
         await program.methods
-          .withdrawLiquidity(new BN(999_999_999_999_999))
+          .withdrawLiquidity(new BN(1))
           .accounts({
             lpWallet: user.publicKey,
             market: marketPda,
@@ -885,7 +842,7 @@ describe("mention-market-amm", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal("InsufficientShares");
+        expect(err.error.errorCode.code).to.equal("MarketNotResolved");
       }
     });
   });
@@ -1084,6 +1041,76 @@ describe("mention-market-amm", () => {
       console.log(
         `  Redeemed ${tokenAmountBefore} NO base units → ${payout} lamports`
       );
+    });
+  });
+
+  // =========================================================
+  // Withdraw liquidity (after resolution)
+  // =========================================================
+  describe("withdraw_liquidity", () => {
+    it("LP withdraws partial shares after resolution", async () => {
+      const marketPda = getMarketPda(MARKET_ID);
+      const vaultPda = getVaultPda(MARKET_ID);
+      const lpPda = getLpPositionPda(MARKET_ID, user.publicKey);
+
+      const lpBefore = await program.account.lpPosition.fetch(lpPda);
+      const walletBefore = await provider.connection.getBalance(
+        user.publicKey
+      );
+
+      // Withdraw half the shares
+      const sharesToBurn = lpBefore.shares.div(new BN(2));
+
+      await program.methods
+        .withdrawLiquidity(sharesToBurn)
+        .accounts({
+          lpWallet: user.publicKey,
+          market: marketPda,
+          vault: vaultPda,
+          lpPosition: lpPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      const lpAfter = await program.account.lpPosition.fetch(lpPda);
+      expect(lpAfter.shares.toNumber()).to.equal(
+        lpBefore.shares.toNumber() - sharesToBurn.toNumber()
+      );
+
+      const market = await program.account.marketAccount.fetch(marketPda);
+      expect(market.totalLpShares.toNumber()).to.be.lessThan(
+        lpBefore.shares.toNumber() * 2
+      ); // total decreased
+
+      const walletAfter = await provider.connection.getBalance(user.publicKey);
+      expect(walletAfter).to.be.greaterThan(walletBefore);
+
+      console.log(`  LP withdrew ${sharesToBurn.toNumber()} shares`);
+      console.log(
+        `  SOL received: ${walletAfter - walletBefore} lamports (approx, minus fee)`
+      );
+    });
+
+    it("fails with insufficient shares", async () => {
+      const marketPda = getMarketPda(MARKET_ID);
+      const vaultPda = getVaultPda(MARKET_ID);
+      const lpPda = getLpPositionPda(MARKET_ID, user.publicKey);
+
+      try {
+        await program.methods
+          .withdrawLiquidity(new BN(999_999_999_999_999))
+          .accounts({
+            lpWallet: user.publicKey,
+            market: marketPda,
+            vault: vaultPda,
+            lpPosition: lpPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err: any) {
+        expect(err.error.errorCode.code).to.equal("InsufficientShares");
+      }
     });
   });
 

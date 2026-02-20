@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use crate::state::{MarketAccount, LpPosition, LpAction};
+use crate::state::{MarketAccount, MarketStatus, LpPosition, LpAction};
 use crate::errors::AmmError;
 use crate::math::PRECISION;
 
@@ -34,10 +34,11 @@ pub struct WithdrawLiquidity<'info> {
 pub fn handle_withdraw_liquidity(ctx: Context<WithdrawLiquidity>, shares_to_burn: u64) -> Result<()> {
     require!(shares_to_burn > 0, AmmError::ZeroAmount);
 
+    let market = &ctx.accounts.market;
+    require!(market.status == MarketStatus::Resolved, AmmError::MarketNotResolved);
+
     let lp = &ctx.accounts.lp_position;
     require!(lp.shares >= shares_to_burn, AmmError::InsufficientShares);
-
-    let market = &ctx.accounts.market;
     require!(market.total_lp_shares > 0, AmmError::EmptyPool);
 
     // Calculate SOL to return: shares_to_burn * vault_balance / total_lp_shares
