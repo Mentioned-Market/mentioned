@@ -52,7 +52,7 @@ export default function MarketPage() {
   const [amount, setAmount] = useState('')
   const [chartPeriod, setChartPeriod] = useState<'1D' | '1W' | '1M' | 'ALL'>('ALL')
   const [showAllWords, setShowAllWords] = useState(false)
-  const [denomination, setDenomination] = useState<'Shares' | 'USD'>('Shares')
+  const [denomination, setDenomination] = useState<'Shares' | 'USD' | 'SOL'>('Shares')
   const [denomDropdownOpen, setDenomDropdownOpen] = useState(false)
   const [rulesExpanded, setRulesExpanded] = useState(false)
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
@@ -382,8 +382,11 @@ export default function MarketPage() {
 
   // Shares mode: user enters shares, we compute SOL cost
   // USD mode: user enters USD, we compute shares
+  // SOL mode: user enters SOL, we compute shares
   const shares = denomination === 'Shares'
     ? amountNum
+    : denomination === 'SOL'
+    ? (activePrice > 0 ? amountNum / activePrice : 0)
     : activePrice > 0 ? (amountNum / SOL_USD_RATE) / activePrice : 0
 
   // Use accurate LMSR cost/return instead of simple shares * price
@@ -637,8 +640,10 @@ export default function MarketPage() {
             {amountNum > 0 && (
               <div className="text-xs text-neutral-500 mt-0.5">
                 {denomination === 'Shares'
-                  ? `${costInSol.toFixed(4)} SOL ($${costInUsd.toFixed(2)})`
-                  : `${shares.toFixed(2)} shares (${costInSol.toFixed(4)} SOL)`}
+                  ? `$${costInUsd.toFixed(2)} · ${costInSol.toFixed(4)} SOL`
+                  : denomination === 'SOL'
+                  ? `${shares.toFixed(2)} shares · $${costInUsd.toFixed(2)}`
+                  : `${shares.toFixed(2)} shares · ${costInSol.toFixed(4)} SOL`}
               </div>
             )}
           </div>
@@ -687,6 +692,14 @@ export default function MarketPage() {
                   >
                     USD
                   </button>
+                  <button
+                    onClick={() => { setDenomination('SOL'); setDenomDropdownOpen(false); setAmount('') }}
+                    className={`block w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
+                      denomination === 'SOL' ? 'text-white bg-white/10' : 'text-neutral-400 hover:bg-white/5'
+                    }`}
+                  >
+                    SOL
+                  </button>
                 </div>
               )}
             </div>
@@ -697,16 +710,20 @@ export default function MarketPage() {
       {/* Potential Winnings */}
       {amountNum > 0 && (
         <div className="mb-5 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-neutral-400">Shares</span>
-            <span className="text-white font-medium">
-              {shares.toFixed(2)}
-            </span>
-          </div>
+          {denomination !== 'Shares' && (
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Shares</span>
+              <span className="text-white font-medium">
+                {shares.toFixed(2)}
+              </span>
+            </div>
+          )}
           <div className="flex justify-between">
             <span className="text-neutral-400">{side === 'buy' ? 'Cost' : 'Return'}</span>
             <span className="text-white font-medium">
-              {costInSol.toFixed(4)} SOL
+              {denomination === 'USD'
+                ? `$${costInUsd.toFixed(2)}`
+                : `${costInSol.toFixed(4)} SOL`}
             </span>
           </div>
           {side === 'buy' && (
@@ -714,13 +731,17 @@ export default function MarketPage() {
               <div className="flex justify-between">
                 <span className="text-neutral-400">Payout if correct</span>
                 <span className="text-white font-medium">
-                  {potentialPayout.toFixed(4)} SOL
+                  {denomination === 'USD'
+                    ? `$${(potentialPayout * SOL_USD_RATE).toFixed(2)}`
+                    : `${potentialPayout.toFixed(4)} SOL`}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-400">Profit</span>
                 <span className="text-apple-green font-semibold">
-                  +{potentialProfit.toFixed(4)} SOL
+                  {denomination === 'USD'
+                    ? `+$${(potentialProfit * SOL_USD_RATE).toFixed(2)}`
+                    : `+${potentialProfit.toFixed(4)} SOL`}
                 </span>
               </div>
             </>
@@ -858,7 +879,7 @@ export default function MarketPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-neutral-400">Est. Value</span>
-              <FlashValue value={`${selectedWordPosition.estimatedValueSol.toFixed(4)} SOL`} className="text-white font-medium" />
+              <FlashValue value={`${selectedWordPosition.estimatedValueSol.toFixed(4)} SOL ($${(selectedWordPosition.estimatedValueSol * SOL_USD_RATE).toFixed(2)})`} className="text-white font-medium" />
             </div>
           </div>
         </div>
