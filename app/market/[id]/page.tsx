@@ -50,7 +50,7 @@ export default function MarketPage() {
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
   const [selectedSide, setSelectedSide] = useState<'YES' | 'NO'>('YES')
   const [amount, setAmount] = useState('')
-  const [chartPeriod, setChartPeriod] = useState<'1D' | '1W' | '1M' | 'ALL'>('ALL')
+
   const [showAllWords, setShowAllWords] = useState(false)
   const [denomination, setDenomination] = useState<'Shares' | 'USD' | 'SOL'>('Shares')
   const [denomDropdownOpen, setDenomDropdownOpen] = useState(false)
@@ -1002,26 +1002,16 @@ export default function MarketPage() {
                     </div>
                   </div>
 
-                  {/* Volume + Period Selectors */}
+                  {/* Volume + Resolved timestamp */}
                   <div className="flex items-center justify-between mb-6">
                     <span className="text-xs md:text-sm text-neutral-400 font-medium">
                       {formatVolume(market.totalVolume)} vol
                     </span>
-                    <div className="flex items-center gap-1">
-                      {(['1D', '1W', '1M', 'ALL'] as const).map(period => (
-                        <button
-                          key={period}
-                          onClick={() => setChartPeriod(period)}
-                          className={`px-2.5 md:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                            chartPeriod === period
-                              ? 'bg-white/10 text-white'
-                              : 'text-neutral-500 hover:text-neutral-300'
-                          }`}
-                        >
-                          {period}
-                        </button>
-                      ))}
-                    </div>
+                    {onChainStatus === MarketStatus.Resolved && onChainMarket?.resolvedAt && (
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium">
+                        Resolved {new Date(Number(onChainMarket.resolvedAt) * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
 
                   {/* Word Table */}

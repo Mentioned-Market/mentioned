@@ -6,59 +6,58 @@ Mentioned is a prediction market platform on Solana where users trade YES/NO out
 
 ## Current State
 
-### Frontend (working)
-- Next.js 14 app with two trading modes: **Normal** (simple buy/sell) and **Pro** (order book, charts, limit orders)
-- Phantom wallet integration with SOL balance display
-- Event pages with word list, trading interface, order book, and live stream placeholder
-- Demo market pages with mock data
-- Solana admin panel for managing events/markets
-- Landing page, waitlist, profile
+### Frontend (live on devnet)
+- Next.js 14 app with two trading modes: **Normal** (simple buy/sell) and **Pro** (charts, detailed order flow)
+- Phantom wallet integration via Wallet Standard (`@solana/kit`)
+- Dynamic market pages with real on-chain LMSR pricing
+- Admin panel for market creation, liquidity management, and resolution
+- User profile with positions, cost basis, trade history, and claim flow
+- Trade event indexer via Helius webhooks into Postgres
 
-### Solana Contracts (POC — not yet wired to frontend)
-- Anchor programs in `solana_contracts/` with AMM and order book implementations
-- Event lifecycle: Pending → Live → Ended → Resolved
-- Bulk market creation, order matching, complete sets (mint/burn YES+NO)
-- Deployed to devnet: `G11AaYPenVJw7MzbYLX6rp1USGhjRZwQ8eTgAu6G4pnk`
-
-### What's next
-- Unified hybrid AMM-CLOB Anchor program (porting the design from the previous Solidity contract)
-- Wire Solana contracts to the frontend trading flows
-- Deploy to devnet and test end-to-end
+### Solana Contracts (deployed to devnet)
+- **mention-market-amm** — Active AMM contract with LMSR pricing (`2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU`)
+- **mention-market** — Legacy CLOB contract (`AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN`)
+- Per-word binary LMSR with shared liquidity pool, up to 8 words per market
+- Full instruction set: deposit, withdraw, create_market, pause_market, buy, sell, deposit_liquidity, withdraw_liquidity, resolve_word, redeem
+- All instructions emit Anchor events for indexer support
 
 ## Project Structure
 
 ```
 app/                    Next.js App Router pages
-  (home)/               Landing page
-  admin/                Solana admin panel
-  event/[id]/           Event trading page (normal + pro modes)
-  market/[id]/          Market detail pages
-  profile/              User profile
+  page.tsx              Landing page
+  admin/                Market creation, liquidity, resolution
+  market/[id]/          Dynamic market trading page
+  markets/              Market listing
+  profile/              User positions, history, claims
   waitlist/             Waitlist signup
-  api/                  API routes (waitlist, sitemap)
+  api/                  API routes (waitlist, webhook, trades)
 
 components/             React components
-  Header.tsx            Nav with Phantom wallet connect + SOL balance
-  TradingInterface.tsx  Trading UI (Solana, needs contract wiring)
-  OrderBook.tsx         Order book display
-  TradingChart.tsx      Price chart
-  QuickBuy.tsx          Quick trade widget
-  CountdownTimer.tsx    Event countdown
+  Header.tsx            Nav with wallet connect, escrow balance, positions
   MarketCard.tsx        Market preview cards
-  Ticker.tsx            Animated ticker feed
+  MarketChart.tsx       LMSR price chart
+  DepositModal.tsx      SOL deposit/withdraw modal
+  FlashValue.tsx        Animated value transitions
+  CountdownTimer.tsx    Event countdown
+  Footer.tsx            Site footer
+  WalletProviderWrapper.tsx  Wallet context wrapper
 
 contexts/
-  WalletContext.tsx      Phantom wallet provider (Solana devnet)
+  WalletContext.tsx      Phantom wallet provider (Wallet Standard, devnet)
 
 lib/
-  program.ts            Solana program interaction utilities
+  mentionMarket.ts      Solana program SDK (instruction builders, LMSR math, data fetching)
   seo-schemas.ts        SEO structured data
+  rich-snippets.ts      Schema.org snippets
 
 solana_contracts/
-  amm.rs                Standalone AMM implementation
-  mention_amm_poc/      Anchor project
-    programs/           Rust programs (AMM + order book)
-    tests/              Integration tests
+  programs/
+    mention-market-amm/ Active AMM program (LMSR pricing)
+    mention-market/     Legacy CLOB program
+  tests/                Integration tests
+
+docs/                   Project documentation (Docsify)
 ```
 
 ## Getting Started
@@ -73,6 +72,11 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Tech Stack
 
 - **Frontend:** Next.js 14, React 18, TypeScript, Tailwind CSS
-- **Blockchain:** Solana, Anchor, @solana/web3.js, SPL Token
-- **Wallet:** Phantom
-- **Backend:** Supabase
+- **Blockchain:** Solana, Anchor 0.31.1, @solana/kit, SPL Token
+- **Wallet:** Phantom (via Wallet Standard)
+- **Backend:** Supabase, Railway Postgres (indexer)
+- **Indexing:** Helius webhooks
+
+## Documentation
+
+Full docs at [`docs/`](docs/) — run with [Docsify](https://docsify.js.org/) or browse the markdown files directly.
