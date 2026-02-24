@@ -49,6 +49,26 @@ CREATE TABLE IF NOT EXISTS market_metadata (
 );
 
 CREATE INDEX IF NOT EXISTS idx_metadata_market ON market_metadata(market_id);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id         SERIAL PRIMARY KEY,
+  wallet     TEXT NOT NULL UNIQUE,
+  username   TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_wallet ON user_profiles(wallet);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id         SERIAL PRIMARY KEY,
+  wallet     TEXT NOT NULL,
+  username   TEXT NOT NULL,
+  message    TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_created ON chat_messages(created_at DESC);
 `
 
 async function main() {

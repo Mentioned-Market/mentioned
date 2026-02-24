@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Header from '@/components/Header'
+import SharePnLModal from '@/components/SharePnLModal'
+import type { PnLCardData, MarketSummaryData } from '@/lib/generatePnLImage'
 import { useWallet } from '@/contexts/WalletContext'
 import { useRouter } from 'next/navigation'
 import { address as toAddress } from '@solana/kit'
@@ -34,24 +36,39 @@ export default function ProfilePage() {
   const [claiming, setClaiming] = useState(false)
   const [claimStatus, setClaimStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
+  // Share P&L modal
+  type ShareData = { type: 'word'; data: PnLCardData } | { type: 'market'; data: MarketSummaryData }
+  const [shareData, setShareData] = useState<ShareData | null>(null)
+  const [expandedMarkets, setExpandedMarkets] = useState<Set<string>>(new Set())
+
+  // Username state
+  const [username, setUsername] = useState<string | null>(null)
+  const [editingUsername, setEditingUsername] = useState(false)
+  const [usernameInput, setUsernameInput] = useState('')
+  const [usernameSaving, setUsernameSaving] = useState(false)
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+
   const loadData = useCallback(async () => {
     if (!publicKey) {
       setPositions([])
       setEscrowData(null)
       setTradeHistory([])
+      setUsername(null)
       setLoading(false)
       return
     }
     try {
       const addr = toAddress(publicKey)
-      const [pos, escrow, history] = await Promise.all([
+      const [pos, escrow, history, profileRes] = await Promise.all([
         fetchUserPositions(addr),
         fetchEscrow(addr),
         fetchUserTradeHistory(addr).catch(() => [] as UserTradeEntry[]),
+        fetch(`/api/profile?wallet=${publicKey}`).then((r) => r.json()).catch(() => ({ username: null })),
       ])
       setPositions(pos)
       setEscrowData(escrow)
       setTradeHistory(history)
+      setUsername(profileRes.username)
     } catch (err) {
       console.error('Failed to load profile data:', err)
     }
@@ -170,6 +187,35 @@ export default function ProfilePage() {
     }
   }
 
+  const handleSaveUsername = async () => {
+    if (!publicKey) return
+    const trimmed = usernameInput.trim()
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(trimmed)) {
+      setUsernameError('3-20 characters, letters/numbers/underscores only')
+      return
+    }
+    setUsernameSaving(true)
+    setUsernameError(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey, username: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setUsernameError(data.error || 'Failed to save')
+      } else {
+        setUsername(trimmed)
+        setEditingUsername(false)
+      }
+    } catch {
+      setUsernameError('Failed to save username')
+    } finally {
+      setUsernameSaving(false)
+    }
+  }
+
   if (!connected) {
     return (
       <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -205,7 +251,58 @@ export default function ProfilePage() {
 
             <main className="py-4 md:py-6">
               <div className="mb-6">
-                <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">Profile</h1>
+                {editingUsername ? (
+                  <div className="flex items-center gap-2 mb-1">
+                    <input
+                      type="text"
+                      value={usernameInput}
+                      onChange={(e) => {
+                        setUsernameInput(e.target.value)
+                        setUsernameError(null)
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); if (e.key === 'Escape') { setEditingUsername(false); setUsernameError(null) } }}
+                      placeholder="username"
+                      autoFocus
+                      maxLength={20}
+                      className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xl md:text-2xl font-bold text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/30 w-56"
+                    />
+                    <button
+                      onClick={handleSaveUsername}
+                      disabled={usernameSaving}
+                      className="px-3 py-1.5 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50"
+                    >
+                      {usernameSaving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => { setEditingUsername(false); setUsernameError(null) }}
+                      className="px-3 py-1.5 text-neutral-400 text-sm font-medium hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 mb-1">
+                    <h1 className="text-2xl md:text-3xl font-bold text-white">
+                      {username || 'Set Username'}
+                    </h1>
+                    <button
+                      onClick={() => {
+                        setUsernameInput(username || '')
+                        setEditingUsername(true)
+                        setUsernameError(null)
+                      }}
+                      className="text-neutral-500 hover:text-white transition-colors"
+                      title="Edit username"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                        <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                {usernameError && (
+                  <p className="text-apple-red text-xs mt-1 mb-1">{usernameError}</p>
+                )}
                 <p className="text-neutral-500 text-sm font-mono">
                   {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
                 </p>
@@ -499,110 +596,203 @@ export default function ProfilePage() {
                     </div>
                   )}
 
-                  {/* Resolved Positions */}
+                  {/* Resolved Positions — grouped by market */}
                   {activeTab === 'resolved' && (
-                    <div className="space-y-3">
+                    <div className="space-y-6">
                       {resolvedPositions.length === 0 ? (
                         <div className="text-center py-16 text-neutral-500">
                           <p className="text-base">No resolved positions</p>
                         </div>
                       ) : (
-                        resolvedPositions.map((pos, i) => {
-                          const basis = getCostBasis(pos)
-                          const isClaimed = pos.won === true && pos.rawAmount === 0n
-                          const isSold = pos.won === false && pos.rawAmount === 0n
-                          // For claimed positions: payout = shares redeemed (from cost basis) * 1 SOL each
-                          const payout = isClaimed
-                            ? basis.totalShares
-                            : pos.won && pos.rawAmount > 0n
-                              ? pos.shares
-                              : 0
-                          const pnl = payout - basis.totalCost
-
-                          let statusLabel: string
-                          let statusClass: string
-                          if (isClaimed) {
-                            statusLabel = 'Claimed'
-                            statusClass = 'bg-apple-green/15 text-apple-green'
-                          } else if (isSold) {
-                            statusLabel = 'Sold'
-                            statusClass = 'bg-neutral-500/15 text-neutral-400'
-                          } else if (pos.won) {
-                            statusLabel = 'Won'
-                            statusClass = 'bg-apple-green/15 text-apple-green'
-                          } else {
-                            statusLabel = 'Lost'
-                            statusClass = 'bg-apple-red/15 text-apple-red'
+                        (() => {
+                          // Group positions by marketId
+                          const grouped = new Map<string, UserPosition[]>()
+                          for (const pos of resolvedPositions) {
+                            const key = pos.marketId.toString()
+                            const arr = grouped.get(key) || []
+                            arr.push(pos)
+                            grouped.set(key, arr)
                           }
 
-                          return (
-                            <a
-                              key={`${pos.marketId}-${pos.wordIndex}-${pos.side}-${i}`}
-                              href={`/market/${pos.marketId.toString()}`}
-                              className={`block glass rounded-xl p-4 md:p-5 hover:bg-white/[0.04] transition-colors ${
-                                pos.won ? 'border border-apple-green/20' : 'border border-white/5'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between mb-3">
-                                <div>
-                                  <div className="text-xs text-neutral-400 font-medium mb-1">
-                                    {"Market #"}{pos.marketId.toString()} {" · "} {pos.marketLabel}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-white font-semibold text-base">
-                                      {pos.wordLabel}
-                                    </span>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                      pos.side === 'YES'
-                                        ? 'bg-apple-green/15 text-apple-green'
-                                        : 'bg-apple-red/15 text-apple-red'
-                                    }`}>
-                                      {pos.side}
-                                    </span>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${statusClass}`}>
-                                      {statusLabel}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className={`font-semibold text-base ${payout > 0 ? 'text-apple-green' : 'text-white'}`}>
-                                    {payout.toFixed(4)} SOL
-                                  </div>
-                                  {basis.totalCost > 0 && (
-                                    <div className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                                      {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} SOL
+                          return Array.from(grouped.entries()).map(([marketId, positions]) => {
+                            const marketLabel = positions[0].marketLabel
+
+                            // Compute per-position data for this market group
+                            const posData = positions.map((pos) => {
+                              const basis = getCostBasis(pos)
+                              const isClaimed = pos.won === true && pos.rawAmount === 0n
+                              const isSold = pos.won === false && pos.rawAmount === 0n
+                              const payout = isClaimed
+                                ? basis.totalShares
+                                : pos.won && pos.rawAmount > 0n
+                                  ? pos.shares
+                                  : 0
+                              const pnl = payout - basis.totalCost
+
+                              let statusLabel: string
+                              let statusClass: string
+                              if (isClaimed) {
+                                statusLabel = 'Claimed'
+                                statusClass = 'bg-apple-green/15 text-apple-green'
+                              } else if (isSold) {
+                                statusLabel = 'Sold'
+                                statusClass = 'bg-neutral-500/15 text-neutral-400'
+                              } else if (pos.won) {
+                                statusLabel = 'Won'
+                                statusClass = 'bg-apple-green/15 text-apple-green'
+                              } else {
+                                statusLabel = 'Lost'
+                                statusClass = 'bg-apple-red/15 text-apple-red'
+                              }
+
+                              return { pos, basis, isClaimed, isSold, payout, pnl, statusLabel, statusClass }
+                            })
+
+                            // Market-level totals
+                            const marketTotalCost = posData.reduce((s, d) => s + d.basis.totalCost, 0)
+                            const marketTotalPayout = posData.reduce((s, d) => s + d.payout, 0)
+                            const marketTotalPnl = marketTotalPayout - marketTotalCost
+
+                            const isExpanded = expandedMarkets.has(marketId)
+                            const toggleExpand = () => {
+                              setExpandedMarkets((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(marketId)) next.delete(marketId)
+                                else next.add(marketId)
+                                return next
+                              })
+                            }
+                            const correct = posData.filter((d) => d.pos.won === true).length
+
+                            return (
+                              <div key={marketId} className="glass rounded-xl border border-white/5 overflow-hidden">
+                                {/* Market header — clickable to expand */}
+                                <button
+                                  onClick={toggleExpand}
+                                  className="w-full flex items-center justify-between p-4 md:p-5 hover:bg-white/[0.03] transition-colors text-left"
+                                >
+                                  <div>
+                                    <div className="text-xs text-neutral-500 font-medium mb-1">
+                                      Market #{marketId}
                                     </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                                {isClaimed ? (
-                                  <div>
-                                    <span className="text-neutral-400">Redeemed </span>
-                                    <span className="text-white font-medium">{basis.totalShares.toFixed(2)} shares</span>
+                                    <div className="text-white font-semibold text-base">
+                                      {marketLabel}
+                                    </div>
+                                    <div className="text-xs text-neutral-400 mt-1">
+                                      {correct}/{posData.length} correct · {posData.length} words
+                                    </div>
                                   </div>
-                                ) : (
-                                  <div>
-                                    <span className="text-neutral-400">Shares </span>
-                                    <span className="text-white font-medium">{pos.shares.toFixed(2)}</span>
+                                  <div className="flex items-center gap-3">
+                                    <div className="text-right">
+                                      <div className={`font-semibold text-base ${marketTotalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                        {marketTotalPnl >= 0 ? '+' : ''}{marketTotalPnl.toFixed(4)} SOL
+                                      </div>
+                                      <div className="text-xs text-neutral-500">
+                                        {marketTotalCost.toFixed(4)} invested
+                                      </div>
+                                    </div>
+                                    <span
+                                      role="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setShareData({
+                                          type: 'market',
+                                          data: {
+                                            marketLabel,
+                                            marketId,
+                                            words: posData.map((d) => ({
+                                              label: d.pos.wordLabel,
+                                              won: d.pos.won === true,
+                                              side: d.pos.side,
+                                            })),
+                                            totalCost: marketTotalCost,
+                                            totalPayout: marketTotalPayout,
+                                            totalPnl: marketTotalPnl,
+                                          },
+                                        })
+                                      }}
+                                      className="px-2.5 py-1.5 glass border border-white/10 rounded-lg text-neutral-400 text-[10px] font-semibold hover:text-white hover:bg-white/10 transition-all duration-200 whitespace-nowrap"
+                                    >
+                                      Share Market P&L
+                                    </span>
+                                    <svg
+                                      className={`w-4 h-4 text-neutral-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </div>
+                                </button>
+
+                                {/* Expandable word rows */}
+                                {isExpanded && (
+                                  <div className="border-t border-white/5">
+                                    {posData.map(({ pos, basis, isClaimed, payout, pnl, statusLabel, statusClass }, i) => (
+                                      <div
+                                        key={`${pos.marketId}-${pos.wordIndex}-${pos.side}-${i}`}
+                                        className={`flex items-center justify-between px-4 md:px-5 py-3 hover:bg-white/[0.03] transition-colors ${
+                                          i > 0 ? 'border-t border-white/5' : ''
+                                        }`}
+                                      >
+                                        <a href={`/market/${pos.marketId.toString()}`} className="flex items-center gap-2 min-w-0 flex-1">
+                                          <span className="text-white font-medium text-sm truncate">
+                                            {pos.wordLabel}
+                                          </span>
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${
+                                            pos.side === 'YES'
+                                              ? 'bg-apple-green/15 text-apple-green'
+                                              : 'bg-apple-red/15 text-apple-red'
+                                          }`}>
+                                            {pos.side}
+                                          </span>
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${statusClass}`}>
+                                            {statusLabel}
+                                          </span>
+                                        </a>
+                                        <div className="flex items-center gap-3 shrink-0">
+                                          <div className="text-right">
+                                            <div className={`font-semibold text-sm ${payout > 0 ? 'text-apple-green' : 'text-white'}`}>
+                                              {payout.toFixed(4)}
+                                            </div>
+                                            {basis.totalCost > 0 && (
+                                              <div className={`text-[10px] font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <button
+                                            onClick={(e) => {
+                                              e.preventDefault()
+                                              e.stopPropagation()
+                                              setShareData({
+                                                type: 'word',
+                                                data: {
+                                                  wordLabel: pos.wordLabel,
+                                                  marketLabel: pos.marketLabel,
+                                                  marketId: pos.marketId.toString(),
+                                                  side: pos.side,
+                                                  statusLabel,
+                                                  payout,
+                                                  costBasis: basis.totalCost,
+                                                  pnl,
+                                                  shares: isClaimed ? basis.totalShares : pos.shares,
+                                                  isClaimed,
+                                                },
+                                              })
+                                            }}
+                                            className="px-2.5 py-1 glass border border-white/10 rounded-md text-neutral-400 text-[10px] font-semibold hover:text-white hover:bg-white/10 transition-all duration-200"
+                                          >
+                                            Share
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
-                                {basis.totalCost > 0 && (
-                                  <div>
-                                    <span className="text-neutral-400">Cost Basis </span>
-                                    <span className="text-white font-medium">{basis.totalCost.toFixed(4)} SOL</span>
-                                  </div>
-                                )}
-                                <div>
-                                  <span className="text-neutral-400">Payout </span>
-                                  <span className={`font-medium ${payout > 0 ? 'text-apple-green' : 'text-neutral-500'}`}>
-                                    {payout > 0 ? `${payout.toFixed(4)} SOL` : '0 SOL'}
-                                  </span>
-                                </div>
                               </div>
-                            </a>
-                          )
-                        })
+                            )
+                          })
+                        })()
                       )}
                     </div>
                   )}
@@ -682,6 +872,7 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+      <SharePnLModal shareData={shareData} onClose={() => setShareData(null)} />
     </div>
   )
 }

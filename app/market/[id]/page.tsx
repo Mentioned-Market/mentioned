@@ -73,6 +73,7 @@ export default function MarketPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [userPositions, setUserPositions] = useState<UserPosition[]>([])
   const [tradeHistory, setTradeHistory] = useState<TradeHistoryPoint[]>([])
+  const [historyLoading, setHistoryLoading] = useState(isNumericMarket)
   const [marketImageUrl, setMarketImageUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -129,12 +130,19 @@ export default function MarketPage() {
   useEffect(() => {
     if (!isNumericMarket) return
     let cancelled = false
+    setHistoryLoading(true)
 
     fetchTradeHistory(BigInt(marketId))
       .then((history) => {
-        if (!cancelled) setTradeHistory(history)
+        if (!cancelled) {
+          setTradeHistory(history)
+          setHistoryLoading(false)
+        }
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err)
+        if (!cancelled) setHistoryLoading(false)
+      })
 
     return () => { cancelled = true }
   }, [isNumericMarket, marketId])
@@ -996,10 +1004,15 @@ export default function MarketPage() {
                 {/* Left Column — Chart + Word Table + Rules */}
                 <div className="flex-1 min-w-0">
                   {/* Chart */}
-                  <div className="glass rounded-2xl overflow-hidden mb-3">
+                  <div className="glass rounded-2xl overflow-hidden mb-3 relative">
                     <div className="h-[240px] md:h-[320px] p-2">
-                      <MarketChart series={chartSeries} />
+                      {!historyLoading && <MarketChart series={chartSeries} />}
                     </div>
+                    {historyLoading && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      </div>
+                    )}
                   </div>
 
                   {/* Volume + Resolved timestamp */}
@@ -1157,44 +1170,6 @@ export default function MarketPage() {
                       </button>
                     </div>
 
-                    {/* Timeline and Payout */}
-                    <div className="glass rounded-2xl p-4 md:p-5">
-                      <h3 className="text-white font-semibold text-[15px] mb-4">
-                        Timeline and payout
-                      </h3>
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-neutral-400">Market open</span>
-                          <span className="text-white font-medium">{market.rules.marketOpen}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-neutral-400">Market closes</span>
-                          <span className="text-white font-medium">{market.rules.marketCloses}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-neutral-400">Projected payout</span>
-                          <span className="text-white font-medium">{market.rules.projectedPayout}</span>
-                        </div>
-                      </div>
-                      <p className="text-xs text-neutral-500 mt-4 leading-relaxed">
-                        {market.rules.expiryNote}
-                      </p>
-
-                      <div className="border-t border-white/10 mt-4 pt-4 space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Series</span>
-                          <span className="text-neutral-300 font-mono">{market.rules.series}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Event</span>
-                          <span className="text-neutral-300 font-mono">{market.rules.event}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Market</span>
-                          <span className="text-neutral-300 font-mono">{market.rules.marketCode}-{selectedWordData.word.toUpperCase()}</span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
                   {/* Spacer for mobile bottom bar */}

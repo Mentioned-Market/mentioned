@@ -236,4 +236,77 @@ export async function getVolumeByMarkets(
   return map
 }
 
+// ── User Profiles ─────────────────────────────────────
+
+export interface ProfileRow {
+  wallet: string
+  username: string
+}
+
+export async function getProfile(wallet: string): Promise<ProfileRow | null> {
+  const result = await pool.query(
+    `SELECT wallet, username FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0] || null
+}
+
+export async function upsertProfile(
+  wallet: string,
+  username: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO user_profiles (wallet, username, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (wallet) DO UPDATE SET
+       username = EXCLUDED.username,
+       updated_at = NOW()`,
+    [wallet, username],
+  )
+}
+
+// ── Chat Messages ────────────────────────────────────
+
+export interface ChatRow {
+  id: number
+  wallet: string
+  username: string
+  message: string
+  created_at: string
+}
+
+export async function insertChatMessage(
+  wallet: string,
+  username: string,
+  message: string,
+): Promise<ChatRow> {
+  const result = await pool.query(
+    `INSERT INTO chat_messages (wallet, username, message)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [wallet, username, message],
+  )
+  return result.rows[0]
+}
+
+export async function getRecentChatMessages(
+  limit = 50,
+  afterId?: number,
+): Promise<ChatRow[]> {
+  if (afterId) {
+    const result = await pool.query(
+      `SELECT * FROM chat_messages WHERE id > $1 ORDER BY id ASC LIMIT $2`,
+      [afterId, limit],
+    )
+    return result.rows
+  }
+  const result = await pool.query(
+    `SELECT * FROM (
+       SELECT * FROM chat_messages ORDER BY id DESC LIMIT $1
+     ) sub ORDER BY id ASC`,
+    [limit],
+  )
+  return result.rows
+}
+
 export { pool }

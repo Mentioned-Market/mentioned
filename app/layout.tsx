@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import WalletProviderWrapper from '@/components/WalletProviderWrapper'
+import GlobalChat from '@/components/GlobalChat'
 import { faqSchema, webApplicationSchema } from '@/lib/seo-schemas'
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -199,6 +200,7 @@ export default function RootLayout({
       <body className={`${plusJakartaSans.variable} bg-black text-white font-display antialiased`}>
         <WalletProviderWrapper>
           {children}
+          <GlobalChat />
         </WalletProviderWrapper>
       </body>
     </html>
