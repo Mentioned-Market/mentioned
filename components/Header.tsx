@@ -105,6 +105,12 @@ export default function Header() {
           >
             Markets
           </a>
+          <a
+            href="/polymarkets"
+            className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
+          >
+            Polymarkets
+          </a>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           {connected ? (

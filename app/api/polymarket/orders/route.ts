@@ -1,0 +1,33 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+
+    const res = await fetch(`${JUP_BASE}/orders`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': JUP_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return NextResponse.json(
+        { error: text || 'Failed to create order' },
+        { status: res.status }
+      )
+    }
+
+    const data = await res.json()
+    return NextResponse.json(data)
+  } catch {
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
