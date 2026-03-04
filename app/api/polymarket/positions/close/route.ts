@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
+import { awardHoldPoints } from '@/lib/points'
 
 export async function DELETE(req: NextRequest) {
   const body = await req.json()
-  const { positionPubkey, ownerPubkey } = body
+  const { positionPubkey, ownerPubkey, marketId } = body
 
   if (!positionPubkey || !ownerPubkey) {
     return NextResponse.json(
@@ -36,5 +37,13 @@ export async function DELETE(req: NextRequest) {
   }
 
   const data = await res.json()
+
+  // Award hold points (fire-and-forget)
+  if (marketId) {
+    awardHoldPoints(ownerPubkey, positionPubkey, marketId).catch((err) =>
+      console.error('Points award error (close):', err)
+    )
+  }
+
   return NextResponse.json(data)
 }
