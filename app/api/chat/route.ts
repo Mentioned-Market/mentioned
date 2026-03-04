@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRecentChatMessages, insertChatMessage, getProfile } from '@/lib/db'
+import { getRecentChatMessages, insertChatMessage, getProfile, getChatPointsCountToday } from '@/lib/db'
+import { awardPoints, POINT_CONFIG } from '@/lib/points'
 
 const MAX_LENGTH = 200
 const RATE_LIMIT_MS = 500
@@ -37,5 +38,15 @@ export async function POST(req: NextRequest) {
   const username = profile?.username ?? `${wallet.slice(0, 4)}...${wallet.slice(-4)}`
 
   const row = await insertChatMessage(wallet, username, text)
+
+  // Award chat points up to daily cap (fire-and-forget)
+  getChatPointsCountToday(wallet)
+    .then((count) => {
+      if (count < POINT_CONFIG.chat_message.dailyCap) {
+        return awardPoints(wallet, 'chat_message')
+      }
+    })
+    .catch((err) => console.error('Points award error (chat):', err))
+
   return NextResponse.json(row)
 }

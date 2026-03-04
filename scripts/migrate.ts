@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS polymarket_trades (
 
 CREATE INDEX IF NOT EXISTS idx_poly_trades_wallet ON polymarket_trades(wallet, created_at);
 CREATE INDEX IF NOT EXISTS idx_poly_trades_created ON polymarket_trades(created_at);
+
+CREATE TABLE IF NOT EXISTS point_events (
+  id         SERIAL PRIMARY KEY,
+  wallet     TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  points     INTEGER NOT NULL,
+  ref_id     TEXT,
+  metadata   JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_point_events_wallet ON point_events(wallet, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_point_events_action ON point_events(action, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_point_events_dedup ON point_events(wallet, action, ref_id) WHERE ref_id IS NOT NULL;
 `
 
 async function main() {

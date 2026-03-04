@@ -353,4 +353,91 @@ export async function getPolymarketTradersSince(
   return result.rows.map((r: { wallet: string }) => r.wallet)
 }
 
+// ── Point Events ──────────────────────────────────────
+
+/**
+ * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
+ */
+export async function insertPointEvent(
+  wallet: string,
+  action: string,
+  points: number,
+  refId?: string,
+  metadata?: Record<string, unknown>,
+): Promise<number | null> {
+  const result = await pool.query(
+    `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING
+     RETURNING points`,
+    [wallet, action, points, refId ?? null, metadata ? JSON.stringify(metadata) : null],
+  )
+  return result.rows[0]?.points ?? null
+}
+
+/**
+ * Count chat_message point events for a wallet since UTC midnight today.
+ */
+export async function getChatPointsCountToday(wallet: string): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(*) as cnt FROM point_events
+     WHERE wallet = $1
+       AND action = 'chat_message'
+       AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.cnt ?? '0', 10)
+}
+
+/**
+ * Get the earliest trade time for a wallet+marketId combination from polymarket_trades.
+ */
+export async function getEarliestTradeTime(
+  wallet: string,
+  marketId: string,
+): Promise<Date | null> {
+  const result = await pool.query(
+    `SELECT MIN(created_at) as earliest FROM polymarket_trades
+     WHERE wallet = $1 AND market_id = $2`,
+    [wallet, marketId],
+  )
+  const ts = result.rows[0]?.earliest
+  return ts ? new Date(ts) : null
+}
+
+export interface PointTotalsRow {
+  wallet: string
+  all_time: number
+  weekly: number
+  trade_count: number
+  win_count: number
+  chat_count: number
+  hold_count: number
+}
+
+/**
+ * Aggregate point totals for a list of wallets (single query, no N+1).
+ */
+export async function getBulkPointTotals(
+  wallets: string[],
+  weekStart: Date,
+): Promise<PointTotalsRow[]> {
+  if (wallets.length === 0) return []
+  const result = await pool.query(
+    `SELECT
+       wallet,
+       COALESCE(SUM(points), 0)::int AS all_time,
+       COALESCE(SUM(points) FILTER (WHERE created_at >= $2), 0)::int AS weekly,
+       COALESCE(COUNT(*) FILTER (WHERE action = 'trade_placed'), 0)::int AS trade_count,
+       COALESCE(COUNT(*) FILTER (WHERE action = 'claim_won'), 0)::int AS win_count,
+       COALESCE(COUNT(*) FILTER (WHERE action = 'chat_message'), 0)::int AS chat_count,
+       COALESCE(COUNT(*) FILTER (WHERE action IN ('hold_1h', 'hold_4h', 'hold_24h')), 0)::int AS hold_count
+     FROM point_events
+     WHERE wallet = ANY($1)
+     GROUP BY wallet`,
+    [wallets, weekStart.toISOString()],
+  )
+  return result.rows
+}
+
 export { pool }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { insertPolymarketTrade } from '@/lib/db'
+import { awardPoints, checkAndAwardFirstTrade } from '@/lib/points'
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +21,12 @@ export async function POST(req: NextRequest) {
       String(amountUsd),
       txSignature,
     )
+
+    // Award points (fire-and-forget — do not block response)
+    Promise.all([
+      awardPoints(wallet, 'trade_placed', String(trade.id)),
+      checkAndAwardFirstTrade(wallet),
+    ]).catch((err) => console.error('Points award error (trade):', err))
 
     return NextResponse.json({ success: true, tradeId: trade.id })
   } catch (err) {
