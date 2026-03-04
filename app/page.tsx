@@ -1,403 +1,219 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
 import Header from '@/components/Header'
-import MarketCard from '@/components/MarketCard'
 import Footer from '@/components/Footer'
 
+interface Pricing {
+  buyYesPriceUsd: number
+  sellYesPriceUsd: number
+  volume: number
+}
+
+interface Market {
+  marketId: string
+  status: string
+  result: string | null
+  pricing: Pricing
+  metadata: {
+    title: string
+    isTeamMarket: boolean
+    rulesPrimary: string
+  }
+}
+
+interface EventMetadata {
+  title: string
+  imageUrl: string
+  closeTime: string
+  slug: string
+}
+
+interface PolyEvent {
+  eventId: string
+  isActive: boolean
+  isLive: boolean
+  beginAt: string
+  category: string
+  subcategory: string
+  metadata: EventMetadata
+  markets: Market[]
+  volumeUsd: string
+}
+
+const SUBCATEGORY_LABELS: Record<string, string> = {
+  lol: 'League of Legends',
+  val: 'Valorant',
+  cs: 'Counter-Strike',
+  dota: 'Dota 2',
+  rl: 'Rocket League',
+  cod: 'Call of Duty',
+}
+
+function formatPrice(microUsd: number): string {
+  return (microUsd / 1_000_000).toFixed(2)
+}
+
+function formatVolume(volumeUsd: string): string {
+  const usd = Number(volumeUsd) / 1_000_000
+  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`
+  if (usd >= 1_000) return `$${(usd / 1_000).toFixed(1)}K`
+  return `$${usd.toFixed(0)}`
+}
+
+function formatCloseTime(isoTime: string): string {
+  const d = new Date(isoTime)
+  const now = new Date()
+  const diff = d.getTime() - now.getTime()
+
+  if (diff <= 0) return 'Closed'
+
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+  if (hours > 24) {
+    const days = Math.floor(hours / 24)
+    return `${days}d ${hours % 24}h`
+  }
+
+  return `${hours}h ${minutes}m`
+}
+
+function EventCard({ event }: { event: PolyEvent }) {
+  const [imgError, setImgError] = useState(false)
+
+  const teamMarkets = event.markets.filter(m => m.metadata.isTeamMarket)
+  const hasTeams = teamMarkets.length === 2
+
+  const team1 = hasTeams ? teamMarkets[0] : null
+  const team2 = hasTeams ? teamMarkets[1] : null
+  const team1Pct = team1 ? team1.pricing.buyYesPriceUsd / 10_000 : 50
+  const team2Pct = team2 ? team2.pricing.buyYesPriceUsd / 10_000 : 50
+
+  return (
+    <Link href={`/polymarkets/event/${event.eventId}`} className="group relative block overflow-hidden rounded-2xl glass hover:bg-white/10 transition-all duration-300 hover-lift">
+      <div className="w-full relative overflow-hidden" style={{ height: '140px' }}>
+        {!imgError ? (
+          <Image
+            src={event.metadata.imageUrl}
+            alt={event.metadata.title}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw"
+            className="object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-neutral-800 flex items-center justify-center">
+            <span className="text-neutral-500 text-2xl">🎮</span>
+          </div>
+        )}
+        <div className="absolute top-3 left-3 flex items-center gap-2">
+          {event.isLive && (
+            <span className="px-2 py-0.5 rounded-full bg-apple-red/90 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
+              Live
+            </span>
+          )}
+          <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-300 text-[10px] font-medium backdrop-blur-sm">
+            {SUBCATEGORY_LABELS[event.subcategory] || event.subcategory}
+          </span>
+        </div>
+      </div>
+
+      <div className="p-4 flex flex-col gap-3">
+        <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2">
+          {event.metadata.title}
+        </h3>
+
+        {hasTeams && team1 && team2 ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex w-full h-8 rounded-lg overflow-hidden">
+              <div
+                className="flex items-center justify-center bg-apple-blue/80 transition-all duration-500"
+                style={{ width: `${team1Pct}%` }}
+              >
+                <span className="text-white text-[11px] font-bold truncate px-2">
+                  {team1Pct.toFixed(0)}%
+                </span>
+              </div>
+              <div
+                className="flex items-center justify-center bg-apple-red/80 transition-all duration-500"
+                style={{ width: `${team2Pct}%` }}
+              >
+                <span className="text-white text-[11px] font-bold truncate px-2">
+                  {team2Pct.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-start gap-2">
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="text-white text-xs font-medium truncate">{team1.metadata.title}</span>
+                <span className="text-apple-blue text-[11px] font-semibold">${formatPrice(team1.pricing.buyYesPriceUsd)}</span>
+              </div>
+              <div className="flex flex-col items-end min-w-0 flex-1">
+                <span className="text-white text-xs font-medium truncate text-right">{team2.metadata.title}</span>
+                <span className="text-apple-red text-[11px] font-semibold">${formatPrice(team2.pricing.buyYesPriceUsd)}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {event.markets.map(m => (
+              <div key={m.marketId} className="flex items-center justify-between py-1.5 px-2 rounded-lg glass">
+                <span className="text-white text-xs font-medium truncate">{m.metadata.title}</span>
+                <span className="text-apple-green text-xs font-semibold">${formatPrice(m.pricing.buyYesPriceUsd)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-2 border-t border-white/10">
+          <span className="text-neutral-500 text-[11px] font-medium">
+            Vol {formatVolume(event.volumeUsd)}
+          </span>
+          <span className="text-neutral-400 text-[11px] font-medium">
+            Closes {formatCloseTime(event.metadata.closeTime)}
+          </span>
+        </div>
+      </div>
+    </Link>
+  )
+}
+
 export default function Home() {
-  // Calculate event times
-  const allMarkets = useMemo(() => {
-    const now = new Date()
-    
-    return [
-      {
-        id: 'trump-speech',
-        category: 'Speeches',
-        title: "Trump Iowa Rally",
-        eventTime: new Date(now.getTime() + 2 * 60 * 60 * 1000),
-        imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCPwsL0smxRVROhCkwShqqarIa-4xnAdVdAomChQJ_T5mRI0s77w-xoaIXYP2m8tRl-uEGpY2db-WBf6yZIfORA6Azp8_G7mOSTRPFRKHgyuo-4Ltlj_aMHH0t0PkSvdDO95rJOZpBgoS7jAKqkQ_7C86iSDgLJC9vDfV4YSshAaEhuIv2qI0WDcGs0VSLKNYTrz72KduCuH-fH8XBkROiM1zDK2dJlV6R0sCiMjP_Y3Ml19Uglhnihkb8ZD1prCuWa0i_wip0TXSI',
-        imageAlt: 'Donald Trump',
+  const [events, setEvents] = useState<PolyEvent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-        featured: false,
-        volume: 125000,
-        words: [
-          { word: 'Immigration', yesPrice: '0.72', noPrice: '0.28' },
-          { word: 'Economy', yesPrice: '0.65', noPrice: '0.35' },
-          { word: 'China', yesPrice: '0.58', noPrice: '0.42' },
-          { word: 'Border', yesPrice: '0.81', noPrice: '0.19' },
-          { word: 'Taxes', yesPrice: '0.45', noPrice: '0.55' },
-          { word: 'Jobs', yesPrice: '0.67', noPrice: '0.33' },
-        ],
-      },
-      {
-        id: 'drake-album',
-        category: 'Music',
-        title: 'Drake - For All the Dogs',
-        eventTime: new Date(now.getTime() + 4 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80',
-        imageAlt: 'Music recording',
+  useEffect(() => {
+    let cancelled = false
 
-        featured: false,
-        volume: 89000,
-        words: [
-          { word: 'Love', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Money', yesPrice: '0.76', noPrice: '0.24' },
-          { word: 'Girl', yesPrice: '0.82', noPrice: '0.18' },
-          { word: 'Pain', yesPrice: '0.54', noPrice: '0.46' },
-          { word: 'Trust', yesPrice: '0.61', noPrice: '0.39' },
-          { word: 'Fame', yesPrice: '0.73', noPrice: '0.27' },
-        ],
-      },
-      {
-        id: 'rogan-musk',
-        category: 'Podcasts',
-        title: 'Joe Rogan EP #2054',
-        eventTime: new Date(now.getTime() + 5 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1478737270239-2f02b77fc618?w=800&q=80',
-        imageAlt: 'Podcast microphone',
+    async function fetchEvents() {
+      try {
+        const res = await fetch('/api/polymarket?category=esports')
+        if (!res.ok) throw new Error('Failed to fetch events')
+        const json = await res.json()
+        if (!cancelled) {
+          setEvents(json.data || [])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Something went wrong')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
 
-        featured: false,
-        volume: 156000,
-        words: [
-          { word: 'Tesla', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'SpaceX', yesPrice: '0.87', noPrice: '0.13' },
-          { word: 'AI', yesPrice: '0.94', noPrice: '0.06' },
-          { word: 'Mars', yesPrice: '0.68', noPrice: '0.32' },
-          { word: 'Twitter', yesPrice: '0.79', noPrice: '0.21' },
-          { word: 'Future', yesPrice: '0.85', noPrice: '0.15' },
-        ],
-      },
-      {
-        id: 'colbert-show',
-        category: 'TV Shows',
-        title: 'The Late Show - December 30',
-        eventTime: new Date(now.getTime() + 6 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&q=80',
-        imageAlt: 'TV studio',
-
-        featured: false,
-        volume: 67000,
-        words: [
-          { word: 'Trump', yesPrice: '0.96', noPrice: '0.04' },
-          { word: 'Politics', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Election', yesPrice: '0.71', noPrice: '0.29' },
-          { word: 'Congress', yesPrice: '0.59', noPrice: '0.41' },
-          { word: 'Joke', yesPrice: '0.93', noPrice: '0.07' },
-          { word: 'Audience', yesPrice: '0.84', noPrice: '0.16' },
-        ],
-      },
-      {
-        id: 'dune-script',
-        category: 'Movies',
-        title: 'Dune: Part Three Premiere',
-        eventTime: new Date(now.getTime() + 8 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&q=80',
-        imageAlt: 'Movie theater',
-
-        featured: false,
-        volume: 98000,
-        words: [
-          { word: 'Spice', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Desert', yesPrice: '0.87', noPrice: '0.13' },
-          { word: 'Prophecy', yesPrice: '0.74', noPrice: '0.26' },
-          { word: 'Emperor', yesPrice: '0.82', noPrice: '0.18' },
-          { word: 'Worm', yesPrice: '0.69', noPrice: '0.31' },
-          { word: 'Power', yesPrice: '0.78', noPrice: '0.22' },
-        ],
-      },
-      {
-        id: 'mr-beast-video',
-        category: 'YouTube',
-        title: 'MrBeast $1M Challenge',
-        eventTime: new Date(now.getTime() + 9 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=800&q=80',
-        imageAlt: 'YouTube content',
-
-        featured: false,
-        volume: 234000,
-        words: [
-          { word: 'Insane', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Crazy', yesPrice: '0.92', noPrice: '0.08' },
-          { word: 'Dollar', yesPrice: '0.94', noPrice: '0.06' },
-          { word: 'Winner', yesPrice: '0.86', noPrice: '0.14' },
-          { word: 'Subscribe', yesPrice: '0.78', noPrice: '0.22' },
-          { word: 'Challenge', yesPrice: '0.91', noPrice: '0.09' },
-        ],
-      },
-      {
-        id: 'nba-finals-cast',
-        category: 'Sports Cast',
-        title: 'NBA Finals Game 7',
-        eventTime: new Date(now.getTime() + 10 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1504450758481-7338eba7524a?w=800&q=80',
-        imageAlt: 'NBA game',
-
-        featured: false,
-        volume: 178000,
-        words: [
-          { word: 'Three', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Timeout', yesPrice: '0.76', noPrice: '0.24' },
-          { word: 'Foul', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Championship', yesPrice: '0.84', noPrice: '0.16' },
-          { word: 'Defense', yesPrice: '0.79', noPrice: '0.21' },
-          { word: 'Clutch', yesPrice: '0.67', noPrice: '0.33' },
-        ],
-      },
-      {
-        id: 'world-cup-cast',
-        category: 'Sports Cast',
-        title: 'World Cup Final 2026',
-        eventTime: new Date(now.getTime() + 11 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?w=800&q=80',
-        imageAlt: 'World Cup',
-
-        featured: false,
-        volume: 145000,
-        words: [
-          { word: 'Goal', yesPrice: '0.93', noPrice: '0.07' },
-          { word: 'Penalty', yesPrice: '0.71', noPrice: '0.29' },
-          { word: 'Offside', yesPrice: '0.64', noPrice: '0.36' },
-          { word: 'Corner', yesPrice: '0.82', noPrice: '0.18' },
-          { word: 'Yellow', yesPrice: '0.77', noPrice: '0.23' },
-          { word: 'Champion', yesPrice: '0.86', noPrice: '0.14' },
-        ],
-      },
-      {
-        id: 'league-patch',
-        category: 'Patch Notes',
-        title: 'League of Legends 14.5 Notes',
-        eventTime: new Date(now.getTime() + 12 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&q=80',
-        imageAlt: 'Gaming',
-
-        featured: false,
-        volume: 72000,
-        words: [
-          { word: 'Nerf', yesPrice: '0.84', noPrice: '0.16' },
-          { word: 'Buff', yesPrice: '0.79', noPrice: '0.21' },
-          { word: 'Balance', yesPrice: '0.72', noPrice: '0.28' },
-          { word: 'Damage', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Adjusted', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Rework', yesPrice: '0.56', noPrice: '0.44' },
-        ],
-      },
-      {
-        id: 'valorant-patch',
-        category: 'Patch Notes',
-        title: 'Valorant Episode 8 Act 1',
-        eventTime: new Date(now.getTime() + 13 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&q=80',
-        imageAlt: 'Valorant',
-
-        featured: false,
-        volume: 87000,
-        words: [
-          { word: 'Agent', yesPrice: '0.87', noPrice: '0.13' },
-          { word: 'Weapon', yesPrice: '0.76', noPrice: '0.24' },
-          { word: 'Map', yesPrice: '0.68', noPrice: '0.32' },
-          { word: 'Ability', yesPrice: '0.92', noPrice: '0.08' },
-          { word: 'Fixed', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Update', yesPrice: '0.94', noPrice: '0.06' },
-        ],
-      },
-      {
-        id: 'apple-keynote',
-        category: 'Tech Events',
-        title: 'Apple WWDC 2025 Keynote',
-        eventTime: new Date(now.getTime() + 14 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=800&q=80',
-        imageAlt: 'Apple',
-
-        featured: false,
-        volume: 201000,
-        words: [
-          { word: 'iPhone', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Innovation', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Amazing', yesPrice: '0.94', noPrice: '0.06' },
-          { word: 'Revolutionary', yesPrice: '0.73', noPrice: '0.27' },
-          { word: 'Privacy', yesPrice: '0.81', noPrice: '0.19' },
-          { word: 'Ecosystem', yesPrice: '0.76', noPrice: '0.24' },
-        ],
-      },
-      {
-        id: 'google-io',
-        category: 'Tech Events',
-        title: 'Google I/O 2025 Day 1',
-        eventTime: new Date(now.getTime() + 15 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=800&q=80',
-        imageAlt: 'Google',
-
-        featured: false,
-        volume: 189000,
-        words: [
-          { word: 'AI', yesPrice: '0.96', noPrice: '0.04' },
-          { word: 'Android', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Cloud', yesPrice: '0.74', noPrice: '0.26' },
-          { word: 'Search', yesPrice: '0.81', noPrice: '0.19' },
-          { word: 'Developer', yesPrice: '0.86', noPrice: '0.14' },
-          { word: 'Gemini', yesPrice: '0.92', noPrice: '0.08' },
-        ],
-      },
-      {
-        id: 'tesla-earnings',
-        category: 'Earnings',
-        title: 'Tesla Q4 2024 Earnings Call',
-        eventTime: new Date(now.getTime() + 16 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=800&q=80',
-        imageAlt: 'Tesla',
-
-        featured: false,
-        volume: 134000,
-        words: [
-          { word: 'Profit', yesPrice: '0.78', noPrice: '0.22' },
-          { word: 'Growth', yesPrice: '0.84', noPrice: '0.16' },
-          { word: 'Delivery', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Margin', yesPrice: '0.72', noPrice: '0.28' },
-          { word: 'Guidance', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Production', yesPrice: '0.86', noPrice: '0.14' },
-        ],
-      },
-      {
-        id: 'nvidia-earnings',
-        category: 'Earnings',
-        title: 'Nvidia Q1 2025 Earnings',
-        eventTime: new Date(now.getTime() + 17 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1591488320449-011701bb6704?w=800&q=80',
-        imageAlt: 'Technology',
-
-        featured: false,
-        volume: 167000,
-        words: [
-          { word: 'Revenue', yesPrice: '0.93', noPrice: '0.07' },
-          { word: 'Datacenter', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Gaming', yesPrice: '0.76', noPrice: '0.24' },
-          { word: 'AI', yesPrice: '0.96', noPrice: '0.04' },
-          { word: 'Demand', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Chip', yesPrice: '0.88', noPrice: '0.12' },
-        ],
-      },
-      {
-        id: 'musk-reddit-ama',
-        category: 'Reddit AMA',
-        title: 'Elon Musk AMA - Dec 2024',
-        eventTime: new Date(now.getTime() + 18 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1616509091215-57bbece93654?w=800&q=80',
-        imageAlt: 'Reddit',
-
-        featured: false,
-        volume: 143000,
-        words: [
-          { word: 'Tesla', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'SpaceX', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Mars', yesPrice: '0.74', noPrice: '0.26' },
-          { word: 'Twitter', yesPrice: '0.82', noPrice: '0.18' },
-          { word: 'Crypto', yesPrice: '0.67', noPrice: '0.33' },
-          { word: 'Meme', yesPrice: '0.79', noPrice: '0.21' },
-        ],
-      },
-      {
-        id: 'obama-ama',
-        category: 'Reddit AMA',
-        title: 'President Obama AMA 2025',
-        eventTime: new Date(now.getTime() + 19 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?w=800&q=80',
-        imageAlt: 'Obama',
-
-        featured: false,
-        volume: 198000,
-        words: [
-          { word: 'Healthcare', yesPrice: '0.87', noPrice: '0.13' },
-          { word: 'Democracy', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Climate', yesPrice: '0.84', noPrice: '0.16' },
-          { word: 'Hope', yesPrice: '0.78', noPrice: '0.22' },
-          { word: 'Change', yesPrice: '0.82', noPrice: '0.18' },
-          { word: 'America', yesPrice: '0.93', noPrice: '0.07' },
-        ],
-      },
-      {
-        id: 'nyt-article',
-        category: 'Articles',
-        title: 'NY Times Front Page Jan 1',
-        eventTime: new Date(now.getTime() + 20 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80',
-        imageAlt: 'Newspaper',
-
-        featured: false,
-        volume: 54000,
-        words: [
-          { word: 'Crisis', yesPrice: '0.76', noPrice: '0.24' },
-          { word: 'Election', yesPrice: '0.83', noPrice: '0.17' },
-          { word: 'President', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Breaking', yesPrice: '0.68', noPrice: '0.32' },
-          { word: 'Conflict', yesPrice: '0.72', noPrice: '0.28' },
-          { word: 'Economy', yesPrice: '0.88', noPrice: '0.12' },
-        ],
-      },
-      {
-        id: 'biden-speech-timing',
-        category: 'Timings',
-        title: 'Biden State of Union Length',
-        eventTime: new Date(now.getTime() + 21 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=800&q=80',
-        imageAlt: 'Biden speech',
-
-        featured: false,
-        volume: 78000,
-        words: [
-          { word: '60min', yesPrice: '0.45', noPrice: '0.55' },
-          { word: '70min', yesPrice: '0.68', noPrice: '0.32' },
-          { word: '80min', yesPrice: '0.72', noPrice: '0.28' },
-          { word: '90min', yesPrice: '0.54', noPrice: '0.46' },
-          { word: 'Applause', yesPrice: '0.94', noPrice: '0.06' },
-          { word: 'Standing', yesPrice: '0.87', noPrice: '0.13' },
-        ],
-      },
-      {
-        id: 'got-finale',
-        category: 'TV Shows',
-        title: 'House of Dragon S3 Finale',
-        eventTime: new Date(now.getTime() + 22 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800&q=80',
-        imageAlt: 'TV show',
-
-        featured: false,
-        volume: 112000,
-        words: [
-          { word: 'Dragon', yesPrice: '0.96', noPrice: '0.04' },
-          { word: 'Death', yesPrice: '0.88', noPrice: '0.12' },
-          { word: 'Battle', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'King', yesPrice: '0.84', noPrice: '0.16' },
-          { word: 'Throne', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Betrayal', yesPrice: '0.76', noPrice: '0.24' },
-        ],
-      },
-      {
-        id: 'minecraft-video',
-        category: 'YouTube',
-        title: 'Dream Minecraft Manhunt #50',
-        eventTime: new Date(now.getTime() + 23 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800&q=80',
-        imageAlt: 'Minecraft',
-
-        featured: false,
-        volume: 187000,
-        words: [
-          { word: 'Speedrun', yesPrice: '0.89', noPrice: '0.11' },
-          { word: 'Clutch', yesPrice: '0.82', noPrice: '0.18' },
-          { word: 'Diamond', yesPrice: '0.91', noPrice: '0.09' },
-          { word: 'Nether', yesPrice: '0.87', noPrice: '0.13' },
-          { word: 'Ender', yesPrice: '0.94', noPrice: '0.06' },
-          { word: 'Pearl', yesPrice: '0.78', noPrice: '0.22' },
-        ],
-      },
-    ]
+    fetchEvents()
+    return () => { cancelled = true }
   }, [])
 
-  // Filter markets based on selected category
-  const markets = useMemo(() => {
-    return allMarkets
-  }, [allMarkets])
+  const activeEvents = events.filter(e => e.isActive)
+  const liveEvents = activeEvents.filter(e => e.isLive)
+  const upcomingEvents = activeEvents.filter(e => !e.isLive)
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -405,12 +221,74 @@ export default function Home() {
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
-            <main className="flex-1 pt-4 pb-4">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-fade-in">
-                {markets.map((market, index) => (
-                  <MarketCard key={index} {...market} />
-                ))}
-              </div>
+            <main className="flex-1 pt-6 pb-4">
+              {/* Loading state */}
+              {loading && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="rounded-2xl glass animate-pulse">
+                      <div className="h-[140px] bg-neutral-800 rounded-t-2xl" />
+                      <div className="p-4 space-y-3">
+                        <div className="h-4 bg-neutral-800 rounded w-3/4" />
+                        <div className="h-8 bg-neutral-800 rounded" />
+                        <div className="h-3 bg-neutral-800 rounded w-1/2" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Error state */}
+              {error && (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <p className="text-apple-red text-sm font-medium mb-2">Failed to load markets</p>
+                  <p className="text-neutral-500 text-xs">{error}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-4 px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {/* Events */}
+              {!loading && !error && (
+                <div className="space-y-8 animate-fade-in">
+                  {liveEvents.length > 0 && (
+                    <section>
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                        <h2 className="text-white text-lg font-semibold">Live Now</h2>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {liveEvents.map(event => (
+                          <EventCard key={event.eventId} event={event} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {upcomingEvents.length > 0 && (
+                    <section>
+                      {liveEvents.length > 0 && (
+                        <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
+                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {upcomingEvents.map(event => (
+                          <EventCard key={event.eventId} event={event} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {activeEvents.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-20">
+                      <p className="text-neutral-400 text-sm">No esports markets available right now</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </main>
             <Footer />
           </div>
@@ -419,4 +297,3 @@ export default function Home() {
     </div>
   )
 }
-

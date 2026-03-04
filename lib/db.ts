@@ -309,4 +309,48 @@ export async function getRecentChatMessages(
   return result.rows
 }
 
+// ── Polymarket Trades ────────────────────────────────
+
+export interface PolymarketTradeRow {
+  id: number
+  wallet: string
+  market_id: string
+  event_id: string
+  is_yes: boolean
+  is_buy: boolean
+  side: string
+  amount_usd: string
+  tx_signature: string | null
+  created_at: string
+}
+
+export async function insertPolymarketTrade(
+  wallet: string,
+  marketId: string,
+  eventId: string,
+  isYes: boolean,
+  isBuy: boolean,
+  side: string,
+  amountUsd: string,
+  txSignature?: string,
+): Promise<PolymarketTradeRow> {
+  const result = await pool.query(
+    `INSERT INTO polymarket_trades (wallet, market_id, event_id, is_yes, is_buy, side, amount_usd, tx_signature)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
+    [wallet, marketId, eventId, isYes, isBuy, side, amountUsd, txSignature || null],
+  )
+  return result.rows[0]
+}
+
+export async function getPolymarketTradersSince(
+  since: Date,
+): Promise<string[]> {
+  const result = await pool.query(
+    `SELECT DISTINCT wallet FROM polymarket_trades WHERE created_at >= $1`,
+    [since.toISOString()],
+  )
+  return result.rows.map((r: { wallet: string }) => r.wallet)
+}
+
 export { pool }

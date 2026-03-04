@@ -76,6 +76,23 @@ interface Position {
   marketMetadata?: { title: string }
 }
 
+interface Order {
+  pubkey: string
+  marketId: string
+  eventId: string
+  status: 'pending' | 'filled' | 'failed'
+  isYes: boolean
+  isBuy: boolean
+  contracts: string
+  filledContracts: string
+  maxFillPriceUsd: string
+  avgFillPriceUsd: string
+  sizeUsd: string
+  createdAt: number
+  updatedAt: number
+  marketMetadata?: { title: string }
+}
+
 // ── Helpers ────────────────────────────────────────────────
 
 const SUBCATEGORY_LABELS: Record<string, string> = {
@@ -221,11 +238,18 @@ export default function PolymarketEventPage() {
   // Positions
   const [positions, setPositions] = useState<Position[]>([])
 
+  // Orders
+  const [orders, setOrders] = useState<Order[]>([])
+
   // Rules expand
   const [rulesExpanded, setRulesExpanded] = useState(false)
 
   // Mobile trade sheet
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
+
+  // Close position
+  const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
+  const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
   // ── Fetch event ───────────────────────────────────────────
 
@@ -278,33 +302,117 @@ export default function PolymarketEventPage() {
 
   // ── Fetch user positions ──────────────────────────────────
 
-  useEffect(() => {
+  const fetchPositions = useCallback(async () => {
     if (!publicKey || !event) {
       setPositions([])
       return
     }
-    let cancelled = false
-
-    async function loadPositions() {
-      try {
-        const res = await fetch(`/api/polymarket/positions?ownerPubkey=${publicKey}`)
-        if (res.ok) {
-          const json = await res.json()
-          if (!cancelled) {
-            // Filter to this event's markets
-            const eventMarketIds = new Set(event!.markets.map(m => m.marketId))
-            setPositions(
-              (json.data || []).filter((p: Position) => eventMarketIds.has(p.marketId))
-            )
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
-    loadPositions()
-    const interval = setInterval(loadPositions, 30_000)
-    return () => { cancelled = true; clearInterval(interval) }
+    try {
+      const res = await fetch(`/api/polymarket/positions?ownerPubkey=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        const eventMarketIds = new Set(event.markets.map(m => m.marketId))
+        setPositions(
+          (json.data || []).filter((p: Position) => eventMarketIds.has(p.marketId))
+        )
+      }
+    } catch { /* ignore */ }
   }, [publicKey, event])
+
+  useEffect(() => {
+    fetchPositions()
+    const interval = setInterval(fetchPositions, 30_000)
+    return () => clearInterval(interval)
+  }, [fetchPositions])
+
+  // ── Fetch user orders ───────────────────────────────────────
+
+  const fetchOrders = useCallback(async () => {
+    if (!publicKey || !event) {
+      setOrders([])
+      return
+    }
+    try {
+      const res = await fetch(`/api/polymarket/orders/list?ownerPubkey=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        const eventMarketIds = new Set(event.markets.map(m => m.marketId))
+        setOrders(
+          (json.data || [])
+            .filter((o: Order) => eventMarketIds.has(o.marketId))
+            .sort((a: Order, b: Order) => b.createdAt - a.createdAt)
+        )
+      }
+    } catch { /* ignore */ }
+  }, [publicKey, event])
+
+  useEffect(() => {
+    fetchOrders()
+    // Poll faster (10s) so user sees status changes quickly
+    const interval = setInterval(fetchOrders, 10_000)
+    return () => clearInterval(interval)
+  }, [fetchOrders])
+
+  // ── Close position ─────────────────────────────────────────
+
+  const handleClosePosition = useCallback(async (positionPubkey: string) => {
+    if (!publicKey) return
+    setClosingPubkey(positionPubkey)
+    setCloseStatus(null)
+
+    try {
+      const res = await fetch('/api/polymarket/positions/close', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to close position')
+      }
+
+      const data = await res.json()
+      if (!data.transaction) throw new Error('No transaction returned')
+
+      // Sign & send
+      const { getWallets } = await import('@wallet-standard/app')
+      const wallets = getWallets().get()
+      const wallet = wallets.find(w => w.name === 'Phantom')
+      if (!wallet) throw new Error('Phantom wallet not found')
+
+      const account = wallet.accounts.find(a => a.address === publicKey)
+      if (!account) throw new Error('Wallet account not found')
+
+      const signAndSend = wallet.features['solana:signAndSendTransaction'] as {
+        signAndSendTransaction(
+          ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
+        ): Promise<Array<{ signature: Uint8Array }>>
+      }
+
+      const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0))
+      const chain = account.chains.find(c => c.startsWith('solana:')) || 'solana:mainnet-beta'
+
+      const [result] = await signAndSend.signAndSendTransaction({ transaction: txBytes, account, chain })
+      const sig = Array.from(result.signature).map(b => b.toString(16).padStart(2, '0')).join('')
+
+      setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
+
+      setTimeout(() => {
+        fetchPositions()
+        fetchOrders()
+        fetchOrderbook()
+      }, 3000)
+    } catch (e: unknown) {
+      setCloseStatus({
+        msg: e instanceof Error ? e.message : 'Failed to close position',
+        error: true,
+      })
+    } finally {
+      setClosingPubkey(null)
+      setTimeout(() => setCloseStatus(null), 10000)
+    }
+  }, [publicKey, fetchPositions, fetchOrders, fetchOrderbook])
 
   // ── Derived data ──────────────────────────────────────────
 
@@ -333,6 +441,11 @@ export default function PolymarketEventPage() {
 
     try {
       // 1. Request unsigned transaction from Jupiter
+      //    depositAmount = USDC to spend (required for buys)
+      //    maxBuyPriceUsd = price ceiling in micro USD (set to 99¢ for market buy behavior)
+      //    The keeper will fill immediately at best available price up to the ceiling
+      const depositMicro = String(Math.round(amountNum * 1_000_000))
+
       const orderRes = await fetch('/api/polymarket/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -341,7 +454,8 @@ export default function PolymarketEventPage() {
           ownerPubkey: publicKey,
           marketId: selectedMarketId,
           isYes: side === 'yes',
-          depositAmount: String(Math.round(amountNum * 1_000_000)), // micro USD
+          depositAmount: depositMicro,
+          maxBuyPriceUsd: 990000, // 99¢ ceiling — ensures immediate fill at market
           depositMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
         }),
       })
@@ -353,40 +467,56 @@ export default function PolymarketEventPage() {
 
       const orderData = await orderRes.json()
 
+      // Record trade for leaderboard (fire-and-forget)
+      fetch('/api/polymarket/trades/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: selectedMarketId,
+          eventId,
+          isYes: side === 'yes',
+          isBuy: true,
+          side,
+          amountUsd: depositMicro,
+        }),
+      }).catch(() => {})
+
       if (!orderData.transaction) {
         throw new Error('No transaction returned from order creation')
       }
 
-      // 2. Sign & send the transaction
+      // 2. Sign & send via Wallet Standard
       setTradingPhase('signing')
 
-      // Decode the base64 transaction
-      const txBytes = Uint8Array.from(atob(orderData.transaction), c => c.charCodeAt(0))
-
-      // Use the wallet's sign and send
       const { getWallets } = await import('@wallet-standard/app')
       const wallets = getWallets().get()
-      const phantom = wallets.find(w => w.name === 'Phantom')
-      if (!phantom) throw new Error('Phantom wallet not found')
+      const wallet = wallets.find(w => w.name === 'Phantom')
+      if (!wallet) throw new Error('Phantom wallet not found')
 
-      const signAndSend = phantom.features['solana:signAndSendTransaction'] as {
+      const account = wallet.accounts.find(a => a.address === publicKey)
+      if (!account) throw new Error('Wallet account not found')
+
+      const signAndSend = wallet.features['solana:signAndSendTransaction'] as {
         signAndSendTransaction(
           ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
         ): Promise<Array<{ signature: Uint8Array }>>
       }
 
-      const account = phantom.accounts.find(a => a.address === publicKey)
-      if (!account) throw new Error('Wallet account not found')
+      // Decode the base64 transaction into bytes
+      const txBytes = Uint8Array.from(atob(orderData.transaction), c => c.charCodeAt(0))
+
+      // Use whichever solana chain the account supports (mainnet)
+      const chain = account.chains.find(c => c.startsWith('solana:')) || 'solana:mainnet-beta'
 
       const [result] = await signAndSend.signAndSendTransaction({
         transaction: txBytes,
         account,
-        chain: 'solana:mainnet-beta',
+        chain,
       })
 
       setTradingPhase('confirming')
 
-      // Convert signature to base58 for display
       const sig = Array.from(result.signature)
         .map(b => b.toString(16).padStart(2, '0'))
         .join('')
@@ -397,6 +527,8 @@ export default function PolymarketEventPage() {
       })
       setAmount('')
       fetchOrderbook()
+      // Refresh orders after a short delay so the new order shows up
+      setTimeout(fetchOrders, 3000)
     } catch (e: unknown) {
       console.error('Trade failed:', e)
       setTradeStatus({
@@ -572,31 +704,111 @@ export default function PolymarketEventPage() {
             </button>
           )}
 
+          {/* Open orders for this event */}
+          {connected && orders.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
+                Orders ({orders.length})
+              </div>
+              <div className="space-y-2">
+                {orders.map(order => {
+                  const statusColor = order.status === 'filled'
+                    ? 'text-apple-green'
+                    : order.status === 'failed'
+                    ? 'text-apple-red'
+                    : 'text-yellow-400'
+                  const statusIcon = order.status === 'filled'
+                    ? '●'
+                    : order.status === 'failed'
+                    ? '✕'
+                    : '◌'
+                  return (
+                    <div key={order.pubkey} className="glass rounded-lg p-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xs font-bold ${order.isYes ? 'text-apple-green' : 'text-apple-red'}`}>
+                            {order.isYes ? 'YES' : 'NO'}
+                          </span>
+                          <span className="text-white font-medium text-xs truncate max-w-[120px]">
+                            {order.marketMetadata?.title || order.marketId}
+                          </span>
+                        </div>
+                        <span className={`text-[10px] font-semibold ${statusColor} flex items-center gap-1`}>
+                          {statusIcon} {order.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                        <span>{order.contracts} contracts · ${microToUsd(Number(order.sizeUsd))}</span>
+                        {order.status === 'filled' && (
+                          <span>filled {order.filledContracts} @ {microToUsd(Number(order.avgFillPriceUsd))}¢</span>
+                        )}
+                        {order.status === 'pending' && (
+                          <span className="animate-pulse">matching...</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* User positions for this event */}
           {connected && positions.length > 0 && (
             <div className="mt-4 pt-4 border-t border-white/10">
               <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
-                Your Positions
+                Positions ({positions.length})
               </div>
+
+              {closeStatus && (
+                <div className={`mb-2 p-2.5 rounded-lg text-xs ${
+                  closeStatus.error
+                    ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+                    : 'bg-green-500/10 border border-green-500/30 text-green-300'
+                }`}>
+                  {closeStatus.msg}
+                </div>
+              )}
+
               <div className="space-y-2">
-                {positions.map(pos => (
-                  <div key={pos.pubkey} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold ${pos.isYes ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {pos.isYes ? 'YES' : 'NO'}
-                      </span>
-                      <span className="text-white font-medium text-xs truncate max-w-[100px]">
-                        {pos.marketMetadata?.title || pos.marketId}
-                      </span>
+                {positions.map(pos => {
+                  const isClosing = closingPubkey === pos.pubkey
+                  return (
+                    <div key={pos.pubkey} className="glass rounded-lg p-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-bold ${pos.isYes ? 'text-apple-green' : 'text-apple-red'}`}>
+                            {pos.isYes ? 'YES' : 'NO'}
+                          </span>
+                          <span className="text-white font-medium text-xs truncate max-w-[100px]">
+                            {pos.marketMetadata?.title || pos.marketId}
+                          </span>
+                        </div>
+                        <span className={`text-xs font-semibold ${pos.pnlUsd >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                          {pos.pnlUsd >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-neutral-400 text-[11px]">{pos.contracts} contracts · {microToUsd(Number(pos.sizeUsd))}</span>
+                        <button
+                          onClick={() => handleClosePosition(pos.pubkey)}
+                          disabled={isClosing || !!closingPubkey}
+                          className="px-2.5 py-1 text-[10px] font-semibold rounded-md border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {isClosing ? (
+                            <span className="flex items-center gap-1">
+                              <svg className="w-2.5 h-2.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                              Closing
+                            </span>
+                          ) : 'Close'}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-neutral-400 text-xs">{pos.contracts} contracts</span>
-                      <span className={`text-xs font-semibold ${pos.pnlUsd >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {pos.pnlUsd >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}

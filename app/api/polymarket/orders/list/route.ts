@@ -3,14 +3,11 @@ import { jupFetch, getForwardHeaders } from '@/lib/jupiterApi'
 
 export async function GET(req: NextRequest) {
   const ownerPubkey = req.nextUrl.searchParams.get('ownerPubkey')
-  const marketId = req.nextUrl.searchParams.get('marketId')
-
-  const params = new URLSearchParams()
-  if (ownerPubkey) params.set('ownerPubkey', ownerPubkey)
-  if (marketId) params.set('marketId', marketId)
-
+  if (!ownerPubkey) {
+    return new Response(JSON.stringify({ error: 'ownerPubkey required' }), { status: 400 })
+  }
   return jupFetch(
-    `/positions?${params.toString()}`,
+    `/orders?ownerPubkey=${encodeURIComponent(ownerPubkey)}`,
     undefined,
     getForwardHeaders(req)
   )

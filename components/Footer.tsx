@@ -4,10 +4,6 @@ export default function Footer() {
       <div className="flex flex-col items-center gap-6">
         {/* Internal + external links */}
         <nav className="flex items-center gap-4 md:gap-6 flex-wrap justify-center">
-          <a href="/markets" className="text-neutral-400 hover:text-white text-sm font-medium transition-colors duration-200">
-            Markets
-          </a>
-          <span className="text-neutral-700">·</span>
           <a href="/waitlist" className="text-neutral-400 hover:text-white text-sm font-medium transition-colors duration-200">
             Waitlist
           </a>

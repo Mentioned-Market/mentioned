@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
+import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+    const fwd = getForwardHeaders(req)
 
     const res = await fetch(`${JUP_BASE}/orders`, {
       method: 'POST',
       headers: {
         'x-api-key': JUP_API_KEY,
         'Content-Type': 'application/json',
+        ...fwd,
       },
       body: JSON.stringify(body),
     })
