@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
+import { awardPoints, awardHoldPoints } from '@/lib/points'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { positionPubkey, ownerPubkey } = body
+  const { positionPubkey, ownerPubkey, marketId } = body
 
   if (!positionPubkey || !ownerPubkey) {
     return NextResponse.json(
@@ -36,5 +37,15 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await res.json()
+
+  // Award points (fire-and-forget)
+  const pointsWork: Promise<unknown>[] = [
+    awardPoints(ownerPubkey, 'claim_won', positionPubkey),
+  ]
+  if (marketId) {
+    pointsWork.push(awardHoldPoints(ownerPubkey, positionPubkey, marketId))
+  }
+  Promise.all(pointsWork).catch((err) => console.error('Points award error (claim):', err))
+
   return NextResponse.json(data)
 }

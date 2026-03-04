@@ -271,7 +271,7 @@ export default function PositionsPage() {
 
   // ── Close position ─────────────────────────────────────────
 
-  const handleClosePosition = useCallback(async (positionPubkey: string) => {
+  const handleClosePosition = useCallback(async (positionPubkey: string, marketId?: string) => {
     if (!publicKey) return
     setClosingPubkey(positionPubkey)
     setCloseStatus(null)
@@ -280,7 +280,7 @@ export default function PositionsPage() {
       const res = await fetch('/api/polymarket/positions/close', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey, marketId }),
       })
 
       if (!res.ok) {
@@ -313,7 +313,7 @@ export default function PositionsPage() {
 
   // ── Claim position ──────────────────────────────────────────
 
-  const handleClaimPosition = useCallback(async (positionPubkey: string) => {
+  const handleClaimPosition = useCallback(async (positionPubkey: string, marketId?: string) => {
     if (!publicKey) return
     setClosingPubkey(positionPubkey)
     setCloseStatus(null)
@@ -322,7 +322,7 @@ export default function PositionsPage() {
       const res = await fetch('/api/polymarket/positions/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey, marketId }),
       })
 
       if (!res.ok) {
@@ -564,7 +564,7 @@ export default function PositionsPage() {
                                 <div className="flex items-center justify-end">
                                   {pos.claimable && !pos.claimed ? (
                                     <button
-                                      onClick={() => handleClaimPosition(pos.pubkey)}
+                                      onClick={() => handleClaimPosition(pos.pubkey, pos.marketId)}
                                       disabled={isClosing || !!closingPubkey}
                                       className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
@@ -582,7 +582,7 @@ export default function PositionsPage() {
                                     </button>
                                   ) : (
                                     <button
-                                      onClick={() => handleClosePosition(pos.pubkey)}
+                                      onClick={() => handleClosePosition(pos.pubkey, pos.marketId)}
                                       disabled={isClosing || !!closingPubkey}
                                       className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
