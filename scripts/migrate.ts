@@ -69,6 +69,22 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_created ON chat_messages(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS polymarket_trades (
+  id            SERIAL PRIMARY KEY,
+  wallet        TEXT NOT NULL,
+  market_id     TEXT NOT NULL,
+  event_id      TEXT NOT NULL,
+  is_yes        BOOLEAN NOT NULL,
+  is_buy        BOOLEAN NOT NULL DEFAULT TRUE,
+  side          TEXT NOT NULL,
+  amount_usd    NUMERIC NOT NULL,
+  tx_signature  TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_poly_trades_wallet ON polymarket_trades(wallet, created_at);
+CREATE INDEX IF NOT EXISTS idx_poly_trades_created ON polymarket_trades(created_at);
 `
 
 async function main() {

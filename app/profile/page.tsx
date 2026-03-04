@@ -1,45 +1,186 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import Header from '@/components/Header'
-import SharePnLModal from '@/components/SharePnLModal'
-import type { PnLCardData, MarketSummaryData } from '@/lib/generatePnLImage'
+import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
-import { useRouter } from 'next/navigation'
-import { address as toAddress } from '@solana/kit'
-import {
-  fetchUserPositions,
-  fetchEscrow,
-  fetchMarket,
-  fetchUserTradeHistory,
-  createRedeemIx,
-  sendIxs,
-  type UserPosition,
-  type UserEscrow,
-  type UserTradeEntry,
-  MarketStatus,
-  marketStatusStr,
-} from '@/lib/mentionMarket'
 
-type MarketData = Awaited<ReturnType<typeof fetchMarket>>
-type CostBasis = { totalCost: number; totalShares: number }
+// ── Types ──────────────────────────────────────────────────
+
+interface Position {
+  pubkey: string
+  marketId: string
+  eventId: string
+  isYes: boolean
+  contracts: string
+  avgPriceUsd: number
+  markPriceUsd: number
+  pnlUsd: number
+  pnlUsdPercent: number
+  totalCostUsd: string
+  sizeUsd: string
+  sellPriceUsd: number
+  claimable?: boolean
+  claimed?: boolean
+  claimableAt?: number | null
+  payoutUsd?: string
+  marketMetadata?: { title: string }
+  eventMetadata?: { title: string; imageUrl: string; closeTime: string }
+}
+
+interface Order {
+  pubkey: string
+  marketId: string
+  eventId: string
+  status: 'pending' | 'filled' | 'failed' | 'cancelled'
+  isYes: boolean
+  isBuy: boolean
+  contracts: string
+  filledContracts: string
+  maxFillPriceUsd: string
+  avgFillPriceUsd: string
+  sizeUsd: string
+  createdAt: number
+  updatedAt: number
+  marketMetadata?: { title: string }
+  eventMetadata?: { title: string; imageUrl: string }
+}
+
+interface HistoryEvent {
+  id: number
+  eventType: string
+  signature: string
+  slot: number
+  timestamp: number
+  orderPubkey: string
+  positionPubkey: string
+  marketId: string
+  eventId: string
+  ownerPubkey: string
+  isBuy: boolean
+  isYes: boolean
+  contracts: string
+  filledContracts: string
+  maxFillPriceUsd: number
+  avgFillPriceUsd: number
+  maxBuyPriceUsd: number
+  minSellPriceUsd: number
+  depositAmountUsd: number
+  totalCostUsd: number
+  feeUsd: number
+  grossProceedsUsd: number
+  netProceedsUsd: number
+  contractsSettled: string
+  transferAmountToken: string
+  realizedPnl: number
+  realizedPnlBeforeFees: number
+  payoutAmountUsd: number
+  marketMetadata?: { title: string }
+  eventMetadata?: { title: string; imageUrl: string }
+}
+
+type Tab = 'positions' | 'orders' | 'history'
+
+// ── Helpers ────────────────────────────────────────────────
+
+function microToUsd(micro: number | null | string | undefined): string {
+  if (micro === null || micro === undefined) return '—'
+  const n = typeof micro === 'string' ? Number(micro) : micro
+  if (!Number.isFinite(n)) return '$0.00'
+  if (n === 0) return '$0.00'
+  return `$${(n / 1_000_000).toFixed(2)}`
+}
+
+function microToUsdSigned(micro: number | null | undefined): string {
+  if (micro === null || micro === undefined) return '—'
+  const n = Number(micro)
+  if (!Number.isFinite(n) || n === 0) return '-'
+  const usd = n / 1_000_000
+  const sign = usd > 0 ? '+' : ''
+  return `${sign}$${Math.abs(usd).toFixed(2)}`
+}
+
+function microToCents(micro: number | null): string {
+  if (micro === null) return '—'
+  return `${(micro / 10_000).toFixed(0)}¢`
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts * 1000).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function formatDateFull(ts: number): string {
+  const d = new Date(ts * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
+}
+
+function formatCloseTime(isoTime: string): string {
+  const d = new Date(isoTime)
+  const diff = d.getTime() - Date.now()
+  if (diff <= 0) return 'Settled'
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  if (hours > 24) {
+    const days = Math.floor(hours / 24)
+    return `${days}d ${hours % 24}h`
+  }
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+  return `${hours}h ${minutes}m`
+}
+
+function eventTypeToStatus(eventType: string): { label: string; color: string } {
+  switch (eventType) {
+    case 'order_filled':
+      return { label: 'Filled', color: 'text-apple-green bg-apple-green/10' }
+    case 'order_created':
+      return { label: 'Created', color: 'text-apple-blue bg-apple-blue/10' }
+    case 'order_closed':
+      return { label: 'Closed', color: 'text-neutral-300 bg-white/5' }
+    case 'order_failed':
+      return { label: 'Failed', color: 'text-apple-red bg-apple-red/10' }
+    case 'settle_position':
+      return { label: 'Settled', color: 'text-apple-green bg-apple-green/10' }
+    case 'payout_claimed':
+      return { label: 'Claimed', color: 'text-apple-green bg-apple-green/10' }
+    default:
+      return { label: eventType.replace(/_/g, ' '), color: 'text-neutral-400 bg-white/5' }
+  }
+}
+
+// ── Wallet signing helper ──────────────────────────────────
+
+async function signAndSendTx(transaction: string, ownerPubkey: string): Promise<string> {
+  const { getWallets } = await import('@wallet-standard/app')
+  const wallets = getWallets().get()
+  const wallet = wallets.find(w => w.name === 'Phantom')
+  if (!wallet) throw new Error('Phantom wallet not found')
+
+  const account = wallet.accounts.find(a => a.address === ownerPubkey)
+  if (!account) throw new Error('Wallet account not found')
+
+  const signAndSend = wallet.features['solana:signAndSendTransaction'] as {
+    signAndSendTransaction(
+      ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
+    ): Promise<Array<{ signature: Uint8Array }>>
+  }
+
+  const txBytes = Uint8Array.from(atob(transaction), c => c.charCodeAt(0))
+  const chain = account.chains.find(c => c.startsWith('solana:')) || 'solana:mainnet-beta'
+
+  const [result] = await signAndSend.signAndSendTransaction({ transaction: txBytes, account, chain })
+  return Array.from(result.signature).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// ── Page ───────────────────────────────────────────────────
 
 export default function ProfilePage() {
-  const { connected, publicKey, signer } = useWallet()
-  const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'active' | 'claimable' | 'resolved' | 'history'>('active')
-
-  const [positions, setPositions] = useState<UserPosition[]>([])
-  const [escrowData, setEscrowData] = useState<UserEscrow | null>(null)
-  const [tradeHistory, setTradeHistory] = useState<UserTradeEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [claiming, setClaiming] = useState(false)
-  const [claimStatus, setClaimStatus] = useState<{ msg: string; error: boolean } | null>(null)
-
-  // Share P&L modal
-  type ShareData = { type: 'word'; data: PnLCardData } | { type: 'market'; data: MarketSummaryData }
-  const [shareData, setShareData] = useState<ShareData | null>(null)
-  const [expandedMarkets, setExpandedMarkets] = useState<Set<string>>(new Set())
+  const { connected, publicKey, connect } = useWallet()
 
   // Username state
   const [username, setUsername] = useState<string | null>(null)
@@ -48,144 +189,152 @@ export default function ProfilePage() {
   const [usernameSaving, setUsernameSaving] = useState(false)
   const [usernameError, setUsernameError] = useState<string | null>(null)
 
-  const loadData = useCallback(async () => {
-    if (!publicKey) {
-      setPositions([])
-      setEscrowData(null)
-      setTradeHistory([])
-      setUsername(null)
-      setLoading(false)
-      return
-    }
+  // Positions state
+  const [tab, setTab] = useState<Tab>('positions')
+  const [positions, setPositions] = useState<Position[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
+  const [history, setHistory] = useState<HistoryEvent[]>([])
+  const [loadingPositions, setLoadingPositions] = useState(true)
+  const [loadingOrders, setLoadingOrders] = useState(true)
+  const [loadingHistory, setLoadingHistory] = useState(true)
+  const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
+  const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
+  // ── Load username ───────────────────────────────────────
+
+  useEffect(() => {
+    if (!publicKey) { setUsername(null); return }
+    fetch(`/api/profile?wallet=${publicKey}`)
+      .then(r => r.json())
+      .then(d => setUsername(d.username))
+      .catch(() => setUsername(null))
+  }, [publicKey])
+
+  // ── Fetch positions ───────────────────────────────────────
+
+  const fetchPositions = useCallback(async () => {
+    if (!publicKey) { setPositions([]); setLoadingPositions(false); return }
     try {
-      const addr = toAddress(publicKey)
-      const [pos, escrow, history, profileRes] = await Promise.all([
-        fetchUserPositions(addr),
-        fetchEscrow(addr),
-        fetchUserTradeHistory(addr).catch(() => [] as UserTradeEntry[]),
-        fetch(`/api/profile?wallet=${publicKey}`).then((r) => r.json()).catch(() => ({ username: null })),
-      ])
-      setPositions(pos)
-      setEscrowData(escrow)
-      setTradeHistory(history)
-      setUsername(profileRes.username)
-    } catch (err) {
-      console.error('Failed to load profile data:', err)
-    }
-    setLoading(false)
+      const res = await fetch(`/api/polymarket/positions?ownerPubkey=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setPositions(json.data || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingPositions(false)
+  }, [publicKey])
+
+  const fetchOrders = useCallback(async () => {
+    if (!publicKey) { setOrders([]); setLoadingOrders(false); return }
+    try {
+      const res = await fetch(`/api/polymarket/orders/list?ownerPubkey=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setOrders((json.data || []).sort((a: Order, b: Order) => b.createdAt - a.createdAt))
+      }
+    } catch { /* ignore */ }
+    setLoadingOrders(false)
+  }, [publicKey])
+
+  const fetchHistory = useCallback(async () => {
+    if (!publicKey) { setHistory([]); setLoadingHistory(false); return }
+    try {
+      const res = await fetch(`/api/polymarket/history?ownerPubkey=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setHistory((json.data || []).sort((a: HistoryEvent, b: HistoryEvent) => b.timestamp - a.timestamp))
+      }
+    } catch { /* ignore */ }
+    setLoadingHistory(false)
   }, [publicKey])
 
   useEffect(() => {
-    setLoading(true)
-    loadData()
-  }, [loadData])
+    setLoadingPositions(true)
+    setLoadingOrders(true)
+    setLoadingHistory(true)
+    fetchPositions()
+    fetchOrders()
+    fetchHistory()
 
-  const activePositions = positions.filter(
-    (p) => p.marketStatus === MarketStatus.Open || p.marketStatus === MarketStatus.Paused
-  )
-  const claimablePositions = positions.filter((p) => p.claimable)
-  const resolvedPositions = positions.filter(
-    (p) => p.marketStatus === MarketStatus.Resolved
-  )
-
-  const escrowSol = escrowData ? Number(escrowData.balance) / 1_000_000_000 : 0
-  const activeValue = activePositions.reduce((sum, p) => sum + p.estimatedValueSol, 0)
-  const claimableValue = claimablePositions.reduce((sum, p) => sum + p.estimatedValueSol, 0)
-
-  const costBasisMap = useMemo(() => {
-    const map: Record<string, CostBasis> = {}
-    for (const trade of tradeHistory) {
-      const key = `${trade.marketId}-${trade.wordIndex}-${trade.direction}`
-      const existing = map[key] || { totalCost: 0, totalShares: 0 }
-      if (trade.isBuy) {
-        existing.totalCost += trade.cost
-        existing.totalShares += trade.quantity
-      } else {
-        // Sells reduce cost basis proportionally and reduce shares
-        existing.totalCost -= trade.cost
-        existing.totalShares -= trade.quantity
-      }
-      // Clamp to 0 to avoid negative cost basis from rounding
-      if (existing.totalCost < 0) existing.totalCost = 0
-      if (existing.totalShares < 0) existing.totalShares = 0
-      map[key] = existing
+    const posInterval = setInterval(fetchPositions, 30_000)
+    const ordInterval = setInterval(fetchOrders, 15_000)
+    const histInterval = setInterval(fetchHistory, 30_000)
+    return () => {
+      clearInterval(posInterval)
+      clearInterval(ordInterval)
+      clearInterval(histInterval)
     }
-    return map
-  }, [tradeHistory])
+  }, [fetchPositions, fetchOrders, fetchHistory])
 
-  const getCostBasis = (pos: UserPosition): CostBasis => {
-    const key = `${pos.marketId}-${pos.wordIndex}-${pos.side}`
-    return costBasisMap[key] || { totalCost: 0, totalShares: 0 }
-  }
+  // ── Close position ─────────────────────────────────────────
 
-  // Net invested = sum of buy costs minus sell returns
-  const totalInvested = useMemo(
-    () => tradeHistory.reduce((sum, t) => sum + (t.isBuy ? t.cost : -t.cost), 0),
-    [tradeHistory]
-  )
-
-  // Realized returns from redeemed (claimed) positions: won + 0 balance = already redeemed
-  // Each winning token paid out 1 SOL, so payout = net shares from trades
-  const totalRealizedReturns = useMemo(() => {
-    return positions
-      .filter((p) => p.won === true && p.rawAmount === 0n)
-      .reduce((sum, p) => {
-        const basis = getCostBasis(p)
-        return sum + basis.totalShares // each redeemed share = 1 SOL
-      }, 0)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positions, costBasisMap])
-
-  const totalCurrentValue = positions.reduce((sum, p) => sum + p.estimatedValueSol, 0)
-  const totalPnl = totalCurrentValue + totalRealizedReturns - totalInvested
-  const totalPnlPct = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0
-
-  const handleClaim = async (positionsToClaim: UserPosition[]) => {
-    if (!signer || !publicKey || positionsToClaim.length === 0) return
-    setClaiming(true)
-    setClaimStatus(null)
+  const handleClosePosition = useCallback(async (positionPubkey: string) => {
+    if (!publicKey) return
+    setClosingPubkey(positionPubkey)
+    setCloseStatus(null)
 
     try {
-      const addr = toAddress(publicKey)
-      const marketIds = [...new Set(positionsToClaim.map((p) => p.marketId.toString()))]
-      const marketMap = new Map<string, MarketData>()
-      for (const mid of marketIds) {
-        const m = await fetchMarket(BigInt(mid))
-        if (m) marketMap.set(mid, m)
-      }
-
-      const ixs = []
-      for (const pos of positionsToClaim) {
-        const market = marketMap.get(pos.marketId.toString())
-        if (!market) continue
-        ixs.push(
-          await createRedeemIx(addr, pos.marketId, pos.wordIndex, pos.side, market)
-        )
-      }
-
-      if (ixs.length === 0) {
-        setClaimStatus({ msg: 'No valid positions to claim', error: true })
-        setClaiming(false)
-        return
-      }
-
-      await sendIxs(signer, ixs)
-
-      const totalSol = positionsToClaim.reduce((s, p) => s + p.estimatedValueSol, 0)
-      setClaimStatus({
-        msg: `Claimed ${positionsToClaim.length} position${positionsToClaim.length > 1 ? 's' : ''} for ${totalSol.toFixed(4)} SOL`,
-        error: false,
+      const res = await fetch('/api/polymarket/positions/close', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
       })
 
-      await loadData()
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to close position')
+      }
+
+      const data = await res.json()
+      if (!data.transaction) throw new Error('No transaction returned')
+
+      const sig = await signAndSendTx(data.transaction, publicKey)
+      setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
+
+      setTimeout(() => { fetchPositions(); fetchOrders(); fetchHistory() }, 3000)
     } catch (e: unknown) {
-      console.error('Claim failed:', e)
-      setClaimStatus({ msg: (e as Error).message, error: true })
+      setCloseStatus({ msg: e instanceof Error ? e.message : 'Failed to close position', error: true })
     } finally {
-      setClaiming(false)
-      setTimeout(() => setClaimStatus(null), 8000)
+      setClosingPubkey(null)
+      setTimeout(() => setCloseStatus(null), 10000)
     }
-  }
+  }, [publicKey, fetchPositions, fetchOrders, fetchHistory])
+
+  // ── Claim position ────────────────────────────────────────
+
+  const handleClaimPosition = useCallback(async (positionPubkey: string) => {
+    if (!publicKey) return
+    setClosingPubkey(positionPubkey)
+    setCloseStatus(null)
+
+    try {
+      const res = await fetch('/api/polymarket/positions/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to claim position')
+      }
+
+      const data = await res.json()
+      if (!data.transaction) throw new Error('No transaction returned')
+
+      const sig = await signAndSendTx(data.transaction, publicKey)
+      setCloseStatus({ msg: `Claim submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
+
+      setTimeout(() => { fetchPositions(); fetchOrders(); fetchHistory() }, 3000)
+    } catch (e: unknown) {
+      setCloseStatus({ msg: e instanceof Error ? e.message : 'Failed to claim position', error: true })
+    } finally {
+      setClosingPubkey(null)
+      setTimeout(() => setCloseStatus(null), 10000)
+    }
+  }, [publicKey, fetchPositions, fetchOrders, fetchHistory])
+
+  // ── Username save ───────────────────────────────────────
 
   const handleSaveUsername = async () => {
     if (!publicKey) return
@@ -216,6 +365,22 @@ export default function ProfilePage() {
     }
   }
 
+  // ── Derived data ──────────────────────────────────────────
+
+  const openOrders = orders.filter(o => o.status === 'pending')
+  const unrealizedPnl = positions.reduce((sum, p) => sum + (Number(p.pnlUsd) || 0), 0)
+  const realizedPnl = history.reduce((sum, h) => sum + (Number(h.realizedPnl) || 0), 0)
+  const totalPnl = unrealizedPnl + realizedPnl
+  const totalValue = positions.reduce((sum, p) => sum + (Number(p.sizeUsd) || 0), 0)
+
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'positions', label: 'Positions', count: positions.length },
+    { key: 'orders', label: 'Open Orders', count: openOrders.length },
+    { key: 'history', label: 'History', count: history.length },
+  ]
+
+  // ── Not connected ───────────────────────────────────────
+
   if (!connected) {
     return (
       <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -223,24 +388,29 @@ export default function ProfilePage() {
           <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
             <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
               <Header />
-              <main className="py-20 text-center">
-                <h1 className="text-3xl font-bold mb-4 text-white">Connect your wallet</h1>
-                <p className="text-neutral-400 text-base mb-8">
-                  Connect your wallet to view your portfolio and positions
-                </p>
+              <main className="flex-1 flex flex-col items-center justify-center py-32 gap-4">
+                <div className="w-16 h-16 rounded-2xl glass flex items-center justify-center mb-2">
+                  <svg className="w-8 h-8 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
+                  </svg>
+                </div>
+                <span className="text-neutral-400 text-base font-medium">Connect your wallet to view your profile</span>
                 <button
-                  onClick={() => router.push('/')}
-                  className="px-6 py-3 bg-white text-black font-semibold rounded-xl hover:bg-neutral-100 transition-colors"
+                  onClick={connect}
+                  className="mt-2 px-6 py-3 bg-white text-black text-sm font-semibold rounded-xl hover:bg-neutral-100 transition-all duration-200"
                 >
-                  Go Home
+                  Connect Wallet
                 </button>
               </main>
+              <Footer />
             </div>
           </div>
         </div>
       </div>
     )
   }
+
+  // ── Connected ──────────────────────────────────────────
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -249,17 +419,15 @@ export default function ProfilePage() {
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
 
-            <main className="py-4 md:py-6">
+            <main className="py-4 md:py-6 flex-1">
+              {/* Username section */}
               <div className="mb-6">
                 {editingUsername ? (
                   <div className="flex items-center gap-2 mb-1">
                     <input
                       type="text"
                       value={usernameInput}
-                      onChange={(e) => {
-                        setUsernameInput(e.target.value)
-                        setUsernameError(null)
-                      }}
+                      onChange={(e) => { setUsernameInput(e.target.value); setUsernameError(null) }}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); if (e.key === 'Escape') { setEditingUsername(false); setUsernameError(null) } }}
                       placeholder="username"
                       autoFocus
@@ -286,11 +454,7 @@ export default function ProfilePage() {
                       {username || 'Set Username'}
                     </h1>
                     <button
-                      onClick={() => {
-                        setUsernameInput(username || '')
-                        setEditingUsername(true)
-                        setUsernameError(null)
-                      }}
+                      onClick={() => { setUsernameInput(username || ''); setEditingUsername(true); setUsernameError(null) }}
                       className="text-neutral-500 hover:text-white transition-colors"
                       title="Edit username"
                     >
@@ -308,571 +472,412 @@ export default function ProfilePage() {
                 </p>
               </div>
 
-              {loading ? (
-                <div className="flex items-center justify-center py-20">
-                  <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                <div className="glass rounded-xl p-4">
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
+                  <div className="text-white text-xl font-bold">{positions.length}</div>
                 </div>
-              ) : (
-                <>
-                  {/* Portfolio Overview */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
-                    <div className="glass rounded-xl p-4 md:p-5">
-                      <div className="text-neutral-400 text-[10px] md:text-xs font-medium uppercase tracking-wider mb-1">
-                        Escrow Balance
-                      </div>
-                      <div className="text-xl md:text-2xl font-bold text-white">
-                        {escrowSol.toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
-                      </div>
+                <div className="glass rounded-xl p-4">
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
+                  <div className="text-white text-xl font-bold">{microToUsd(totalValue)}</div>
+                </div>
+                <div className="glass rounded-xl p-4">
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">P&L</div>
+                  <div className={`text-xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                    {totalPnl >= 0 ? '+' : ''}{microToUsd(totalPnl)}
+                  </div>
+                </div>
+                <div className="glass rounded-xl p-4">
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
+                  <div className="text-white text-xl font-bold">{openOrders.length}</div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex items-center gap-1 mb-4 border-b border-white/10">
+                {tabs.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
+                      tab === t.key
+                        ? 'text-white border-white'
+                        : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                    }`}
+                  >
+                    {t.label}
+                    {t.count > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        tab === t.key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                      }`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Positions Tab ──────────────────────────────── */}
+              {tab === 'positions' && (
+                <div>
+                  {loadingPositions ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                     </div>
-                    <div className="glass rounded-xl p-4 md:p-5">
-                      <div className="text-neutral-400 text-[10px] md:text-xs font-medium uppercase tracking-wider mb-1">
-                        Net Invested
-                      </div>
-                      <div className="text-xl md:text-2xl font-bold text-white">
-                        {Math.max(0, totalInvested).toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
-                      </div>
+                  ) : positions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-2">
+                      <span className="text-neutral-500 text-sm">No open positions</span>
+                      <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">
+                        Browse markets
+                      </Link>
                     </div>
-                    <div className="glass rounded-xl p-4 md:p-5">
-                      <div className="text-neutral-400 text-[10px] md:text-xs font-medium uppercase tracking-wider mb-1">
-                        Total Returns
-                      </div>
-                      <div className="text-xl md:text-2xl font-bold text-white">
-                        {(totalCurrentValue + totalRealizedReturns).toFixed(2)} <span className="text-sm text-neutral-400">SOL</span>
-                      </div>
-                    </div>
-                    <div className="glass rounded-xl p-4 md:p-5">
-                      <div className="text-neutral-400 text-[10px] md:text-xs font-medium uppercase tracking-wider mb-1">
-                        {"Total P&L"}
-                      </div>
-                      <div className={`text-xl md:text-2xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(4)} <span className="text-sm">SOL</span>
-                      </div>
-                      {totalInvested > 0 && (
-                        <div className={`text-xs font-semibold mt-0.5 ${totalPnlPct >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                          {totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(1)}%
+                  ) : (
+                    <>
+                      {closeStatus && (
+                        <div className={`mb-3 p-3 rounded-lg text-xs ${
+                          closeStatus.error
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+                            : 'bg-green-500/10 border border-green-500/30 text-green-300'
+                        }`}>
+                          {closeStatus.msg}
                         </div>
                       )}
-                    </div>
-                  </div>
 
-                  {/* Tabs */}
-                  <div className="flex gap-1 mb-6 border-b border-white/10">
-                    <button
-                      onClick={() => setActiveTab('active')}
-                      className={`px-4 md:px-6 py-3 text-sm font-semibold transition-all ${
-                        activeTab === 'active'
-                          ? 'border-b-2 border-white text-white'
-                          : 'text-neutral-500 hover:text-neutral-300'
-                      }`}
-                    >
-                      Active ({activePositions.length})
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('claimable')}
-                      className={`px-4 md:px-6 py-3 text-sm font-semibold transition-all ${
-                        activeTab === 'claimable'
-                          ? 'border-b-2 border-white text-white'
-                          : 'text-neutral-500 hover:text-neutral-300'
-                      }`}
-                    >
-                      Claimable ({claimablePositions.length})
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('resolved')}
-                      className={`px-4 md:px-6 py-3 text-sm font-semibold transition-all ${
-                        activeTab === 'resolved'
-                          ? 'border-b-2 border-white text-white'
-                          : 'text-neutral-500 hover:text-neutral-300'
-                      }`}
-                    >
-                      Resolved ({resolvedPositions.length})
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('history')}
-                      className={`px-4 md:px-6 py-3 text-sm font-semibold transition-all ${
-                        activeTab === 'history'
-                          ? 'border-b-2 border-white text-white'
-                          : 'text-neutral-500 hover:text-neutral-300'
-                      }`}
-                    >
-                      History ({tradeHistory.length})
-                    </button>
-                  </div>
+                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                        <span>Event</span>
+                        <span className="text-right">Total Size</span>
+                        <span className="text-right">Value</span>
+                        <span className="text-right">Avg. Price</span>
+                        <span className="text-right">Mark Price</span>
+                        <span className="text-right">PNL</span>
+                        <span className="text-right">Payout if right</span>
+                        <span className="text-right">Est. Settlement</span>
+                        <span></span>
+                      </div>
 
-                  {/* Active Positions */}
-                  {activeTab === 'active' && (
-                    <div className="space-y-3">
-                      {activePositions.length === 0 ? (
-                        <div className="text-center py-16 text-neutral-500">
-                          <p className="text-base mb-4">No active positions</p>
-                          <button
-                            onClick={() => router.push('/')}
-                            className="px-6 py-2.5 bg-white text-black font-semibold rounded-xl hover:bg-neutral-100 transition-colors"
+                      {positions.map(pos => {
+                        const contracts = Number(pos.contracts || 0)
+                        const payoutIfRight = contracts * 1_000_000
+                        const isClosing = closingPubkey === pos.pubkey
+
+                        return (
+                          <div
+                            key={pos.pubkey}
+                            className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
                           >
-                            Explore Markets
-                          </button>
-                        </div>
-                      ) : (
-                        activePositions.map((pos, i) => {
-                          const basis = getCostBasis(pos)
-                          const pnl = pos.estimatedValueSol - basis.totalCost
-                          const pnlPct = basis.totalCost > 0 ? (pnl / basis.totalCost) * 100 : 0
-                          const avgPrice = basis.totalShares > 0 ? basis.totalCost / basis.totalShares : 0
-                          return (
-                            <a
-                              key={`${pos.marketId}-${pos.wordIndex}-${i}`}
-                              href={`/market/${pos.marketId.toString()}`}
-                              className="block glass rounded-xl p-4 md:p-5 hover:bg-white/[0.04] transition-colors"
-                            >
-                              <div className="flex items-start justify-between mb-3">
-                                <div>
-                                  <div className="text-xs text-neutral-400 font-medium mb-1">
-                                    {"Market #"}{pos.marketId.toString()} {" · "} {pos.marketLabel}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-white font-semibold text-base">
-                                      {pos.wordLabel}
-                                    </span>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                      pos.side === 'YES'
-                                        ? 'bg-apple-green/15 text-apple-green'
-                                        : 'bg-apple-red/15 text-apple-red'
-                                    }`}>
-                                      {pos.side}
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded bg-white/10 text-neutral-300 text-xs font-medium">
-                                      {marketStatusStr(pos.marketStatus)}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-white font-semibold text-base">
-                                    {pos.estimatedValueSol.toFixed(4)} SOL
-                                  </div>
-                                  {basis.totalCost > 0 && (
-                                    <div className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                                      {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} SOL ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                                <div>
-                                  <span className="text-neutral-400">Shares </span>
-                                  <span className="text-white font-medium">{pos.shares.toFixed(2)}</span>
-                                </div>
-                                {basis.totalCost > 0 && (
-                                  <>
-                                    <div>
-                                      <span className="text-neutral-400">Cost Basis </span>
-                                      <span className="text-white font-medium">{basis.totalCost.toFixed(4)} SOL</span>
-                                    </div>
-                                    <div>
-                                      <span className="text-neutral-400">Avg Price </span>
-                                      <span className="text-white font-medium">{(avgPrice * 100).toFixed(0)}c</span>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </a>
-                          )
-                        })
-                      )}
-                    </div>
-                  )}
-
-                  {/* Claim Status */}
-                  {claimStatus && (
-                    <div
-                      className={`mb-4 p-3 rounded-lg text-sm ${
-                        claimStatus.error
-                          ? 'bg-red-500/10 border border-red-500/30 text-red-300'
-                          : 'bg-green-500/10 border border-green-500/30 text-green-300'
-                      }`}
-                    >
-                      {claimStatus.msg}
-                    </div>
-                  )}
-
-                  {/* Claimable Positions */}
-                  {activeTab === 'claimable' && (
-                    <div className="space-y-3">
-                      {claimablePositions.length === 0 ? (
-                        <div className="text-center py-16 text-neutral-500">
-                          <p className="text-base">No positions to claim</p>
-                        </div>
-                      ) : (
-                        <>
-                          {claimablePositions.length > 1 && (
-                            <button
-                              onClick={() => handleClaim(claimablePositions)}
-                              disabled={claiming}
-                              className="w-full py-3 bg-apple-green hover:bg-apple-green/90 text-white font-semibold text-sm rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            >
-                              {claiming ? (
-                                <>
-                                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                  </svg>
-                                  Claiming...
-                                </>
-                              ) : (
-                                `Claim All ${claimablePositions.length} Positions (${claimableValue.toFixed(4)} SOL)`
-                              )}
-                            </button>
-                          )}
-
-                          {claimablePositions.map((pos, i) => {
-                            const basis = getCostBasis(pos)
-                            const profit = pos.estimatedValueSol - basis.totalCost
-                            return (
-                              <div
-                                key={`${pos.marketId}-${pos.wordIndex}-${i}`}
-                                className="glass rounded-xl p-4 md:p-5 border border-apple-green/20"
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                pos.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                              }`}>
+                                {pos.isYes ? 'YES' : 'NO'}
+                              </span>
+                              <Link
+                                href={pos.eventId ? `/polymarkets/event/${pos.eventId}` : '#'}
+                                className="text-white text-sm font-medium truncate hover:underline"
                               >
-                                <div className="flex items-start justify-between mb-3">
-                                  <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="px-2 py-0.5 rounded bg-apple-green/15 text-apple-green text-xs font-semibold">
-                                        Ready to Claim
-                                      </span>
-                                    </div>
-                                    <div className="text-xs text-neutral-400 font-medium mb-1">
-                                      {"Market #"}{pos.marketId.toString()} {" · "} {pos.marketLabel}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-white font-semibold text-base">
-                                        {pos.wordLabel}
-                                      </span>
-                                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                        pos.side === 'YES'
-                                          ? 'bg-apple-green/15 text-apple-green'
-                                          : 'bg-apple-red/15 text-apple-red'
-                                      }`}>
-                                        {pos.side}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={() => handleClaim([pos])}
-                                    disabled={claiming}
-                                    className="px-4 py-2 bg-apple-green hover:bg-apple-green/90 text-white font-semibold text-sm rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {claiming ? 'Claiming...' : `Claim ${pos.shares.toFixed(2)} shares`}
-                                  </button>
-                                </div>
-                                <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                                  <div>
-                                    <span className="text-neutral-400">Shares </span>
-                                    <span className="text-white font-medium">{pos.shares.toFixed(2)}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-neutral-400">Claim Value </span>
-                                    <span className="text-apple-green font-semibold">
-                                      {pos.estimatedValueSol.toFixed(4)} SOL
-                                    </span>
-                                  </div>
-                                  {basis.totalCost > 0 && (
-                                    <>
-                                      <div>
-                                        <span className="text-neutral-400">Cost Basis </span>
-                                        <span className="text-white font-medium">{basis.totalCost.toFixed(4)} SOL</span>
-                                      </div>
-                                      <div>
-                                        <span className="text-neutral-400">Profit </span>
-                                        <span className={`font-semibold ${profit >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                                          {profit >= 0 ? '+' : ''}{profit.toFixed(4)} SOL
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </>
-                      )}
-                    </div>
-                  )}
+                                {pos.marketMetadata?.title || pos.marketId.slice(0, 12) + '...'}
+                              </Link>
+                            </div>
 
-                  {/* Resolved Positions — grouped by market */}
-                  {activeTab === 'resolved' && (
-                    <div className="space-y-6">
-                      {resolvedPositions.length === 0 ? (
-                        <div className="text-center py-16 text-neutral-500">
-                          <p className="text-base">No resolved positions</p>
-                        </div>
-                      ) : (
-                        (() => {
-                          // Group positions by marketId
-                          const grouped = new Map<string, UserPosition[]>()
-                          for (const pos of resolvedPositions) {
-                            const key = pos.marketId.toString()
-                            const arr = grouped.get(key) || []
-                            arr.push(pos)
-                            grouped.set(key, arr)
-                          }
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Total Size</span>
+                              <span className="text-white text-sm font-medium">{pos.contracts}</span>
+                            </div>
 
-                          return Array.from(grouped.entries()).map(([marketId, positions]) => {
-                            const marketLabel = positions[0].marketLabel
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Value</span>
+                              <span className="text-white text-sm font-medium">{microToUsd(pos.sizeUsd)}</span>
+                            </div>
 
-                            // Compute per-position data for this market group
-                            const posData = positions.map((pos) => {
-                              const basis = getCostBasis(pos)
-                              const isClaimed = pos.won === true && pos.rawAmount === 0n
-                              const isSold = pos.won === false && pos.rawAmount === 0n
-                              const payout = isClaimed
-                                ? basis.totalShares
-                                : pos.won && pos.rawAmount > 0n
-                                  ? pos.shares
-                                  : 0
-                              const pnl = payout - basis.totalCost
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Avg. Price</span>
+                              <span className="text-neutral-300 text-sm">{microToCents(pos.avgPriceUsd)}</span>
+                            </div>
 
-                              let statusLabel: string
-                              let statusClass: string
-                              if (isClaimed) {
-                                statusLabel = 'Claimed'
-                                statusClass = 'bg-apple-green/15 text-apple-green'
-                              } else if (isSold) {
-                                statusLabel = 'Sold'
-                                statusClass = 'bg-neutral-500/15 text-neutral-400'
-                              } else if (pos.won) {
-                                statusLabel = 'Won'
-                                statusClass = 'bg-apple-green/15 text-apple-green'
-                              } else {
-                                statusLabel = 'Lost'
-                                statusClass = 'bg-apple-red/15 text-apple-red'
-                              }
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Mark Price</span>
+                              <span className="text-neutral-300 text-sm">{microToCents(pos.markPriceUsd)}</span>
+                            </div>
 
-                              return { pos, basis, isClaimed, isSold, payout, pnl, statusLabel, statusClass }
-                            })
-
-                            // Market-level totals
-                            const marketTotalCost = posData.reduce((s, d) => s + d.basis.totalCost, 0)
-                            const marketTotalPayout = posData.reduce((s, d) => s + d.payout, 0)
-                            const marketTotalPnl = marketTotalPayout - marketTotalCost
-
-                            const isExpanded = expandedMarkets.has(marketId)
-                            const toggleExpand = () => {
-                              setExpandedMarkets((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(marketId)) next.delete(marketId)
-                                else next.add(marketId)
-                                return next
-                              })
-                            }
-                            const correct = posData.filter((d) => d.pos.won === true).length
-
-                            return (
-                              <div key={marketId} className="glass rounded-xl border border-white/5 overflow-hidden">
-                                {/* Market header — clickable to expand */}
-                                <button
-                                  onClick={toggleExpand}
-                                  className="w-full flex items-center justify-between p-4 md:p-5 hover:bg-white/[0.03] transition-colors text-left"
-                                >
-                                  <div>
-                                    <div className="text-xs text-neutral-500 font-medium mb-1">
-                                      Market #{marketId}
-                                    </div>
-                                    <div className="text-white font-semibold text-base">
-                                      {marketLabel}
-                                    </div>
-                                    <div className="text-xs text-neutral-400 mt-1">
-                                      {correct}/{posData.length} correct · {posData.length} words
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <div className="text-right">
-                                      <div className={`font-semibold text-base ${marketTotalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                                        {marketTotalPnl >= 0 ? '+' : ''}{marketTotalPnl.toFixed(4)} SOL
-                                      </div>
-                                      <div className="text-xs text-neutral-500">
-                                        {marketTotalCost.toFixed(4)} invested
-                                      </div>
-                                    </div>
-                                    <span
-                                      role="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setShareData({
-                                          type: 'market',
-                                          data: {
-                                            marketLabel,
-                                            marketId,
-                                            words: posData.map((d) => ({
-                                              label: d.pos.wordLabel,
-                                              won: d.pos.won === true,
-                                              side: d.pos.side,
-                                            })),
-                                            totalCost: marketTotalCost,
-                                            totalPayout: marketTotalPayout,
-                                            totalPnl: marketTotalPnl,
-                                          },
-                                        })
-                                      }}
-                                      className="px-2.5 py-1.5 glass border border-white/10 rounded-lg text-neutral-400 text-[10px] font-semibold hover:text-white hover:bg-white/10 transition-all duration-200 whitespace-nowrap"
-                                    >
-                                      Share Market P&L
-                                    </span>
-                                    <svg
-                                      className={`w-4 h-4 text-neutral-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                  </div>
-                                </button>
-
-                                {/* Expandable word rows */}
-                                {isExpanded && (
-                                  <div className="border-t border-white/5">
-                                    {posData.map(({ pos, basis, isClaimed, payout, pnl, statusLabel, statusClass }, i) => (
-                                      <div
-                                        key={`${pos.marketId}-${pos.wordIndex}-${pos.side}-${i}`}
-                                        className={`flex items-center justify-between px-4 md:px-5 py-3 hover:bg-white/[0.03] transition-colors ${
-                                          i > 0 ? 'border-t border-white/5' : ''
-                                        }`}
-                                      >
-                                        <a href={`/market/${pos.marketId.toString()}`} className="flex items-center gap-2 min-w-0 flex-1">
-                                          <span className="text-white font-medium text-sm truncate">
-                                            {pos.wordLabel}
-                                          </span>
-                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${
-                                            pos.side === 'YES'
-                                              ? 'bg-apple-green/15 text-apple-green'
-                                              : 'bg-apple-red/15 text-apple-red'
-                                          }`}>
-                                            {pos.side}
-                                          </span>
-                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${statusClass}`}>
-                                            {statusLabel}
-                                          </span>
-                                        </a>
-                                        <div className="flex items-center gap-3 shrink-0">
-                                          <div className="text-right">
-                                            <div className={`font-semibold text-sm ${payout > 0 ? 'text-apple-green' : 'text-white'}`}>
-                                              {payout.toFixed(4)}
-                                            </div>
-                                            {basis.totalCost > 0 && (
-                                              <div className={`text-[10px] font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)}
-                                              </div>
-                                            )}
-                                          </div>
-                                          <button
-                                            onClick={(e) => {
-                                              e.preventDefault()
-                                              e.stopPropagation()
-                                              setShareData({
-                                                type: 'word',
-                                                data: {
-                                                  wordLabel: pos.wordLabel,
-                                                  marketLabel: pos.marketLabel,
-                                                  marketId: pos.marketId.toString(),
-                                                  side: pos.side,
-                                                  statusLabel,
-                                                  payout,
-                                                  costBasis: basis.totalCost,
-                                                  pnl,
-                                                  shares: isClaimed ? basis.totalShares : pos.shares,
-                                                  isClaimed,
-                                                },
-                                              })
-                                            }}
-                                            className="px-2.5 py-1 glass border border-white/10 rounded-md text-neutral-400 text-[10px] font-semibold hover:text-white hover:bg-white/10 transition-all duration-200"
-                                          >
-                                            Share
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })
-                        })()
-                      )}
-                    </div>
-                  )}
-
-                  {/* History */}
-                  {activeTab === 'history' && (
-                    <div className="space-y-3">
-                      {tradeHistory.length === 0 ? (
-                        <div className="text-center py-16 text-neutral-500">
-                          <p className="text-base">No trade history found</p>
-                        </div>
-                      ) : (
-                        tradeHistory.map((trade, i) => (
-                          <a
-                            key={`${trade.txSignature}-${i}`}
-                            href={`https://explorer.solana.com/tx/${trade.txSignature}?cluster=devnet`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block glass rounded-xl p-4 md:p-5 hover:bg-white/[0.04] transition-colors"
-                          >
-                            <div className="flex items-start justify-between mb-2">
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">PNL</span>
                               <div>
-                                <div className="text-xs text-neutral-400 font-medium mb-1">
-                                  {"Market #"}{trade.marketId.toString()} {" · "} {trade.marketLabel}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-white font-semibold text-base">
-                                    {trade.wordLabel}
-                                  </span>
-                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                    trade.isBuy
-                                      ? 'bg-apple-green/15 text-apple-green'
-                                      : 'bg-orange-500/15 text-orange-400'
-                                  }`}>
-                                    {trade.isBuy ? 'Buy' : 'Sell'}
-                                  </span>
-                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                    trade.direction === 'YES'
-                                      ? 'bg-apple-green/15 text-apple-green'
-                                      : 'bg-apple-red/15 text-apple-red'
-                                  }`}>
-                                    {trade.direction}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className={`font-semibold text-base ${trade.isBuy ? 'text-white' : 'text-apple-green'}`}>
-                                  {trade.isBuy ? '-' : '+'}{trade.cost.toFixed(4)} SOL
-                                </div>
-                                <div className="text-neutral-500 text-xs">
-                                  {trade.quantity.toFixed(2)} shares @ {trade.quantity > 0 ? ((trade.cost / trade.quantity) * 100).toFixed(0) : 0}c
-                                </div>
+                                <span className={`text-sm font-semibold ${Number(pos.pnlUsd) >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                  {Number(pos.pnlUsd) >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
+                                </span>
+                                <span className={`block text-[10px] ${Number(pos.pnlUsdPercent) >= 0 ? 'text-apple-green/70' : 'text-apple-red/70'}`}>
+                                  {Number(pos.pnlUsdPercent) >= 0 ? '+' : ''}{((Number(pos.pnlUsdPercent) || 0) / 100).toFixed(1)}%
+                                </span>
                               </div>
                             </div>
-                            <div className="flex items-center justify-between text-xs text-neutral-500">
-                              <span>
-                                {new Date(trade.timestamp * 1000).toLocaleDateString(undefined, {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                              <span className="font-mono text-[10px] text-neutral-600 hover:text-neutral-400 transition-colors">
-                                {trade.txSignature.slice(0, 8)}...
+
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Payout</span>
+                              <span className="text-white text-sm font-medium">{microToUsd(payoutIfRight)}</span>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Settlement</span>
+                              <span className="text-neutral-400 text-sm">
+                                {pos.eventMetadata?.closeTime ? formatCloseTime(pos.eventMetadata.closeTime) : '—'}
                               </span>
                             </div>
-                          </a>
-                        ))
-                      )}
-                    </div>
+
+                            <div className="flex items-center justify-end">
+                              {pos.claimable && !pos.claimed ? (
+                                <button
+                                  onClick={() => handleClaimPosition(pos.pubkey)}
+                                  disabled={isClosing || !!closingPubkey}
+                                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {isClosing ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                      </svg>
+                                      Claiming
+                                    </span>
+                                  ) : 'Claim'}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleClosePosition(pos.pubkey)}
+                                  disabled={isClosing || !!closingPubkey}
+                                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {isClosing ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                      </svg>
+                                      Closing
+                                    </span>
+                                  ) : 'Close'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </>
                   )}
-                </>
+                </div>
+              )}
+
+              {/* ── Open Orders Tab ────────────────────────────── */}
+              {tab === 'orders' && (
+                <div>
+                  {loadingOrders ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    </div>
+                  ) : openOrders.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-2">
+                      <span className="text-neutral-500 text-sm">No open orders</span>
+                      <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">
+                        Browse markets
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                        <span>Market</span>
+                        <span className="text-center">Side</span>
+                        <span className="text-right">Contracts</span>
+                        <span className="text-right">Max Price</span>
+                        <span className="text-right">Size</span>
+                        <span className="text-right">Created</span>
+                      </div>
+
+                      {openOrders.map(order => (
+                        <div
+                          key={order.pubkey}
+                          className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              order.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                            }`}>
+                              {order.isYes ? 'YES' : 'NO'}
+                            </span>
+                            <Link
+                              href={order.eventId ? `/polymarkets/event/${order.eventId}` : '#'}
+                              className="text-white text-sm font-medium truncate hover:underline"
+                            >
+                              {order.marketMetadata?.title || order.marketId.slice(0, 12) + '...'}
+                            </Link>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-center">
+                            <span className="text-neutral-500 text-xs md:hidden">Side</span>
+                            <span className={`text-sm font-semibold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
+                              {order.isBuy ? 'Buy' : 'Sell'}
+                            </span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Contracts</span>
+                            <span className="text-white text-sm">{order.contracts}</span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Max Price</span>
+                            <span className="text-neutral-300 text-sm">{microToUsd(order.maxFillPriceUsd)}</span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Size</span>
+                            <span className="text-white text-sm font-medium">{microToUsd(order.sizeUsd)}</span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Created</span>
+                            <span className="text-neutral-400 text-xs">{formatDate(order.createdAt)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── History Tab ─────────────────────────────────── */}
+              {tab === 'history' && (
+                <div>
+                  {loadingHistory ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    </div>
+                  ) : history.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-2">
+                      <span className="text-neutral-500 text-sm">No trade history yet</span>
+                      <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">
+                        Browse markets
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hidden md:grid grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                        <span>Event</span>
+                        <span className="text-center">Action</span>
+                        <span className="text-center">Status</span>
+                        <span className="text-right">Price</span>
+                        <span className="text-right">Deposit / Withdraw</span>
+                        <span className="text-right">PNL</span>
+                        <span className="text-right">Fee</span>
+                      </div>
+
+                      {history.map(h => {
+                        const { label: statusLabel, color: statusColor } = eventTypeToStatus(h.eventType)
+
+                        let depositWithdraw: string = '-'
+                        if (h.depositAmountUsd && h.depositAmountUsd > 0) {
+                          depositWithdraw = `-${microToUsd(h.depositAmountUsd)}`
+                        } else if (h.netProceedsUsd && h.netProceedsUsd > 0) {
+                          depositWithdraw = `+${microToUsd(h.netProceedsUsd)}`
+                        } else if (h.grossProceedsUsd && h.grossProceedsUsd > 0) {
+                          depositWithdraw = `+${microToUsd(h.grossProceedsUsd)}`
+                        } else if (h.payoutAmountUsd && h.payoutAmountUsd > 0) {
+                          depositWithdraw = `+${microToUsd(h.payoutAmountUsd)}`
+                        }
+
+                        const depositIsPositive = depositWithdraw.startsWith('+')
+
+                        const price = h.avgFillPriceUsd
+                          ? microToCents(h.avgFillPriceUsd)
+                          : h.maxBuyPriceUsd
+                          ? microToCents(h.maxBuyPriceUsd)
+                          : h.minSellPriceUsd
+                          ? microToCents(h.minSellPriceUsd)
+                          : '-'
+
+                        const pnl = h.realizedPnl ? microToUsdSigned(h.realizedPnl) : '-'
+                        const pnlPositive = h.realizedPnl ? h.realizedPnl > 0 : false
+
+                        const fee = h.feeUsd && h.feeUsd > 0 ? microToUsd(h.feeUsd) : '-'
+
+                        return (
+                          <div
+                            key={h.id}
+                            className="group grid grid-cols-1 md:grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                                  h.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                                }`}>
+                                  {h.isYes ? 'Yes' : 'No'}
+                                </span>
+                                <span className="text-neutral-500 text-[10px]">·</span>
+                                <Link
+                                  href={h.eventId ? `/polymarkets/event/${h.eventId}` : '#'}
+                                  className="text-white text-sm font-medium truncate hover:underline"
+                                >
+                                  {h.marketMetadata?.title || h.marketId?.slice(0, 12) + '...'}
+                                </Link>
+                              </div>
+                              <div className="text-neutral-500 text-[11px]">
+                                {formatDateFull(h.timestamp)}
+                              </div>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-center">
+                              <span className="text-neutral-500 text-xs md:hidden">Action</span>
+                              <span className="text-white text-sm font-medium">
+                                {h.isBuy ? 'Buy' : 'Sell'}
+                              </span>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-center">
+                              <span className="text-neutral-500 text-xs md:hidden">Status</span>
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Price</span>
+                              <span className="text-white text-sm">{price}</span>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Deposit / Withdraw</span>
+                              <span className={`text-sm font-medium ${
+                                depositIsPositive ? 'text-apple-green' : depositWithdraw === '-' ? 'text-neutral-500' : 'text-white'
+                              }`}>
+                                {depositWithdraw}
+                              </span>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">PNL</span>
+                              <span className={`text-sm font-semibold ${
+                                pnl === '-' ? 'text-neutral-500' : pnlPositive ? 'text-apple-green' : 'text-apple-red'
+                              }`}>
+                                {pnl}
+                              </span>
+                            </div>
+
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Fee</span>
+                              <span className="text-neutral-400 text-sm">{fee}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
+                </div>
               )}
             </main>
+
+            <Footer />
           </div>
         </div>
       </div>
-      <SharePnLModal shareData={shareData} onClose={() => setShareData(null)} />
     </div>
   )
 }

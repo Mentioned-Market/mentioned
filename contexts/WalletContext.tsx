@@ -16,12 +16,12 @@ import {
   type Address,
   type TransactionSendingSigner,
   createSolanaRpc,
-  devnet,
+  mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
 
-const DEVNET_URL = 'https://api.devnet.solana.com'
-const SOLANA_CHAIN = 'solana:devnet'
+const MAINNET_URL = 'https://api.mainnet-beta.solana.com'
+const SOLANA_CHAIN = 'solana:mainnet-beta'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
 // Feature name constants
@@ -117,7 +117,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<'normal' | 'pro'>('normal')
 
   const walletRef = useRef<Wallet | null>(null)
-  const rpc = useRef(createSolanaRpc(devnet(DEVNET_URL)))
+  const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
 
   // Apply connected account state
   const applyAccount = useCallback(

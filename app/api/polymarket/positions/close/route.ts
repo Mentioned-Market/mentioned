@@ -1,0 +1,40 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
+
+export async function DELETE(req: NextRequest) {
+  const body = await req.json()
+  const { positionPubkey, ownerPubkey } = body
+
+  if (!positionPubkey || !ownerPubkey) {
+    return NextResponse.json(
+      { error: 'positionPubkey and ownerPubkey required' },
+      { status: 400 }
+    )
+  }
+
+  const fwd = getForwardHeaders(req)
+
+  const res = await fetch(
+    `${JUP_BASE}/positions/${encodeURIComponent(positionPubkey)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'x-api-key': JUP_API_KEY,
+        'Content-Type': 'application/json',
+        ...fwd,
+      },
+      body: JSON.stringify({ ownerPubkey }),
+    }
+  )
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    return NextResponse.json(
+      { error: text || 'Failed to close position' },
+      { status: res.status }
+    )
+  }
+
+  const data = await res.json()
+  return NextResponse.json(data)
+}
