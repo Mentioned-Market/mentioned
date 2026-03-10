@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getPolymarketTradersSince, pool } from '@/lib/db'
+import { getPolymarketTradersSince, getAllPolymarketTraders, pool } from '@/lib/db'
 import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
 
 // ── Types ────────────────────────────────────────────
@@ -21,7 +21,8 @@ interface CachedLeaderboard {
 
 // ── Cache ────────────────────────────────────────────
 
-let cache: CachedLeaderboard | null = null
+let weeklyCache: CachedLeaderboard | null = null
+let alltimeCache: CachedLeaderboard | null = null
 const CACHE_TTL_MS = 3 * 60 * 1000 // 3 minutes
 
 // ── Helpers ──────────────────────────────────────────
@@ -53,33 +54,42 @@ async function fetchJupiterHistory(wallet: string): Promise<any[]> {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const debug = searchParams.get('debug') === '1'
+  const period = searchParams.get('period') === 'alltime' ? 'alltime' : 'weekly'
   const weekStart = getWeekStart()
   const now = new Date()
   const startTs = Math.floor(weekStart.getTime() / 1000)
   const endTs = Math.floor(now.getTime() / 1000)
 
+  // Select the right cache
+  const activeCache = period === 'alltime' ? alltimeCache : weeklyCache
+
   // Return cache if fresh (skip in debug mode)
   if (
     !debug &&
-    cache &&
-    cache.weekStart === weekStart.toISOString() &&
-    Date.now() - cache.fetchedAt < CACHE_TTL_MS
+    activeCache &&
+    activeCache.weekStart === weekStart.toISOString() &&
+    Date.now() - activeCache.fetchedAt < CACHE_TTL_MS
   ) {
     return NextResponse.json({
-      data: cache.data,
-      weekStart: cache.weekStart,
+      data: activeCache.data,
+      weekStart: activeCache.weekStart,
+      period,
       cached: true,
     })
   }
 
   try {
-    // 1. Get wallets that traded through Mentioned this week
-    const wallets = await getPolymarketTradersSince(weekStart)
+    // 1. Get wallets
+    const wallets = period === 'alltime'
+      ? await getAllPolymarketTraders()
+      : await getPolymarketTradersSince(weekStart)
 
     if (wallets.length === 0) {
       const empty: LeaderboardEntry[] = []
-      cache = { data: empty, weekStart: weekStart.toISOString(), fetchedAt: Date.now() }
-      return NextResponse.json({ data: empty, weekStart: weekStart.toISOString() })
+      const result = { data: empty, weekStart: weekStart.toISOString(), fetchedAt: Date.now() }
+      if (period === 'alltime') alltimeCache = result
+      else weeklyCache = result
+      return NextResponse.json({ data: empty, weekStart: weekStart.toISOString(), period })
     }
 
     // 2. Fetch Jupiter history for each wallet (batched concurrency)
@@ -91,14 +101,16 @@ export async function GET(req: Request) {
       const results = await Promise.all(
         batch.map(async (wallet) => {
           const allEvents = await fetchJupiterHistory(wallet)
-          // Filter to current week client-side
-          const events = allEvents.filter(
-            (e: any) => (Number(e.timestamp) || 0) >= startTs && (Number(e.timestamp) || 0) <= endTs
-          )
+          // Filter to current week for weekly, use all events for alltime
+          const events = period === 'alltime'
+            ? allEvents
+            : allEvents.filter(
+                (e: any) => (Number(e.timestamp) || 0) >= startTs && (Number(e.timestamp) || 0) <= endTs
+              )
 
           if (debug) {
-            console.log(`[leaderboard debug] wallet=${wallet} startTs=${startTs} endTs=${endTs} allEvents=${allEvents.length} filtered=${events.length}`)
-            for (const e of allEvents.slice(0, 5)) {
+            console.log(`[leaderboard debug] period=${period} wallet=${wallet} allEvents=${allEvents.length} filtered=${events.length}`)
+            for (const e of events.slice(0, 5)) {
               console.log(`[leaderboard debug] event:`, JSON.stringify(e, null, 2))
             }
           }
@@ -160,15 +172,18 @@ export async function GET(req: Request) {
     entries.sort((a, b) => b.pnl - a.pnl)
 
     // 5. Cache and return
-    cache = {
+    const cacheEntry = {
       data: entries,
       weekStart: weekStart.toISOString(),
       fetchedAt: Date.now(),
     }
+    if (period === 'alltime') alltimeCache = cacheEntry
+    else weeklyCache = cacheEntry
 
     return NextResponse.json({
       data: entries,
       weekStart: weekStart.toISOString(),
+      period,
     })
   } catch (err) {
     console.error('Leaderboard error:', err)

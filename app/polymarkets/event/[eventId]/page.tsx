@@ -109,6 +109,34 @@ function microToUsd(micro: number | null): string {
   return (micro / 1_000_000).toFixed(2)
 }
 
+function toEmbedUrl(url: string): string {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+
+  // Twitch channel: https://www.twitch.tv/esl_csgo → embed
+  const twitchChannel = url.match(/twitch\.tv\/([^/?]+)/i)
+  if (twitchChannel) {
+    const channel = twitchChannel[1]
+    return `https://player.twitch.tv/?channel=${channel}&parent=${hostname}&muted=true`
+  }
+  // Twitch VOD: https://www.twitch.tv/videos/123456
+  const twitchVod = url.match(/twitch\.tv\/videos\/(\d+)/i)
+  if (twitchVod) {
+    return `https://player.twitch.tv/?video=v${twitchVod[1]}&parent=${hostname}&muted=true`
+  }
+  // YouTube: https://www.youtube.com/watch?v=xxx or https://youtu.be/xxx
+  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?]+)/)
+  if (ytMatch) {
+    return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&mute=1`
+  }
+  // YouTube live: https://www.youtube.com/live/xxx
+  const ytLive = url.match(/youtube\.com\/live\/([^?&]+)/)
+  if (ytLive) {
+    return `https://www.youtube.com/embed/${ytLive[1]}?autoplay=1&mute=1`
+  }
+  // Fallback: use as-is (already an embed URL)
+  return url
+}
+
 function microToCents(micro: number | null): number {
   if (micro === null) return 0
   return Math.round(micro / 10_000)
@@ -251,6 +279,11 @@ export default function PolymarketEventPage() {
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
+  // Stream embed
+  const [streamUrl, setStreamUrl] = useState<string | null>(null)
+  const [streamEmbedUrl, setStreamEmbedUrl] = useState<string | null>(null)
+  const [streamHidden, setStreamHidden] = useState(false)
+
   // ── Fetch event ───────────────────────────────────────────
 
   useEffect(() => {
@@ -278,6 +311,20 @@ export default function PolymarketEventPage() {
       })
 
     return () => { cancelled = true }
+  }, [eventId])
+
+  // ── Fetch stream URL ────────────────────────────────────────
+
+  useEffect(() => {
+    fetch(`/api/streams?eventId=${encodeURIComponent(eventId)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.streamUrl) {
+          setStreamUrl(data.streamUrl)
+          setStreamEmbedUrl(toEmbedUrl(data.streamUrl))
+        }
+      })
+      .catch(() => {})
   }, [eventId])
 
   // ── Fetch orderbook for selected market ───────────────────
@@ -898,6 +945,42 @@ export default function PolymarketEventPage() {
                     <span className="text-neutral-700">·</span>
                     <span>{timeUntil(event.metadata.closeTime)} left</span>
                   </div>
+
+                  {/* Stream embed */}
+                  {streamEmbedUrl && !streamHidden && (
+                    <div className="mb-5">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                          <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
+                        </div>
+                        <button
+                          onClick={() => setStreamHidden(true)}
+                          className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+                        >
+                          Hide stream
+                        </button>
+                      </div>
+                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5" style={{ paddingBottom: '56.25%' }}>
+                        <iframe
+                          src={streamEmbedUrl}
+                          className="absolute inset-0 w-full h-full"
+                          allowFullScreen
+                          allow="autoplay; encrypted-media"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {streamEmbedUrl && streamHidden && (
+                    <button
+                      onClick={() => setStreamHidden(false)}
+                      className="flex items-center gap-2 mb-5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                    >
+                      <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                      <span className="text-xs font-medium text-neutral-300">Show live stream</span>
+                    </button>
+                  )}
 
                   {/* Market outcomes overview — full width */}
                   {event.markets.length > 1 && (

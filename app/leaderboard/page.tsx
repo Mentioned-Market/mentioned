@@ -66,6 +66,7 @@ function winRate(entry: LeaderboardEntry): number {
 
 type SortKey = 'pnl' | 'volume' | 'winRate'
 type PointsSortKey = 'weekly' | 'alltime'
+type TradingPeriod = 'weekly' | 'alltime'
 type Tab = 'trading' | 'points'
 
 // ── Component ──────────────────────────────────────────────
@@ -78,6 +79,7 @@ export default function LeaderboardPage() {
   const [weekStart, setWeekStart] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [sortBy, setSortBy] = useState<SortKey>('pnl')
+  const [tradingPeriod, setTradingPeriod] = useState<TradingPeriod>('weekly')
 
   // Points tab state
   const [pointsEntries, setPointsEntries] = useState<PointsEntry[]>([])
@@ -92,7 +94,7 @@ export default function LeaderboardPage() {
 
     async function fetchLeaderboard() {
       try {
-        const res = await fetch('/api/polymarket/leaderboard')
+        const res = await fetch(`/api/polymarket/leaderboard?period=${tradingPeriod}`)
         if (!res.ok) throw new Error('Failed to fetch leaderboard')
         const json = await res.json()
         if (mounted) {
@@ -106,13 +108,14 @@ export default function LeaderboardPage() {
       }
     }
 
+    setLoading(true)
     fetchLeaderboard()
     const interval = setInterval(fetchLeaderboard, 60_000)
     return () => {
       mounted = false
       clearInterval(interval)
     }
-  }, [])
+  }, [tradingPeriod])
 
   // ── Fetch points leaderboard ───────────────────────────
 
@@ -193,16 +196,17 @@ export default function LeaderboardPage() {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-6">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-white">Leaderboard</h1>
-              {tab === 'trading' && weekStart && (
-                <p className="text-neutral-400 text-sm mt-1">
-                  Weekly rankings &middot; {formatWeekRange(weekStart)}
-                </p>
-              )}
-              {tab === 'points' && pointsWeekStart && (
-                <p className="text-neutral-400 text-sm mt-1">
-                  Points &middot; week of {formatWeekRange(pointsWeekStart)}
-                </p>
-              )}
+              <p className="text-neutral-400 text-sm mt-1" suppressHydrationWarning>
+                {tab === 'trading'
+                  ? tradingPeriod === 'alltime'
+                    ? 'All time rankings'
+                    : weekStart
+                      ? `Weekly rankings \u00b7 ${formatWeekRange(weekStart)}`
+                      : 'Weekly rankings'
+                  : pointsWeekStart
+                    ? `Points \u00b7 week of ${formatWeekRange(pointsWeekStart)}`
+                    : 'Points'}
+              </p>
             </div>
 
             {/* Tab switcher */}
@@ -259,20 +263,44 @@ export default function LeaderboardPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 mb-4">
-                {sortOptions.map(s => (
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-1">
+                  {sortOptions.map(s => (
+                    <button
+                      key={s.key}
+                      onClick={() => setSortBy(s.key)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                        sortBy === s.key
+                          ? 'bg-white/10 text-white'
+                          : 'text-neutral-500 hover:text-neutral-300'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
                   <button
-                    key={s.key}
-                    onClick={() => setSortBy(s.key)}
+                    onClick={() => setTradingPeriod('weekly')}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                      sortBy === s.key
+                      tradingPeriod === 'weekly'
                         ? 'bg-white/10 text-white'
                         : 'text-neutral-500 hover:text-neutral-300'
                     }`}
                   >
-                    {s.label}
+                    Weekly
                   </button>
-                ))}
+                  <button
+                    onClick={() => setTradingPeriod('alltime')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                      tradingPeriod === 'alltime'
+                        ? 'bg-white/10 text-white'
+                        : 'text-neutral-500 hover:text-neutral-300'
+                    }`}
+                  >
+                    All Time
+                  </button>
+                </div>
               </div>
 
               {loading && (
@@ -283,7 +311,9 @@ export default function LeaderboardPage() {
 
               {!loading && sorted.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-16 gap-2">
-                  <span className="text-neutral-500 text-sm">No trades this week yet</span>
+                  <span className="text-neutral-500 text-sm">
+                    {tradingPeriod === 'alltime' ? 'No trades yet' : 'No trades this week yet'}
+                  </span>
                   <Link href="/polymarkets" className="text-apple-blue text-sm font-medium hover:underline">
                     Browse Polymarkets
                   </Link>
