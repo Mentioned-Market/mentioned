@@ -353,6 +353,50 @@ export async function getPolymarketTradersSince(
   return result.rows.map((r: { wallet: string }) => r.wallet)
 }
 
+export async function getAllPolymarketTraders(): Promise<string[]> {
+  const result = await pool.query(
+    `SELECT DISTINCT wallet FROM polymarket_trades`,
+  )
+  return result.rows.map((r: { wallet: string }) => r.wallet)
+}
+
+// ── Event Streams ─────────────────────────────────────
+
+export async function upsertEventStream(
+  eventId: string,
+  streamUrl: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO event_streams (event_id, stream_url, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (event_id) DO UPDATE SET stream_url = $2, updated_at = NOW()`,
+    [eventId, streamUrl],
+  )
+}
+
+export async function deleteEventStream(eventId: string): Promise<void> {
+  await pool.query(`DELETE FROM event_streams WHERE event_id = $1`, [eventId])
+}
+
+export async function getEventStream(eventId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT stream_url FROM event_streams WHERE event_id = $1`,
+    [eventId],
+  )
+  return result.rows[0]?.stream_url ?? null
+}
+
+export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl: string; updatedAt: string }[]> {
+  const result = await pool.query(
+    `SELECT event_id, stream_url, updated_at FROM event_streams ORDER BY updated_at DESC`,
+  )
+  return result.rows.map((r: any) => ({
+    eventId: r.event_id,
+    streamUrl: r.stream_url,
+    updatedAt: r.updated_at,
+  }))
+}
+
 // ── Point Events ──────────────────────────────────────
 
 /**

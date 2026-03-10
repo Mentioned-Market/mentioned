@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS point_events (
 CREATE INDEX IF NOT EXISTS idx_point_events_wallet ON point_events(wallet, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_point_events_action ON point_events(action, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_point_events_dedup ON point_events(wallet, action, ref_id) WHERE ref_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS event_streams (
+  id         SERIAL PRIMARY KEY,
+  event_id   TEXT NOT NULL UNIQUE,
+  stream_url TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 `
 
 async function main() {
