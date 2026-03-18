@@ -6,6 +6,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
+import EventChat from '@/components/EventChat'
 import { useWallet } from '@/contexts/WalletContext'
 
 // ── Types ──────────────────────────────────────────────────
@@ -946,7 +947,7 @@ export default function PolymarketEventPage() {
                     <span>{timeUntil(event.metadata.closeTime)} left</span>
                   </div>
 
-                  {/* Stream embed */}
+                  {/* Stream + Event Chat */}
                   {streamEmbedUrl && !streamHidden && (
                     <div className="mb-5">
                       <div className="flex items-center justify-between mb-2">
@@ -961,13 +962,22 @@ export default function PolymarketEventPage() {
                           Hide stream
                         </button>
                       </div>
-                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5" style={{ paddingBottom: '56.25%' }}>
-                        <iframe
-                          src={streamEmbedUrl}
-                          className="absolute inset-0 w-full h-full"
-                          allowFullScreen
-                          allow="autoplay; encrypted-media"
-                        />
+                      <div className="flex gap-4">
+                        {/* Stream player */}
+                        <div className="flex-1 min-w-0">
+                          <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
+                            <iframe
+                              src={streamEmbedUrl}
+                              className="absolute inset-0 w-full h-full"
+                              allowFullScreen
+                              allow="autoplay; encrypted-media"
+                            />
+                          </div>
+                        </div>
+                        {/* Event chat — same height as stream via aspect-ratio trick */}
+                        <div className="hidden lg:block w-[340px] flex-shrink-0 aspect-video">
+                          <EventChat eventId={eventId} />
+                        </div>
                       </div>
                     </div>
                   )}

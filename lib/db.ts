@@ -360,6 +360,53 @@ export async function getAllPolymarketTraders(): Promise<string[]> {
   return result.rows.map((r: { wallet: string }) => r.wallet)
 }
 
+// ── Event Chat Messages ──────────────────────────────
+
+export interface EventChatRow {
+  id: number
+  event_id: string
+  wallet: string
+  username: string
+  message: string
+  created_at: string
+}
+
+export async function insertEventChatMessage(
+  eventId: string,
+  wallet: string,
+  username: string,
+  message: string,
+): Promise<EventChatRow> {
+  const result = await pool.query(
+    `INSERT INTO event_chat_messages (event_id, wallet, username, message)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [eventId, wallet, username, message],
+  )
+  return result.rows[0]
+}
+
+export async function getRecentEventChatMessages(
+  eventId: string,
+  limit = 50,
+  afterId?: number,
+): Promise<EventChatRow[]> {
+  if (afterId) {
+    const result = await pool.query(
+      `SELECT * FROM event_chat_messages WHERE event_id = $1 AND id > $2 ORDER BY id ASC LIMIT $3`,
+      [eventId, afterId, limit],
+    )
+    return result.rows
+  }
+  const result = await pool.query(
+    `SELECT * FROM (
+       SELECT * FROM event_chat_messages WHERE event_id = $1 ORDER BY id DESC LIMIT $2
+     ) sub ORDER BY id ASC`,
+    [eventId, limit],
+  )
+  return result.rows
+}
+
 // ── Event Streams ─────────────────────────────────────
 
 export async function upsertEventStream(
