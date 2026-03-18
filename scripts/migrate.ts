@@ -106,6 +106,18 @@ CREATE TABLE IF NOT EXISTS event_streams (
   stream_url TEXT NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS event_chat_messages (
+  id         SERIAL PRIMARY KEY,
+  event_id   TEXT NOT NULL,
+  wallet     TEXT NOT NULL,
+  username   TEXT NOT NULL,
+  message    TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_chat_event ON event_chat_messages(event_id, id);
+CREATE INDEX IF NOT EXISTS idx_event_chat_created ON event_chat_messages(event_id, created_at DESC);
 `
 
 async function main() {
