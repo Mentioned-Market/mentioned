@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import Link from 'next/link'
 import { useWallet } from '@/contexts/WalletContext'
 
 interface ChatMessage {
@@ -196,13 +197,18 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           return (
             <div key={msg.id} className="flex flex-col gap-0.5">
               <div className="flex items-baseline gap-2">
-                <span
-                  className={`text-xs font-semibold cursor-pointer ${isOwn ? 'text-apple-green' : 'text-white hover:text-apple-blue transition-colors'}`}
-                  onMouseEnter={(e) => handleMouseEnter(msg.wallet, e)}
-                  onMouseLeave={handleMouseLeave}
-                >
-                  {msg.username}
-                </span>
+                {isOwn ? (
+                  <span className="text-xs font-semibold text-apple-green">{msg.username}</span>
+                ) : (
+                  <Link
+                    href={`/profile/${msg.wallet}`}
+                    className="text-xs font-semibold text-white hover:text-apple-blue transition-colors"
+                    onMouseEnter={(e) => handleMouseEnter(msg.wallet, e)}
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    {msg.username}
+                  </Link>
+                )}
                 <span className="text-[10px] text-neutral-600">
                   {formatTime(msg.created_at)}
                 </span>
