@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:start": "docker compose up -d && docker compose exec db sh -c 'until pg_isready -U mentioned; do sleep 1; done' && npm run db:migrate && npm run db:seed",
+    "db:migrate": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/migrate.ts dotenv_config_path=.env.local",
+    "db:seed": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed.ts dotenv_config_path=.env.local",
+    "db:stop": "docker compose down"
   },
   "dependencies": {
     "@solana/kit": "^6.0.1",
@@ -32,6 +36,7 @@
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
+    "ts-node": "^10.9.2",
     "typescript": "^5.2.2"
   }
 }
