@@ -45,6 +45,12 @@ export default function Header() {
           />
         </a>
         <a
+          href="/markets"
+          className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
+        >
+          Markets
+        </a>
+        <a
           href="/leaderboard"
           className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
         >

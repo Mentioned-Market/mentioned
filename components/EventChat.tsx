@@ -24,6 +24,7 @@ interface UserPosition {
 
 interface EventChatProps {
   eventId: string
+  marketIds: string[]
 }
 
 const POLL_INTERVAL = 3000
@@ -34,7 +35,7 @@ function microToUsd(n: number) {
   return (n / 1_000_000).toFixed(2)
 }
 
-export default function EventChat({ eventId }: EventChatProps) {
+export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const { connected, publicKey } = useWallet()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -135,8 +136,9 @@ export default function EventChat({ eventId }: EventChatProps) {
       const res = await fetch(`/api/polymarket/positions?ownerPubkey=${wallet}`)
       if (!res.ok) { setHoverPositions([]); return }
       const json = await res.json()
+      const marketIdSet = new Set(marketIds)
       const positions: UserPosition[] = (json.data || json || []).filter(
-        (p: any) => p.eventId === eventId || p.marketId?.startsWith('POLY-')
+        (p: any) => marketIdSet.has(p.marketId)
       )
       positionCache.current.set(wallet, positions)
       setHoverPositions(positions)
@@ -145,7 +147,7 @@ export default function EventChat({ eventId }: EventChatProps) {
     } finally {
       setLoadingPositions(false)
     }
-  }, [eventId])
+  }, [eventId, marketIds])
 
   const handleMouseEnter = useCallback((wallet: string, e: React.MouseEvent) => {
     if (wallet === publicKey) return // don't show hover for own messages
