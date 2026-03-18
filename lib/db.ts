@@ -251,6 +251,22 @@ export async function getProfile(wallet: string): Promise<ProfileRow | null> {
   return result.rows[0] || null
 }
 
+export async function getProfileByUsername(username: string): Promise<(ProfileRow & { created_at: string }) | null> {
+  const result = await pool.query(
+    `SELECT wallet, username, created_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
+    [username],
+  )
+  return result.rows[0] || null
+}
+
+export async function getProfileByWallet(wallet: string): Promise<(ProfileRow & { created_at: string }) | null> {
+  const result = await pool.query(
+    `SELECT wallet, username, created_at FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0] || null
+}
+
 export async function upsertProfile(
   wallet: string,
   username: string,
@@ -509,6 +525,14 @@ export interface PointTotalsRow {
 /**
  * Aggregate point totals for a list of wallets (single query, no N+1).
  */
+export async function getWalletPointTotal(wallet: string): Promise<number> {
+  const result = await pool.query(
+    `SELECT COALESCE(SUM(points), 0)::int AS total FROM point_events WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0]?.total ?? 0
+}
+
 export async function getBulkPointTotals(
   wallets: string[],
   weekStart: Date,
