@@ -527,6 +527,7 @@ export default function PolymarketEventPage() {
           isBuy: true,
           side,
           amountUsd: depositMicro,
+          marketTitle: selectedMarket?.metadata.title ?? null,
         }),
       }).catch(() => {})
 
