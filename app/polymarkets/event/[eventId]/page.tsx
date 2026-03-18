@@ -976,7 +976,7 @@ export default function PolymarketEventPage() {
                         </div>
                         {/* Event chat — same height as stream via aspect-ratio trick */}
                         <div className="hidden lg:block w-[340px] flex-shrink-0 aspect-video">
-                          <EventChat eventId={eventId} />
+                          <EventChat eventId={eventId} marketIds={event.markets.map((m: any) => m.marketId)} />
                         </div>
                       </div>
                     </div>
