@@ -335,6 +335,7 @@ export default function LeaderboardPage() {
                     const rank = i + 1
                     const wr = winRate(entry)
                     const pnlColor = entry.pnl > 0 ? 'text-apple-green' : entry.pnl < 0 ? 'text-apple-red' : 'text-neutral-400'
+                    const profileHref = `/profile/${entry.username ?? entry.wallet}`
 
                     return (
                       <div
@@ -345,9 +346,9 @@ export default function LeaderboardPage() {
                           <div className="flex items-center gap-3">
                             {rankBadge(rank)}
                             <div>
-                              <span className="text-white text-sm font-medium">
+                              <Link href={profileHref} className="text-white text-sm font-medium hover:underline">
                                 {entry.username || truncateWallet(entry.wallet)}
-                              </span>
+                              </Link>
                               {entry.username && (
                                 <span className="text-neutral-500 text-xs ml-2 font-mono">
                                   {truncateWallet(entry.wallet)}
@@ -368,9 +369,9 @@ export default function LeaderboardPage() {
                           {rankBadge(rank)}
                         </div>
                         <div className="hidden md:flex items-center gap-2">
-                          <span className="text-white text-sm font-medium">
+                          <Link href={profileHref} className="text-white text-sm font-medium hover:underline">
                             {entry.username || truncateWallet(entry.wallet)}
-                          </span>
+                          </Link>
                           {entry.username && (
                             <span className="text-neutral-500 text-xs font-mono">
                               {truncateWallet(entry.wallet)}
@@ -453,6 +454,7 @@ export default function LeaderboardPage() {
                   {pointsEntries.map((entry, i) => {
                     const rank = i + 1
                     const primaryPts = pointsSort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
+                    const profileHref = `/profile/${entry.username ?? entry.wallet}`
 
                     return (
                       <div
@@ -464,9 +466,9 @@ export default function LeaderboardPage() {
                           <div className="flex items-center gap-3">
                             {rankBadge(rank)}
                             <div>
-                              <span className="text-white text-sm font-medium">
+                              <Link href={profileHref} className="text-white text-sm font-medium hover:underline">
                                 {entry.username || truncateWallet(entry.wallet)}
-                              </span>
+                              </Link>
                               {entry.username && (
                                 <span className="text-neutral-500 text-xs ml-2 font-mono">
                                   {truncateWallet(entry.wallet)}
@@ -486,9 +488,9 @@ export default function LeaderboardPage() {
                           {rankBadge(rank)}
                         </div>
                         <div className="hidden md:flex items-center gap-2">
-                          <span className="text-white text-sm font-medium">
+                          <Link href={profileHref} className="text-white text-sm font-medium hover:underline">
                             {entry.username || truncateWallet(entry.wallet)}
-                          </span>
+                          </Link>
                           {entry.username && (
                             <span className="text-neutral-500 text-xs font-mono">
                               {truncateWallet(entry.wallet)}

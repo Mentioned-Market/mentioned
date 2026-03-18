@@ -2,17 +2,27 @@
 
 import { useWallet } from '@/contexts/WalletContext'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
   const { publicKey, connected, connect, disconnect } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [username, setUsername] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const formatAddress = (pubKey: string | null) => {
     if (!pubKey) return ''
     return `${pubKey.slice(0, 4)}...${pubKey.slice(-4)}`
   }
+
+  useEffect(() => {
+    if (!publicKey) { setUsername(null); return }
+    fetch(`/api/profile?wallet=${publicKey}`)
+      .then(r => r.json())
+      .then(d => setUsername(d.username ?? null))
+      .catch(() => setUsername(null))
+  }, [publicKey])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -70,7 +80,10 @@ export default function Header() {
               onClick={() => setDropdownOpen(!dropdownOpen)}
               className="flex items-center gap-1.5 md:gap-2 h-8 md:h-9 px-2.5 md:px-4 glass hover:bg-white/10 text-white text-sm font-medium rounded-lg transition-all duration-200"
             >
-              <span className="font-mono text-xs">{formatAddress(publicKey)}</span>
+              {username
+                ? <span className="text-sm font-medium">@{username}</span>
+                : <span className="font-mono text-xs">{formatAddress(publicKey)}</span>
+              }
               <svg
                 className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
                 fill="none"
@@ -83,12 +96,21 @@ export default function Header() {
 
             {dropdownOpen && (
               <div className="absolute right-0 mt-2 w-48 bg-neutral-900 rounded-xl overflow-hidden z-50 shadow-card-hover animate-scale-in border border-white/10">
+                {username && (
+                  <Link
+                    href={`/profile/${username}`}
+                    onClick={() => setDropdownOpen(false)}
+                    className="block w-full text-left px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200"
+                  >
+                    @{username}
+                  </Link>
+                )}
                 <a
                   href="/profile"
                   onClick={() => setDropdownOpen(false)}
                   className="block w-full text-left px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200"
                 >
-                  Profile
+                  {username ? 'Edit Profile' : 'Profile'}
                 </a>
                 <div className="border-t border-white/10"></div>
                 <button
