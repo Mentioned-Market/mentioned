@@ -40,7 +40,7 @@ module.exports = {
       animation: {
         'fade-in': 'fadeIn 0.5s ease-out',
         'scale-in': 'scaleIn 0.3s ease-out',
-        'ticker': 'ticker 300s linear infinite',
+        'ticker': 'ticker 150s linear infinite',
       },
       keyframes: {
         fadeIn: {
