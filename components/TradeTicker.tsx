@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface TradeItem {
   id: number
@@ -42,6 +43,7 @@ function profileHref(username: string | null, wallet: string): string {
 }
 
 function TradeChip({ trade }: { trade: TradeItem }) {
+  const router = useRouter()
   const isYesBuy = trade.isBuy && trade.isYes
   const isNoBuy = trade.isBuy && !trade.isYes
   const label = trade.isBuy
@@ -61,7 +63,10 @@ function TradeChip({ trade }: { trade: TradeItem }) {
     : 'text-neutral-400'
 
   return (
-    <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 shrink-0 select-none">
+    <div
+      className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 shrink-0 select-none cursor-pointer hover:bg-white/10 hover:border-white/20 transition-colors"
+      onClick={() => router.push(`/polymarkets/event/${trade.eventId}`)}
+    >
       <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
       <Link
         href={profileHref(trade.username, trade.wallet)}
