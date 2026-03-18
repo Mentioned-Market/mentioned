@@ -118,6 +118,8 @@ CREATE TABLE IF NOT EXISTS event_chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_event_chat_event ON event_chat_messages(event_id, id);
 CREATE INDEX IF NOT EXISTS idx_event_chat_created ON event_chat_messages(event_id, created_at DESC);
+
+ALTER TABLE polymarket_trades ADD COLUMN IF NOT EXISTS market_title TEXT;
 `
 
 async function main() {
