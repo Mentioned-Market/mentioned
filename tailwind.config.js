@@ -40,6 +40,7 @@ module.exports = {
       animation: {
         'fade-in': 'fadeIn 0.5s ease-out',
         'scale-in': 'scaleIn 0.3s ease-out',
+        'ticker': 'ticker 150s linear infinite',
       },
       keyframes: {
         fadeIn: {
@@ -49,7 +50,11 @@ module.exports = {
         scaleIn: {
           '0%': { opacity: '0', transform: 'scale(0.95)' },
           '100%': { opacity: '1', transform: 'scale(1)' },
-        }
+        },
+        ticker: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
       },
       boxShadow: {
         'card': '0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08)',

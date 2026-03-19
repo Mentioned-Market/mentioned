@@ -44,7 +44,7 @@ export default function Header() {
   return (
     <header className="flex items-center justify-between py-3 md:py-5 backdrop-blur-xl bg-black/30 sticky top-0 z-50 -mx-4 md:-mx-10 lg:-mx-20 px-4 md:px-10 lg:px-20 border-b border-white/10">
       <div className="flex items-center gap-4 md:gap-6">
-        <a href="/" className="flex items-center text-white hover:opacity-70 transition-opacity duration-300 flex-shrink-0" aria-label="Mentioned - Home">
+        <Link href="/" className="flex items-center text-white hover:opacity-70 transition-opacity duration-300 flex-shrink-0" aria-label="Mentioned - Home">
           <Image
             src="/src/img/White Logo.svg"
             alt="Mentioned Logo"
@@ -53,25 +53,25 @@ export default function Header() {
             className="h-6 md:h-7 w-auto"
             priority
           />
-        </a>
-        <a
+        </Link>
+        <Link
           href="/markets"
           className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
         >
           Markets
-        </a>
-        <a
+        </Link>
+        <Link
           href="/leaderboard"
           className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
         >
           Leaderboard
-        </a>
-        <a
+        </Link>
+        <Link
           href="/positions"
           className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
         >
           Positions
-        </a>
+        </Link>
       </div>
       <div className="flex items-center gap-2 md:gap-3">
         {connected ? (
@@ -105,13 +105,13 @@ export default function Header() {
                     @{username}
                   </Link>
                 )}
-                <a
+                <Link
                   href="/profile"
                   onClick={() => setDropdownOpen(false)}
                   className="block w-full text-left px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200"
                 >
                   {username ? 'Edit Profile' : 'Profile'}
-                </a>
+                </Link>
                 <div className="border-t border-white/10"></div>
                 <button
                   onClick={() => {

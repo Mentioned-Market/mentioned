@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import WalletProviderWrapper from '@/components/WalletProviderWrapper'
 import GlobalChat from '@/components/GlobalChat'
+import TradeTicker from '@/components/TradeTicker'
 import { faqSchema, webApplicationSchema } from '@/lib/seo-schemas'
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -198,6 +199,7 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
       </head>
       <body className={`${plusJakartaSans.variable} bg-black text-white font-display antialiased`}>
+        <TradeTicker />
         <WalletProviderWrapper>
           {children}
           <GlobalChat />

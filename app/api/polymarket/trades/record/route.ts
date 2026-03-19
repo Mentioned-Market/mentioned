@@ -5,7 +5,7 @@ import { awardPoints, checkAndAwardFirstTrade } from '@/lib/points'
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { wallet, marketId, eventId, isYes, isBuy, side, amountUsd, txSignature } = body
+    const { wallet, marketId, eventId, isYes, isBuy, side, amountUsd, txSignature, marketTitle } = body
 
     if (!wallet || !marketId || !eventId || isYes === undefined || !side || !amountUsd) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
       side,
       String(amountUsd),
       txSignature,
+      marketTitle ?? null,
     )
 
     // Award points (fire-and-forget — do not block response)
