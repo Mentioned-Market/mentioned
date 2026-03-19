@@ -268,16 +268,16 @@ export default function ProfilePage() {
 
   // ── Close position ─────────────────────────────────────────
 
-  const handleClosePosition = useCallback(async (positionPubkey: string) => {
+  const handleClosePosition = useCallback(async (pos: Position) => {
     if (!publicKey) return
-    setClosingPubkey(positionPubkey)
+    setClosingPubkey(pos.pubkey)
     setCloseStatus(null)
 
     try {
       const res = await fetch('/api/polymarket/positions/close', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+        body: JSON.stringify({ positionPubkey: pos.pubkey, ownerPubkey: publicKey, marketId: pos.marketId }),
       })
 
       if (!res.ok) {
@@ -291,6 +291,23 @@ export default function ProfilePage() {
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
+      // Record sell trade for leaderboard (fire-and-forget)
+      fetch('/api/polymarket/trades/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: pos.marketId,
+          eventId: pos.eventId,
+          isYes: pos.isYes,
+          isBuy: false,
+          side: pos.isYes ? 'yes' : 'no',
+          amountUsd: pos.sizeUsd,
+          txSignature: sig,
+          marketTitle: pos.marketMetadata?.title ?? null,
+        }),
+      }).catch(() => {})
+
       setTimeout(() => { fetchPositions(); fetchOrders(); fetchHistory() }, 3000)
     } catch (e: unknown) {
       setCloseStatus({ msg: e instanceof Error ? e.message : 'Failed to close position', error: true })
@@ -302,16 +319,16 @@ export default function ProfilePage() {
 
   // ── Claim position ────────────────────────────────────────
 
-  const handleClaimPosition = useCallback(async (positionPubkey: string) => {
+  const handleClaimPosition = useCallback(async (pos: Position) => {
     if (!publicKey) return
-    setClosingPubkey(positionPubkey)
+    setClosingPubkey(pos.pubkey)
     setCloseStatus(null)
 
     try {
       const res = await fetch('/api/polymarket/positions/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+        body: JSON.stringify({ positionPubkey: pos.pubkey, ownerPubkey: publicKey, marketId: pos.marketId }),
       })
 
       if (!res.ok) {
@@ -324,6 +341,23 @@ export default function ProfilePage() {
 
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Claim submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
+
+      // Record claim trade for leaderboard (fire-and-forget)
+      fetch('/api/polymarket/trades/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: pos.marketId,
+          eventId: pos.eventId,
+          isYes: pos.isYes,
+          isBuy: false,
+          side: pos.isYes ? 'yes' : 'no',
+          amountUsd: pos.payoutUsd ?? pos.sizeUsd,
+          txSignature: sig,
+          marketTitle: pos.marketMetadata?.title ?? null,
+        }),
+      }).catch(() => {})
 
       setTimeout(() => { fetchPositions(); fetchOrders(); fetchHistory() }, 3000)
     } catch (e: unknown) {
@@ -627,7 +661,7 @@ export default function ProfilePage() {
                             <div className="flex items-center justify-end">
                               {pos.claimable && !pos.claimed ? (
                                 <button
-                                  onClick={() => handleClaimPosition(pos.pubkey)}
+                                  onClick={() => handleClaimPosition(pos)}
                                   disabled={isClosing || !!closingPubkey}
                                   className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
@@ -643,7 +677,7 @@ export default function ProfilePage() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => handleClosePosition(pos.pubkey)}
+                                  onClick={() => handleClosePosition(pos)}
                                   disabled={isClosing || !!closingPubkey}
                                   className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
