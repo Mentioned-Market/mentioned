@@ -349,12 +349,13 @@ export async function insertPolymarketTrade(
   side: string,
   amountUsd: string,
   txSignature?: string,
+  marketTitle?: string | null,
 ): Promise<PolymarketTradeRow> {
   const result = await pool.query(
-    `INSERT INTO polymarket_trades (wallet, market_id, event_id, is_yes, is_buy, side, amount_usd, tx_signature)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO polymarket_trades (wallet, market_id, event_id, is_yes, is_buy, side, amount_usd, tx_signature, market_title)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [wallet, marketId, eventId, isYes, isBuy, side, amountUsd, txSignature || null],
+    [wallet, marketId, eventId, isYes, isBuy, side, amountUsd, txSignature || null, marketTitle ?? null],
   )
   return result.rows[0]
 }

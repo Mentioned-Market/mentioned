@@ -44,9 +44,9 @@ const USERS = [
 
 // Fake Polymarket market / event IDs (hex format matching Polymarket's convention)
 const MARKETS = [
-  { marketId: '0xa1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2', eventId: 'evt-001-local' },
-  { marketId: '0xb2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3', eventId: 'evt-002-local' },
-  { marketId: '0xc3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4', eventId: 'evt-003-local' },
+  { marketId: '0xa1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2', eventId: 'evt-001-local', marketTitle: 'T1 vs Gen.G — World Finals' },
+  { marketId: '0xb2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3', eventId: 'evt-002-local', marketTitle: 'NaVi vs Vitality — ESL Major' },
+  { marketId: '0xc3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4', eventId: 'evt-003-local', marketTitle: 'Cloud9 vs FaZe — IEM Katowice' },
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -108,10 +108,10 @@ async function seed() {
       const sig = `seed_${t.wallet.slice(0, 6)}_${t.marketId.slice(-6)}_${t.daysAgo}d`
       await client.query(
         `INSERT INTO polymarket_trades
-           (wallet, market_id, event_id, is_yes, is_buy, side, amount_usd, tx_signature, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           (wallet, market_id, event_id, is_yes, is_buy, side, amount_usd, tx_signature, market_title, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT DO NOTHING`,
-        [t.wallet, t.marketId, t.eventId, t.isYes, t.isBuy, t.side, t.amount, sig, tradeTime],
+        [t.wallet, t.marketId, t.eventId, t.isYes, t.isBuy, t.side, t.amount, sig, t.marketTitle, tradeTime],
       )
     }
 
