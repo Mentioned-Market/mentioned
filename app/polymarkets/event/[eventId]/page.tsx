@@ -7,6 +7,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import EventChat from '@/components/EventChat'
+import EventPriceChart from '@/components/EventPriceChart'
 import { useWallet } from '@/contexts/WalletContext'
 
 // ── Types ──────────────────────────────────────────────────
@@ -595,35 +596,6 @@ export default function PolymarketEventPage() {
 
   const tradingPanel = (
     <>
-      {/* Market selector for multi-market events */}
-      {event && event.markets.length > 1 && (
-        <div className="mb-4">
-          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">Outcome</div>
-          <div className="flex flex-col gap-1.5">
-            {event.markets.map(m => {
-              const pct = microToCents(m.pricing.buyYesPriceUsd)
-              const isSelected = m.marketId === selectedMarketId
-              return (
-                <button
-                  key={m.marketId}
-                  onClick={() => setSelectedMarketId(m.marketId)}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-white/10 text-white border border-white/20'
-                      : 'text-neutral-400 hover:bg-white/5 border border-transparent'
-                  }`}
-                >
-                  <span className="truncate">{m.metadata.title}</span>
-                  <span className={`font-semibold ${isSelected ? 'text-apple-blue' : 'text-neutral-500'}`}>
-                    {pct}%
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {selectedMarket && (
         <>
           {/* Selected outcome label */}
@@ -993,30 +965,18 @@ export default function PolymarketEventPage() {
                     </button>
                   )}
 
-                  {/* Market outcomes overview — full width */}
-                  {event.markets.length > 1 && (
+                  {/* Price chart */}
+                  {event.markets.length > 0 && (
                     <div className="mb-5">
-                      {/* Probability bar */}
-                      <div className="flex w-full h-10 rounded-xl overflow-hidden mb-3">
-                        {event.markets.map((m, i) => {
-                          const pct = microToCents(m.pricing.buyYesPriceUsd)
-                          const colors = ['bg-apple-blue/80', 'bg-apple-red/80', 'bg-yellow-500/80', 'bg-purple-500/80']
-                          return (
-                            <button
-                              key={m.marketId}
-                              onClick={() => setSelectedMarketId(m.marketId)}
-                              className={`flex items-center justify-center transition-all duration-300 ${colors[i % colors.length]} ${
-                                m.marketId === selectedMarketId ? 'ring-2 ring-white/40' : 'hover:brightness-110'
-                              }`}
-                              style={{ width: `${Math.max(pct, 5)}%` }}
-                            >
-                              <span className="text-white text-xs md:text-sm font-bold truncate px-2">
-                                {m.metadata.title} {pct}%
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
+                      <EventPriceChart
+                        eventId={eventId}
+                        markets={event.markets.map((m: any) => ({
+                          marketId: m.marketId,
+                          title: m.metadata.title,
+                          currentPrice: (m.pricing.buyYesPriceUsd ?? 0) / 1_000_000,
+                        }))}
+                        selectedMarketId={selectedMarketId}
+                      />
                     </div>
                   )}
 

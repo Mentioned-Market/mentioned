@@ -81,7 +81,7 @@ export default function Header() {
               className="flex items-center gap-1.5 md:gap-2 h-8 md:h-9 px-2.5 md:px-4 glass hover:bg-white/10 text-white text-sm font-medium rounded-lg transition-all duration-200"
             >
               {username
-                ? <span className="text-sm font-medium">@{username}</span>
+                ? <span className="text-sm font-medium">{username}</span>
                 : <span className="font-mono text-xs">{formatAddress(publicKey)}</span>
               }
               <svg
@@ -102,7 +102,7 @@ export default function Header() {
                     onClick={() => setDropdownOpen(false)}
                     className="block w-full text-left px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200"
                   >
-                    @{username}
+                    {username}
                   </Link>
                 )}
                 <Link

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -81,6 +81,75 @@ function formatCloseTime(isoTime: string): string {
   return `${hours}h ${minutes}m`
 }
 
+const VISIBLE_COUNT = 5
+
+function ScrollingWordList({ markets }: { markets: Market[] }) {
+  const innerRef = useRef<HTMLDivElement>(null)
+  const outerRef = useRef<HTMLDivElement>(null)
+  const offsetRef = useRef(0)
+  const needsScroll = markets.length > VISIBLE_COUNT
+
+  useEffect(() => {
+    if (!needsScroll || !innerRef.current || !outerRef.current) return
+    const inner = innerRef.current
+    const outer = outerRef.current
+    let raf: number
+    let paused = true
+    let pauseTimer: ReturnType<typeof setTimeout>
+    offsetRef.current = 0
+
+    const step = () => {
+      const maxOffset = inner.scrollHeight - outer.clientHeight
+      if (!paused && maxOffset > 0) {
+        offsetRef.current += 0.2
+        if (offsetRef.current >= maxOffset) {
+          paused = true
+          pauseTimer = setTimeout(() => {
+            offsetRef.current = 0
+            inner.style.transform = 'translateY(0px)'
+            paused = false
+          }, 1500)
+        }
+        inner.style.transform = `translateY(-${offsetRef.current}px)`
+      }
+      raf = requestAnimationFrame(step)
+    }
+
+    pauseTimer = setTimeout(() => {
+      paused = false
+      raf = requestAnimationFrame(step)
+    }, 1500)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(pauseTimer)
+    }
+  }, [needsScroll, markets])
+
+  const fixedHeight = VISIBLE_COUNT * 30 + (VISIBLE_COUNT - 1) * 6
+
+  return (
+    <div
+      ref={outerRef}
+      className="overflow-hidden"
+      style={{ height: needsScroll ? fixedHeight : undefined }}
+    >
+      <div ref={innerRef} className="flex flex-col gap-1.5">
+        {markets.map(m => {
+          const noPriceRaw = 1_000_000 - (m.pricing.buyYesPriceUsd ?? 0)
+          return (
+            <div key={m.marketId} className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass">
+              <span className="text-white text-xs font-medium truncate flex-1">{m.metadata.title}</span>
+              <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">Y {formatPrice(m.pricing.buyYesPriceUsd)}</span>
+              <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">N {formatPrice(noPriceRaw)}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function EventCard({ event }: { event: PolyEvent }) {
   const [imgError, setImgError] = useState(false)
 
@@ -122,7 +191,7 @@ function EventCard({ event }: { event: PolyEvent }) {
       </div>
 
       <div className="p-4 flex flex-col gap-3">
-        <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2">
+        <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem]">
           {event.metadata.title}
         </h3>
 
@@ -159,22 +228,19 @@ function EventCard({ event }: { event: PolyEvent }) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            {event.markets.map(m => (
-              <div key={m.marketId} className="flex items-center justify-between py-1.5 px-2 rounded-lg glass">
-                <span className="text-white text-xs font-medium truncate">{m.metadata.title}</span>
-                <span className="text-apple-green text-xs font-semibold">${formatPrice(m.pricing.buyYesPriceUsd)}</span>
-              </div>
-            ))}
-          </div>
+          /* Non-team markets: show 5 at a time with scroll animation */
+          <ScrollingWordList markets={event.markets} />
         )}
 
-        <div className="flex items-center justify-between pt-2 border-t border-white/10">
-          <span className="text-neutral-500 text-[11px] font-medium">
-            Vol {formatVolume(event.volumeUsd)}
+        <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+            {formatVolume(event.volumeUsd)} vol
           </span>
-          <span className="text-neutral-400 text-[11px] font-medium">
-            Closes {formatCloseTime(event.metadata.closeTime)}
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+            {formatCloseTime(event.metadata.closeTime)}
+          </span>
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+            {event.markets.length} words
           </span>
         </div>
       </div>
@@ -192,7 +258,7 @@ export default function MarketsPage() {
 
     async function fetchEvents() {
       try {
-        const res = await fetch('/api/polymarket?category=esports')
+        const res = await fetch('/api/polymarket?category=mentions')
         if (!res.ok) throw new Error('Failed to fetch events')
         const json = await res.json()
         if (!cancelled) {
@@ -284,7 +350,7 @@ export default function MarketsPage() {
 
                   {activeEvents.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20">
-                      <p className="text-neutral-400 text-sm">No esports markets available right now</p>
+                      <p className="text-neutral-400 text-sm">No markets available right now</p>
                     </div>
                   )}
                 </div>
