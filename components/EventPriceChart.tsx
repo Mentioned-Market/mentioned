@@ -17,7 +17,7 @@ interface MarketSeries {
 interface EventPriceChartProps {
   eventId: string
   markets: { marketId: string; title: string; currentPrice: number }[]
-  selectedMarketId: string
+  selectedMarketId: string | null
 }
 
 const MAX_VISIBLE = 5
@@ -62,7 +62,7 @@ export default function EventPriceChart({
     const sorted = [...markets].sort((a, b) => b.currentPrice - a.currentPrice)
     const initial = new Set(sorted.slice(0, MAX_VISIBLE).map((m) => m.marketId))
     // Always include the selected market
-    if (!initial.has(selectedMarketId) && selectedMarketId) {
+    if (selectedMarketId && !initial.has(selectedMarketId)) {
       initial.add(selectedMarketId)
       // Remove the lowest-priced one if over limit
       if (initial.size > MAX_VISIBLE) {
