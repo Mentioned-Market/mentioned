@@ -49,9 +49,10 @@ export default function Home() {
                 <Image
                   src="/src/img/White Icon.svg"
                   alt="Mentioned"
-                  width={48}
-                  height={48}
-                  className="h-10 md:h-12 w-auto mb-8 hero-logo"
+                  width={56}
+                  height={56}
+                  className="h-12 md:h-14 w-auto mb-8"
+                  style={{ animation: 'fadeSlideUp 0.8s ease-out both' }}
                   priority
                 />
                 <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight whitespace-nowrap hero-title">
@@ -167,7 +168,7 @@ export default function Home() {
       <style jsx>{`
         /* Hero entrance animations */
         .hero-logo {
-          animation: fadeSlideDown 0.8s ease-out both;
+          animation: fadeSlideUp 0.8s ease-out both;
         }
         .hero-title {
           animation: fadeSlideUp 0.8s ease-out 0.15s both;
