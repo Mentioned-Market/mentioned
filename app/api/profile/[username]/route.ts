@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProfileByUsername, getProfileByWallet, getWalletPointTotal } from '@/lib/db'
 import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
 
+export const dynamic = 'force-dynamic'
+
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
