@@ -494,7 +494,7 @@ export default function ProfilePage() {
   const totalValue = positions.reduce((sum, p) => sum + (Number(p.sizeUsd) || 0), 0)
 
   const biggestWin = useMemo(() =>
-    history.reduce((max, h) => h.realizedPnl > max ? h.realizedPnl : max, 0),
+    history.reduce((max, h) => { const pnl = eventPnl(h); return pnl > max ? pnl : max }, 0),
   [history])
 
   const periodPnl = useMemo(() => {
