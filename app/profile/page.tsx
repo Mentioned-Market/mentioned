@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -80,7 +80,8 @@ interface HistoryEvent {
   eventMetadata?: { title: string; imageUrl: string }
 }
 
-type Tab = 'positions' | 'orders' | 'history'
+type Tab = 'positions' | 'history'
+type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -153,6 +154,90 @@ function eventTypeToStatus(eventType: string): { label: string; color: string } 
   }
 }
 
+function periodCutoff(period: PnlPeriod): number {
+  const now = Date.now()
+  if (period === '1D') return (now - 86_400_000) / 1000
+  if (period === '1W') return (now - 7 * 86_400_000) / 1000
+  if (period === '1M') return (now - 30 * 86_400_000) / 1000
+  return 0
+}
+
+function periodLabel(period: PnlPeriod): string {
+  if (period === '1D') return 'Past Day'
+  if (period === '1W') return 'Past Week'
+  if (period === '1M') return 'Past Month'
+  return 'All Time'
+}
+
+// ── Sparkline ──────────────────────────────────────────────
+
+const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
+
+function eventPnl(h: HistoryEvent): number {
+  if (h.realizedPnl !== 0) return h.realizedPnl
+  if (SETTLEMENT_TYPES.has(h.eventType) && h.payoutAmountUsd > 0) return h.payoutAmountUsd
+  return 0
+}
+
+function Sparkline({ history, period, pnlValue }: {
+  history: HistoryEvent[]
+  period: PnlPeriod
+  pnlValue: number
+}) {
+  const cutoff = periodCutoff(period)
+  const points = useMemo(() => {
+    const filtered = history
+      .filter(h => h.timestamp >= cutoff && h.realizedPnl !== 0)
+      .sort((a, b) => a.timestamp - b.timestamp)
+    if (filtered.length === 0) return []
+    let cum = 0
+    const result = [0]
+    for (const h of filtered) {
+      cum += h.realizedPnl
+      result.push(cum)
+    }
+    return result
+  }, [history, cutoff])
+
+  if (points.length < 2) {
+    return <div className="h-16 flex items-end"><div className="w-full h-0.5 bg-white/5 rounded-full" /></div>
+  }
+
+  const min = Math.min(...points, 0)
+  const max = Math.max(...points, 0)
+  const range = max - min || 1
+  const W = 400
+  const H = 64
+  const xs = points.map((_, i) => (i / (points.length - 1)) * W)
+  const ys = points.map(v => H - ((v - min) / range) * H)
+  const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ')
+  const fillD = `${pathD} L${W},${H} L0,${H} Z`
+  const lastY = ys[ys.length - 1]
+  const positive = pnlValue >= 0
+  const color = positive ? '#34d399' : '#f87171'
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {min < 0 && max > 0 && (
+        <line
+          x1="0" y1={H - ((-min) / range) * H}
+          x2={W} y2={H - ((-min) / range) * H}
+          stroke="rgba(255,255,255,0.08)" strokeWidth="1"
+        />
+      )}
+      <path d={fillD} fill="url(#sparkFill)" />
+      <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={xs[xs.length - 1]} cy={lastY} r="3" fill={color} />
+    </svg>
+  )
+}
+
 // ── Wallet signing helper ──────────────────────────────────
 
 async function signAndSendTx(transaction: string, ownerPubkey: string): Promise<string> {
@@ -191,6 +276,7 @@ export default function ProfilePage() {
 
   // Positions state
   const [tab, setTab] = useState<Tab>('positions')
+  const [pnlPeriod, setPnlPeriod] = useState<PnlPeriod>('ALL')
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
@@ -407,9 +493,20 @@ export default function ProfilePage() {
   const totalPnl = unrealizedPnl + realizedPnl
   const totalValue = positions.reduce((sum, p) => sum + (Number(p.sizeUsd) || 0), 0)
 
+  const biggestWin = useMemo(() =>
+    history.reduce((max, h) => h.realizedPnl > max ? h.realizedPnl : max, 0),
+  [history])
+
+  const periodPnl = useMemo(() => {
+    const cutoff = periodCutoff(pnlPeriod)
+    const filtered = history.filter(h => h.timestamp >= cutoff)
+    const realized = filtered.reduce((s, h) => s + (h.realizedPnl || 0), 0)
+    const unrealized = pnlPeriod === 'ALL' ? unrealizedPnl : 0
+    return realized + unrealized
+  }, [history, pnlPeriod, unrealizedPnl])
+
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'positions', label: 'Positions', count: positions.length },
-    { key: 'orders', label: 'Open Orders', count: openOrders.length },
     { key: 'history', label: 'History', count: history.length },
   ]
 
@@ -507,7 +604,7 @@ export default function ProfilePage() {
               </div>
 
               {/* Summary cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <div className="glass rounded-xl p-4">
                   <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
                   <div className="text-white text-xl font-bold">{positions.length}</div>
@@ -517,16 +614,125 @@ export default function ProfilePage() {
                   <div className="text-white text-xl font-bold">{microToUsd(totalValue)}</div>
                 </div>
                 <div className="glass rounded-xl p-4">
-                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">P&L</div>
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">All-time P&L</div>
                   <div className={`text-xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
                     {totalPnl >= 0 ? '+' : ''}{microToUsd(totalPnl)}
                   </div>
                 </div>
                 <div className="glass rounded-xl p-4">
-                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
-                  <div className="text-white text-xl font-bold">{openOrders.length}</div>
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Biggest Win</div>
+                  <div className={`text-xl font-bold ${biggestWin > 0 ? 'text-apple-green' : 'text-neutral-500'}`}>
+                    {biggestWin > 0 ? `+${microToUsd(biggestWin)}` : '—'}
+                  </div>
                 </div>
               </div>
+
+              {/* P&L chart */}
+              <div className="glass rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${periodPnl >= 0 ? 'bg-apple-green' : 'bg-apple-red'}`} />
+                    <span className="text-neutral-400 text-sm font-medium">Profit / Loss</span>
+                    <span className={`text-sm font-bold ${periodPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                      {periodPnl >= 0 ? '+' : ''}{microToUsd(periodPnl)}
+                    </span>
+                    <span className="text-neutral-600 text-xs">{periodLabel(pnlPeriod)}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
+                      <button
+                        key={p}
+                        onClick={() => setPnlPeriod(p)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all duration-150 ${
+                          pnlPeriod === p ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Sparkline history={history} period={pnlPeriod} pnlValue={periodPnl} />
+              </div>
+
+              {/* Open Orders */}
+              {(loadingOrders || openOrders.length > 0) && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <h2 className="text-sm font-semibold text-white">Open Orders</h2>
+                    {openOrders.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-neutral-300">
+                        {openOrders.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {loadingOrders ? (
+                    <div className="flex items-center justify-center py-10">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                        <span>Market</span>
+                        <span className="text-center">Side</span>
+                        <span className="text-right">Contracts</span>
+                        <span className="text-right">Max Price</span>
+                        <span className="text-right">Size</span>
+                        <span className="text-right">Created</span>
+                      </div>
+
+                      {openOrders.map(order => (
+                        <div
+                          key={order.pubkey}
+                          className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              order.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                            }`}>
+                              {order.isYes ? 'YES' : 'NO'}
+                            </span>
+                            <Link
+                              href={order.eventId ? `/polymarkets/event/${order.eventId}` : '#'}
+                              className="text-white text-sm font-medium truncate hover:underline"
+                            >
+                              {order.marketMetadata?.title || order.marketId.slice(0, 12) + '...'}
+                            </Link>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-center">
+                            <span className="text-neutral-500 text-xs md:hidden">Side</span>
+                            <span className={`text-sm font-semibold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
+                              {order.isBuy ? 'Buy' : 'Sell'}
+                            </span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Contracts</span>
+                            <span className="text-white text-sm">{order.contracts}</span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Max Price</span>
+                            <span className="text-neutral-300 text-sm">{microToUsd(order.maxFillPriceUsd)}</span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Size</span>
+                            <span className="text-white text-sm font-medium">{microToUsd(order.sizeUsd)}</span>
+                          </div>
+
+                          <div className="flex md:block justify-between md:text-right">
+                            <span className="text-neutral-500 text-xs md:hidden">Created</span>
+                            <span className="text-neutral-400 text-xs">{formatDate(order.createdAt)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Tabs */}
               <div className="flex items-center gap-1 mb-4 border-b border-white/10">
@@ -701,83 +907,6 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* ── Open Orders Tab ────────────────────────────── */}
-              {tab === 'orders' && (
-                <div>
-                  {loadingOrders ? (
-                    <div className="flex items-center justify-center py-16">
-                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    </div>
-                  ) : openOrders.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 gap-2">
-                      <span className="text-neutral-500 text-sm">No open orders</span>
-                      <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">
-                        Browse markets
-                      </Link>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                        <span>Market</span>
-                        <span className="text-center">Side</span>
-                        <span className="text-right">Contracts</span>
-                        <span className="text-right">Max Price</span>
-                        <span className="text-right">Size</span>
-                        <span className="text-right">Created</span>
-                      </div>
-
-                      {openOrders.map(order => (
-                        <div
-                          key={order.pubkey}
-                          className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              order.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
-                            }`}>
-                              {order.isYes ? 'YES' : 'NO'}
-                            </span>
-                            <Link
-                              href={order.eventId ? `/polymarkets/event/${order.eventId}` : '#'}
-                              className="text-white text-sm font-medium truncate hover:underline"
-                            >
-                              {order.marketMetadata?.title || order.marketId.slice(0, 12) + '...'}
-                            </Link>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-center">
-                            <span className="text-neutral-500 text-xs md:hidden">Side</span>
-                            <span className={`text-sm font-semibold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
-                              {order.isBuy ? 'Buy' : 'Sell'}
-                            </span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Contracts</span>
-                            <span className="text-white text-sm">{order.contracts}</span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Max Price</span>
-                            <span className="text-neutral-300 text-sm">{microToUsd(order.maxFillPriceUsd)}</span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Size</span>
-                            <span className="text-white text-sm font-medium">{microToUsd(order.sizeUsd)}</span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Created</span>
-                            <span className="text-neutral-400 text-xs">{formatDate(order.createdAt)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
-
               {/* ── History Tab ─────────────────────────────────── */}
               {tab === 'history' && (
                 <div>
@@ -906,6 +1035,7 @@ export default function ProfilePage() {
                   )}
                 </div>
               )}
+
             </main>
 
             <Footer />

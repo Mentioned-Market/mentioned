@@ -141,17 +141,38 @@ function displayName(username: string | null, wallet: string): string {
   return username ? `@${username}` : `${wallet.slice(0, 6)}...${wallet.slice(-6)}`
 }
 
+// ── Helpers ────────────────────────────────────────────────
+
+const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
+
+// Jupiter leaves realizedPnl = 0 for claim/settle events and puts the value in payoutAmountUsd
+function eventPnl(h: HistoryEvent): number {
+  if (h.realizedPnl !== 0) return h.realizedPnl
+  if (SETTLEMENT_TYPES.has(h.eventType) && h.payoutAmountUsd > 0) return h.payoutAmountUsd
+  return 0
+}
+
 // ── Sparkline ──────────────────────────────────────────────
 
-function Sparkline({ history, period }: { history: HistoryEvent[]; period: PnlPeriod }) {
+function Sparkline({ history, period, pnlValue }: {
+  history: HistoryEvent[]
+  period: PnlPeriod
+  pnlValue: number
+}) {
   const cutoff = periodCutoff(period)
   const points = useMemo(() => {
     const filtered = history
-      .filter(h => h.timestamp >= cutoff && (h.realizedPnl !== 0))
+      .filter(h => h.timestamp >= cutoff && h.realizedPnl !== 0)
       .sort((a, b) => a.timestamp - b.timestamp)
     if (filtered.length === 0) return []
+    // Always start from 0 so the chart has a meaningful baseline
     let cum = 0
-    return filtered.map(h => { cum += h.realizedPnl; return cum })
+    const result = [0]
+    for (const h of filtered) {
+      cum += h.realizedPnl
+      result.push(cum)
+    }
+    return result
   }, [history, cutoff])
 
   if (points.length < 2) {
@@ -168,7 +189,8 @@ function Sparkline({ history, period }: { history: HistoryEvent[]; period: PnlPe
   const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ')
   const fillD = `${pathD} L${W},${H} L0,${H} Z`
   const lastY = ys[ys.length - 1]
-  const positive = points[points.length - 1] >= 0
+  // Colour driven by the displayed P&L value so chart and number always agree
+  const positive = pnlValue >= 0
   const color = positive ? '#34d399' : '#f87171'
 
   return (
@@ -250,6 +272,13 @@ export default function PublicProfilePage() {
       : 0
     return realized + unrealized
   }, [profile, cutoff, pnlPeriod])
+
+  const biggestWin = useMemo(() =>
+    profile?.history.reduce((max, h) => {
+      const pnl = eventPnl(h)
+      return pnl > max ? pnl : max
+    }, 0) ?? 0,
+  [profile])
 
   const closedPositions = useMemo(() =>
     profile?.history.filter(h =>
@@ -352,8 +381,8 @@ export default function PublicProfilePage() {
               <div className="text-neutral-500 text-xs mt-0.5">Positions Value</div>
             </div>
             <div>
-              <div className={`text-lg font-bold ${stats.biggestWin > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
-                {stats.biggestWin > 0 ? microToUsd(stats.biggestWin, true) : '—'}
+              <div className={`text-lg font-bold ${biggestWin > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
+                {biggestWin > 0 ? microToUsd(biggestWin, true) : '—'}
               </div>
               <div className="text-neutral-500 text-xs mt-0.5">Biggest Win</div>
             </div>
@@ -371,12 +400,12 @@ export default function PublicProfilePage() {
               </svg>
               <span className="text-yellow-400 text-xs font-semibold">{stats.allTimePoints.toLocaleString()} pts all-time</span>
             </div>
-            {stats.biggestWin > 0 && (
+            {biggestWin > 0 && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-apple-green/5 border border-apple-green/10">
                 <svg className="w-3.5 h-3.5 text-apple-green" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
                 </svg>
-                <span className="text-apple-green text-xs font-semibold">Best P&L {microToUsd(stats.biggestWin, true)}</span>
+                <span className="text-apple-green text-xs font-semibold">Best P&L {microToUsd(biggestWin, true)}</span>
               </div>
             )}
           </div>
@@ -410,7 +439,7 @@ export default function PublicProfilePage() {
           <div className="text-neutral-500 text-xs mb-4">{periodLabel(pnlPeriod)}</div>
 
           <div className="flex-1">
-            <Sparkline history={profile.history} period={pnlPeriod} />
+            <Sparkline history={profile.history} period={pnlPeriod} pnlValue={periodPnl} />
           </div>
         </div>
       </div>
@@ -639,9 +668,14 @@ export default function PublicProfilePage() {
                     </div>
                     <div className="flex md:block justify-between md:text-right">
                       <span className="text-neutral-500 text-xs md:hidden">P&L</span>
-                      <span className={`text-sm font-semibold ${!h.realizedPnl ? 'text-neutral-500' : h.realizedPnl > 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {h.realizedPnl ? microToUsd(h.realizedPnl, true) : '—'}
-                      </span>
+                      {(() => {
+                        const pnl = eventPnl(h)
+                        return (
+                          <span className={`text-sm font-semibold ${pnl === 0 ? 'text-neutral-500' : pnl > 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                            {pnl !== 0 ? microToUsd(pnl, true) : '—'}
+                          </span>
+                        )
+                      })()}
                     </div>
                   </div>
                 )
