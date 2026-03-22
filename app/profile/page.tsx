@@ -621,10 +621,8 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <div className="glass rounded-xl p-4">
-                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Biggest Win</div>
-                  <div className={`text-xl font-bold ${biggestWin > 0 ? 'text-apple-green' : 'text-neutral-500'}`}>
-                    {biggestWin > 0 ? `+${microToUsd(biggestWin)}` : '—'}
-                  </div>
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
+                  <div className="text-white text-xl font-bold">{openOrders.length}</div>
                 </div>
               </div>
 
@@ -655,85 +653,6 @@ export default function ProfilePage() {
                 </div>
                 <Sparkline history={history} period={pnlPeriod} pnlValue={periodPnl} />
               </div>
-
-              {/* Open Orders */}
-              {(loadingOrders || openOrders.length > 0) && (
-                <div className="mb-6">
-                  <div className="flex items-center gap-2 mb-3">
-                    <h2 className="text-sm font-semibold text-white">Open Orders</h2>
-                    {openOrders.length > 0 && (
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-neutral-300">
-                        {openOrders.length}
-                      </span>
-                    )}
-                  </div>
-
-                  {loadingOrders ? (
-                    <div className="flex items-center justify-center py-10">
-                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                        <span>Market</span>
-                        <span className="text-center">Side</span>
-                        <span className="text-right">Contracts</span>
-                        <span className="text-right">Max Price</span>
-                        <span className="text-right">Size</span>
-                        <span className="text-right">Created</span>
-                      </div>
-
-                      {openOrders.map(order => (
-                        <div
-                          key={order.pubkey}
-                          className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              order.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
-                            }`}>
-                              {order.isYes ? 'YES' : 'NO'}
-                            </span>
-                            <Link
-                              href={order.eventId ? `/polymarkets/event/${order.eventId}` : '#'}
-                              className="text-white text-sm font-medium truncate hover:underline"
-                            >
-                              {order.marketMetadata?.title || order.marketId.slice(0, 12) + '...'}
-                            </Link>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-center">
-                            <span className="text-neutral-500 text-xs md:hidden">Side</span>
-                            <span className={`text-sm font-semibold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
-                              {order.isBuy ? 'Buy' : 'Sell'}
-                            </span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Contracts</span>
-                            <span className="text-white text-sm">{order.contracts}</span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Max Price</span>
-                            <span className="text-neutral-300 text-sm">{microToUsd(order.maxFillPriceUsd)}</span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Size</span>
-                            <span className="text-white text-sm font-medium">{microToUsd(order.sizeUsd)}</span>
-                          </div>
-
-                          <div className="flex md:block justify-between md:text-right">
-                            <span className="text-neutral-500 text-xs md:hidden">Created</span>
-                            <span className="text-neutral-400 text-xs">{formatDate(order.createdAt)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
 
               {/* Tabs */}
               <div className="flex items-center gap-1 mb-4 border-b border-white/10">
