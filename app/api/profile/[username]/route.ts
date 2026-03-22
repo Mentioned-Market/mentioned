@@ -38,10 +38,10 @@ export async function GET(
   const histParams = new URLSearchParams({ ownerPubkey: wallet })
 
   const [posRes, histRes, allTimePoints] = await Promise.all([
-    fetch(`${JUP_BASE}/positions?${posParams}`, { headers: { 'x-api-key': JUP_API_KEY } })
+    fetch(`${JUP_BASE}/positions?${posParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
       .then(r => r.ok ? r.json() : { data: [] })
       .catch(() => ({ data: [] })),
-    fetch(`${JUP_BASE}/history?${histParams}`, { headers: { 'x-api-key': JUP_API_KEY } })
+    fetch(`${JUP_BASE}/history?${histParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
       .then(r => r.ok ? r.json() : { data: [] })
       .catch(() => ({ data: [] })),
     getWalletPointTotal(wallet),
