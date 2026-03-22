@@ -10,6 +10,7 @@ export function getForwardHeaders(_req: NextRequest): Record<string, string> {
 
 export async function jupFetch(path: string, init?: RequestInit, forwardHeaders?: Record<string, string>) {
   const res = await fetch(`${JUP_BASE}${path}`, {
+    cache: 'no-store',
     ...init,
     headers: {
       'x-api-key': JUP_API_KEY,
