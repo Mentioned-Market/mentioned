@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -81,6 +81,7 @@ interface HistoryEvent {
 }
 
 type Tab = 'positions' | 'orders' | 'history'
+type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -153,6 +154,90 @@ function eventTypeToStatus(eventType: string): { label: string; color: string } 
   }
 }
 
+function periodCutoff(period: PnlPeriod): number {
+  const now = Date.now()
+  if (period === '1D') return (now - 86_400_000) / 1000
+  if (period === '1W') return (now - 7 * 86_400_000) / 1000
+  if (period === '1M') return (now - 30 * 86_400_000) / 1000
+  return 0
+}
+
+function periodLabel(period: PnlPeriod): string {
+  if (period === '1D') return 'Past Day'
+  if (period === '1W') return 'Past Week'
+  if (period === '1M') return 'Past Month'
+  return 'All Time'
+}
+
+// ── Sparkline ──────────────────────────────────────────────
+
+const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
+
+function eventPnl(h: HistoryEvent): number {
+  if (h.realizedPnl !== 0) return h.realizedPnl
+  if (SETTLEMENT_TYPES.has(h.eventType) && h.payoutAmountUsd > 0) return h.payoutAmountUsd
+  return 0
+}
+
+function Sparkline({ history, period, pnlValue }: {
+  history: HistoryEvent[]
+  period: PnlPeriod
+  pnlValue: number
+}) {
+  const cutoff = periodCutoff(period)
+  const points = useMemo(() => {
+    const filtered = history
+      .filter(h => h.timestamp >= cutoff && h.realizedPnl !== 0)
+      .sort((a, b) => a.timestamp - b.timestamp)
+    if (filtered.length === 0) return []
+    let cum = 0
+    const result = [0]
+    for (const h of filtered) {
+      cum += h.realizedPnl
+      result.push(cum)
+    }
+    return result
+  }, [history, cutoff])
+
+  if (points.length < 2) {
+    return <div className="h-16 flex items-end"><div className="w-full h-0.5 bg-white/5 rounded-full" /></div>
+  }
+
+  const min = Math.min(...points, 0)
+  const max = Math.max(...points, 0)
+  const range = max - min || 1
+  const W = 400
+  const H = 64
+  const xs = points.map((_, i) => (i / (points.length - 1)) * W)
+  const ys = points.map(v => H - ((v - min) / range) * H)
+  const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ')
+  const fillD = `${pathD} L${W},${H} L0,${H} Z`
+  const lastY = ys[ys.length - 1]
+  const positive = pnlValue >= 0
+  const color = positive ? '#34d399' : '#f87171'
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {min < 0 && max > 0 && (
+        <line
+          x1="0" y1={H - ((-min) / range) * H}
+          x2={W} y2={H - ((-min) / range) * H}
+          stroke="rgba(255,255,255,0.08)" strokeWidth="1"
+        />
+      )}
+      <path d={fillD} fill="url(#sparkFill)" />
+      <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={xs[xs.length - 1]} cy={lastY} r="3" fill={color} />
+    </svg>
+  )
+}
+
 // ── Wallet signing helper ──────────────────────────────────
 
 async function signAndSendTx(transaction: string, ownerPubkey: string): Promise<string> {
@@ -191,6 +276,7 @@ export default function ProfilePage() {
 
   // Positions state
   const [tab, setTab] = useState<Tab>('positions')
+  const [pnlPeriod, setPnlPeriod] = useState<PnlPeriod>('ALL')
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
@@ -268,16 +354,16 @@ export default function ProfilePage() {
 
   // ── Close position ─────────────────────────────────────────
 
-  const handleClosePosition = useCallback(async (positionPubkey: string) => {
+  const handleClosePosition = useCallback(async (pos: Position) => {
     if (!publicKey) return
-    setClosingPubkey(positionPubkey)
+    setClosingPubkey(pos.pubkey)
     setCloseStatus(null)
 
     try {
       const res = await fetch('/api/polymarket/positions/close', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+        body: JSON.stringify({ positionPubkey: pos.pubkey, ownerPubkey: publicKey, marketId: pos.marketId }),
       })
 
       if (!res.ok) {
@@ -291,6 +377,23 @@ export default function ProfilePage() {
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
+      // Record sell trade for leaderboard (fire-and-forget)
+      fetch('/api/polymarket/trades/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: pos.marketId,
+          eventId: pos.eventId,
+          isYes: pos.isYes,
+          isBuy: false,
+          side: pos.isYes ? 'yes' : 'no',
+          amountUsd: pos.sizeUsd,
+          txSignature: sig,
+          marketTitle: pos.marketMetadata?.title ?? null,
+        }),
+      }).catch(() => {})
+
       setTimeout(() => { fetchPositions(); fetchOrders(); fetchHistory() }, 3000)
     } catch (e: unknown) {
       setCloseStatus({ msg: e instanceof Error ? e.message : 'Failed to close position', error: true })
@@ -302,16 +405,16 @@ export default function ProfilePage() {
 
   // ── Claim position ────────────────────────────────────────
 
-  const handleClaimPosition = useCallback(async (positionPubkey: string) => {
+  const handleClaimPosition = useCallback(async (pos: Position) => {
     if (!publicKey) return
-    setClosingPubkey(positionPubkey)
+    setClosingPubkey(pos.pubkey)
     setCloseStatus(null)
 
     try {
       const res = await fetch('/api/polymarket/positions/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionPubkey, ownerPubkey: publicKey }),
+        body: JSON.stringify({ positionPubkey: pos.pubkey, ownerPubkey: publicKey, marketId: pos.marketId }),
       })
 
       if (!res.ok) {
@@ -324,6 +427,23 @@ export default function ProfilePage() {
 
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Claim submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
+
+      // Record claim trade for leaderboard (fire-and-forget)
+      fetch('/api/polymarket/trades/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: pos.marketId,
+          eventId: pos.eventId,
+          isYes: pos.isYes,
+          isBuy: false,
+          side: pos.isYes ? 'yes' : 'no',
+          amountUsd: pos.payoutUsd ?? pos.sizeUsd,
+          txSignature: sig,
+          marketTitle: pos.marketMetadata?.title ?? null,
+        }),
+      }).catch(() => {})
 
       setTimeout(() => { fetchPositions(); fetchOrders(); fetchHistory() }, 3000)
     } catch (e: unknown) {
@@ -372,6 +492,18 @@ export default function ProfilePage() {
   const realizedPnl = history.reduce((sum, h) => sum + (Number(h.realizedPnl) || 0), 0)
   const totalPnl = unrealizedPnl + realizedPnl
   const totalValue = positions.reduce((sum, p) => sum + (Number(p.sizeUsd) || 0), 0)
+
+  const biggestWin = useMemo(() =>
+    history.reduce((max, h) => { const pnl = eventPnl(h); return pnl > max ? pnl : max }, 0),
+  [history])
+
+  const periodPnl = useMemo(() => {
+    const cutoff = periodCutoff(pnlPeriod)
+    const filtered = history.filter(h => h.timestamp >= cutoff)
+    const realized = filtered.reduce((s, h) => s + (h.realizedPnl || 0), 0)
+    const unrealized = pnlPeriod === 'ALL' ? unrealizedPnl : 0
+    return realized + unrealized
+  }, [history, pnlPeriod, unrealizedPnl])
 
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'positions', label: 'Positions', count: positions.length },
@@ -473,7 +605,7 @@ export default function ProfilePage() {
               </div>
 
               {/* Summary cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <div className="glass rounded-xl p-4">
                   <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
                   <div className="text-white text-xl font-bold">{positions.length}</div>
@@ -483,7 +615,7 @@ export default function ProfilePage() {
                   <div className="text-white text-xl font-bold">{microToUsd(totalValue)}</div>
                 </div>
                 <div className="glass rounded-xl p-4">
-                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">P&L</div>
+                  <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">All-time P&L</div>
                   <div className={`text-xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
                     {totalPnl >= 0 ? '+' : ''}{microToUsd(totalPnl)}
                   </div>
@@ -492,6 +624,34 @@ export default function ProfilePage() {
                   <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
                   <div className="text-white text-xl font-bold">{openOrders.length}</div>
                 </div>
+              </div>
+
+              {/* P&L chart */}
+              <div className="glass rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${periodPnl >= 0 ? 'bg-apple-green' : 'bg-apple-red'}`} />
+                    <span className="text-neutral-400 text-sm font-medium">Profit / Loss</span>
+                    <span className={`text-sm font-bold ${periodPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                      {periodPnl >= 0 ? '+' : ''}{microToUsd(periodPnl)}
+                    </span>
+                    <span className="text-neutral-600 text-xs">{periodLabel(pnlPeriod)}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
+                      <button
+                        key={p}
+                        onClick={() => setPnlPeriod(p)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all duration-150 ${
+                          pnlPeriod === p ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Sparkline history={history} period={pnlPeriod} pnlValue={periodPnl} />
               </div>
 
               {/* Tabs */}
@@ -627,7 +787,7 @@ export default function ProfilePage() {
                             <div className="flex items-center justify-end">
                               {pos.claimable && !pos.claimed ? (
                                 <button
-                                  onClick={() => handleClaimPosition(pos.pubkey)}
+                                  onClick={() => handleClaimPosition(pos)}
                                   disabled={isClosing || !!closingPubkey}
                                   className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
@@ -643,7 +803,7 @@ export default function ProfilePage() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => handleClosePosition(pos.pubkey)}
+                                  onClick={() => handleClosePosition(pos)}
                                   disabled={isClosing || !!closingPubkey}
                                   className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
@@ -872,6 +1032,7 @@ export default function ProfilePage() {
                   )}
                 </div>
               )}
+
             </main>
 
             <Footer />
