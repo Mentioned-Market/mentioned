@@ -174,8 +174,12 @@ function periodLabel(period: PnlPeriod): string {
 const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
 
 function eventPnl(h: HistoryEvent): number {
-  if (h.realizedPnl !== 0) return h.realizedPnl
-  if (SETTLEMENT_TYPES.has(h.eventType) && h.payoutAmountUsd > 0) return h.payoutAmountUsd
+  const realized = Number(h.realizedPnl) || 0
+  if (realized !== 0) return realized
+  if (SETTLEMENT_TYPES.has(h.eventType)) {
+    const payout = Number(h.payoutAmountUsd) || 0
+    if (payout > 0) return payout
+  }
   return 0
 }
 
