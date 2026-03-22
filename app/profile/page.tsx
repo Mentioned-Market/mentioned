@@ -187,13 +187,13 @@ function Sparkline({ history, period, pnlValue }: {
   const cutoff = periodCutoff(period)
   const points = useMemo(() => {
     const filtered = history
-      .filter(h => h.timestamp >= cutoff && h.realizedPnl !== 0)
+      .filter(h => h.timestamp >= cutoff && eventPnl(h) !== 0)
       .sort((a, b) => a.timestamp - b.timestamp)
     if (filtered.length === 0) return []
     let cum = 0
     const result = [0]
     for (const h of filtered) {
-      cum += h.realizedPnl
+      cum += eventPnl(h)
       result.push(cum)
     }
     return result
@@ -500,7 +500,7 @@ export default function ProfilePage() {
   const periodPnl = useMemo(() => {
     const cutoff = periodCutoff(pnlPeriod)
     const filtered = history.filter(h => h.timestamp >= cutoff)
-    const realized = filtered.reduce((s, h) => s + (h.realizedPnl || 0), 0)
+    const realized = filtered.reduce((s, h) => s + eventPnl(h), 0)
     const unrealized = pnlPeriod === 'ALL' ? unrealizedPnl : 0
     return realized + unrealized
   }, [history, pnlPeriod, unrealizedPnl])
