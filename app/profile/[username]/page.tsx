@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -164,60 +165,70 @@ function Sparkline({ history, period, pnlValue }: {
   pnlValue: number
 }) {
   const cutoff = periodCutoff(period)
-  const points = useMemo(() => {
+  const data = useMemo(() => {
     const filtered = history
       .filter(h => h.timestamp >= cutoff && eventPnl(h) !== 0)
       .sort((a, b) => a.timestamp - b.timestamp)
     if (filtered.length === 0) return []
-    // Always start from 0 so the chart has a meaningful baseline
     let cum = 0
-    const result = [0]
+    const result: { ts: number; value: number }[] = [{ ts: filtered[0].timestamp, value: 0 }]
     for (const h of filtered) {
       cum += eventPnl(h)
-      result.push(cum)
+      result.push({ ts: h.timestamp, value: cum })
     }
     return result
   }, [history, cutoff])
 
-  if (points.length < 2) {
-    return <div className="h-16 flex items-end"><div className="w-full h-0.5 bg-white/5 rounded-full" /></div>
+  if (data.length < 2) {
+    return <div className="h-20 flex items-end"><div className="w-full h-0.5 bg-white/5 rounded-full" /></div>
   }
 
-  const min = Math.min(...points, 0)
-  const max = Math.max(...points, 0)
-  const range = max - min || 1
-  const W = 400
-  const H = 64
-  const xs = points.map((_, i) => (i / (points.length - 1)) * W)
-  const ys = points.map(v => H - ((v - min) / range) * H)
-  const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ')
-  const fillD = `${pathD} L${W},${H} L0,${H} Z`
-  const lastY = ys[ys.length - 1]
-  // Colour driven by the displayed P&L value so chart and number always agree
   const positive = pnlValue >= 0
-  const color = positive ? '#34d399' : '#f87171'
+  const color = positive ? '#34C759' : '#FF3B30'
+  const gradientId = positive ? 'pnlFillPos' : 'pnlFillNeg'
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {/* Zero line */}
-      {min < 0 && max > 0 && (
-        <line
-          x1="0" y1={H - ((-min) / range) * H}
-          x2={W} y2={H - ((-min) / range) * H}
-          stroke="rgba(255,255,255,0.08)" strokeWidth="1"
+    <ResponsiveContainer width="100%" height={80}>
+      <AreaChart data={data} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.2} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis dataKey="ts" hide />
+        <YAxis hide domain={['auto', 'auto']} />
+        <ReferenceLine y={0} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+        <Tooltip
+          cursor={{ stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1 }}
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return null
+            const point = payload[0].payload as { ts: number; value: number }
+            return (
+              <div className="bg-neutral-900/95 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
+                <div className="text-neutral-400 mb-0.5">
+                  {new Date(point.ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </div>
+                <div className={`font-semibold ${point.value >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                  {microToUsd(point.value, true)}
+                </div>
+              </div>
+            )
+          }}
         />
-      )}
-      <path d={fillD} fill="url(#sparkFill)" />
-      <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      {/* End dot */}
-      <circle cx={xs[xs.length - 1]} cy={lastY} r="3" fill={color} />
-    </svg>
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={1.5}
+          fill={`url(#${gradientId})`}
+          dot={false}
+          activeDot={{ r: 3, fill: color, strokeWidth: 0 }}
+          animationDuration={500}
+          animationEasing="ease-out"
+        />
+      </AreaChart>
+    </ResponsiveContainer>
   )
 }
 
