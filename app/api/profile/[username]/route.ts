@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProfileByUsername, getProfileByWallet, getWalletPointTotal } from '@/lib/db'
 import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
 
+export const dynamic = 'force-dynamic'
+
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
@@ -36,10 +38,10 @@ export async function GET(
   const histParams = new URLSearchParams({ ownerPubkey: wallet })
 
   const [posRes, histRes, allTimePoints] = await Promise.all([
-    fetch(`${JUP_BASE}/positions?${posParams}`, { headers: { 'x-api-key': JUP_API_KEY } })
+    fetch(`${JUP_BASE}/positions?${posParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
       .then(r => r.ok ? r.json() : { data: [] })
       .catch(() => ({ data: [] })),
-    fetch(`${JUP_BASE}/history?${histParams}`, { headers: { 'x-api-key': JUP_API_KEY } })
+    fetch(`${JUP_BASE}/history?${histParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
       .then(r => r.ok ? r.json() : { data: [] })
       .catch(() => ({ data: [] })),
     getWalletPointTotal(wallet),
@@ -66,9 +68,15 @@ export async function GET(
   const totalValue = positions.reduce(
     (sum: number, p: Record<string, unknown>) => sum + (Number(p.sizeUsd) || 0), 0,
   )
-  const biggestWin = history.reduce(
-    (max: number, h: Record<string, unknown>) => Math.max(max, Number(h.realizedPnl) || 0), 0,
-  )
+  const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
+  const biggestWin = history.reduce((max: number, h: Record<string, unknown>) => {
+    const realized = Number(h.realizedPnl) || 0
+    // For claim/settle events Jupiter often leaves realizedPnl = 0 and uses payoutAmountUsd instead
+    const effective = realized !== 0
+      ? realized
+      : SETTLEMENT_TYPES.has(h.eventType as string) ? Number(h.payoutAmountUsd) || 0 : 0
+    return Math.max(max, effective)
+  }, 0)
 
   return NextResponse.json({
     username,
