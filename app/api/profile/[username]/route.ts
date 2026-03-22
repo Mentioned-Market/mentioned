@@ -66,9 +66,15 @@ export async function GET(
   const totalValue = positions.reduce(
     (sum: number, p: Record<string, unknown>) => sum + (Number(p.sizeUsd) || 0), 0,
   )
-  const biggestWin = history.reduce(
-    (max: number, h: Record<string, unknown>) => Math.max(max, Number(h.realizedPnl) || 0), 0,
-  )
+  const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
+  const biggestWin = history.reduce((max: number, h: Record<string, unknown>) => {
+    const realized = Number(h.realizedPnl) || 0
+    // For claim/settle events Jupiter often leaves realizedPnl = 0 and uses payoutAmountUsd instead
+    const effective = realized !== 0
+      ? realized
+      : SETTLEMENT_TYPES.has(h.eventType as string) ? Number(h.payoutAmountUsd) || 0 : 0
+    return Math.max(max, effective)
+  }, 0)
 
   return NextResponse.json({
     username,
