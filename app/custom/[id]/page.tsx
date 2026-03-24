@@ -575,10 +575,12 @@ export default function CustomMarketPage() {
                 marketStatus={market.status}
               />
 
-              <EventChat
-                eventId={`custom_${marketId}`}
-                marketIds={[]}
-              />
+              <div className="h-[500px]">
+                <EventChat
+                  eventId={`custom_${marketId}`}
+                  marketIds={[]}
+                />
+              </div>
             </div>
           </div>
         </main>
