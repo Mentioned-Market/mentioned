@@ -738,23 +738,66 @@ export async function getCustomMarket(id: number): Promise<CustomMarketRow | nul
   return result.rows[0] || null
 }
 
+export interface WordSentimentCompact {
+  word_id: number
+  market_id: number
+  word: string
+  yes_pct: number
+  no_pct: number
+}
+
 export interface CustomMarketListRow extends CustomMarketRow {
   word_count: number
   prediction_count: number
+  words_sentiment: WordSentimentCompact[]
 }
 
 export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> {
-  const result = await pool.query(
-    `SELECT m.*,
-       COALESCE(w.cnt, 0)::int AS word_count,
-       COALESCE(p.cnt, 0)::int AS prediction_count
-     FROM custom_markets m
-     LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
-     LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_predictions GROUP BY market_id) p ON p.market_id = m.id
-     WHERE m.status IN ('open', 'locked', 'resolved')
-     ORDER BY m.created_at DESC`,
-  )
-  return result.rows
+  const [marketsResult, sentimentResult] = await Promise.all([
+    pool.query(
+      `SELECT m.*,
+         COALESCE(w.cnt, 0)::int AS word_count,
+         COALESCE(p.cnt, 0)::int AS prediction_count
+       FROM custom_markets m
+       LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
+       LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_predictions GROUP BY market_id) p ON p.market_id = m.id
+       WHERE m.status IN ('open', 'locked', 'resolved')
+       ORDER BY m.created_at DESC`,
+    ),
+    pool.query(
+      `SELECT
+         w.id AS word_id,
+         w.market_id,
+         w.word,
+         COUNT(p.id) FILTER (WHERE p.prediction = true)::int AS yes_count,
+         COUNT(p.id)::int AS total
+       FROM custom_market_words w
+       INNER JOIN custom_markets m ON m.id = w.market_id AND m.status IN ('open', 'locked', 'resolved')
+       LEFT JOIN custom_market_predictions p ON p.word_id = w.id
+       GROUP BY w.id
+       ORDER BY w.id`,
+    ),
+  ])
+
+  const sentimentByMarket = new Map<number, WordSentimentCompact[]>()
+  for (const r of sentimentResult.rows) {
+    const yesPct = r.total > 0 ? Math.round((r.yes_count / r.total) * 100) : 50
+    const entry: WordSentimentCompact = {
+      word_id: r.word_id,
+      market_id: r.market_id,
+      word: r.word,
+      yes_pct: yesPct,
+      no_pct: 100 - yesPct,
+    }
+    const arr = sentimentByMarket.get(r.market_id) || []
+    arr.push(entry)
+    sentimentByMarket.set(r.market_id, arr)
+  }
+
+  return marketsResult.rows.map((m: any) => ({
+    ...m,
+    words_sentiment: sentimentByMarket.get(m.id) || [],
+  }))
 }
 
 export interface CustomMarketAdminRow extends CustomMarketRow {
