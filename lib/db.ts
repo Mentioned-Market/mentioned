@@ -609,4 +609,349 @@ export async function getUnlockedAchievements(
   return result.rows
 }
 
+// ── Custom Markets ───────────────────────────────────
+
+export interface CustomMarketRow {
+  id: number
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  stream_url: string | null
+  status: string
+  lock_time: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CustomMarketWordRow {
+  id: number
+  market_id: number
+  word: string
+  resolved_outcome: boolean | null
+}
+
+export interface CustomMarketPredictionRow {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  prediction: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface WordSentiment {
+  word_id: number
+  word: string
+  yes_count: number
+  no_count: number
+  total: number
+  yes_pct: number
+  resolved_outcome: boolean | null
+}
+
+export async function createCustomMarket(
+  title: string,
+  description: string | null,
+  coverImageUrl: string | null,
+  streamUrl: string | null,
+  lockTime: string | null,
+): Promise<CustomMarketRow> {
+  const result = await pool.query(
+    `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, lock_time)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [title, description, coverImageUrl, streamUrl, lockTime],
+  )
+  return result.rows[0]
+}
+
+const UPDATABLE_MARKET_FIELDS = ['title', 'description', 'cover_image_url', 'stream_url', 'lock_time'] as const
+
+export async function updateCustomMarket(
+  id: number,
+  fields: Partial<Pick<CustomMarketRow, 'title' | 'description' | 'cover_image_url' | 'stream_url' | 'lock_time'>>,
+): Promise<CustomMarketRow | null> {
+  const setClauses: string[] = []
+  const values: (string | number | null)[] = []
+  let paramIndex = 1
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && (UPDATABLE_MARKET_FIELDS as readonly string[]).includes(key)) {
+      setClauses.push(`"${key}" = $${paramIndex}`)
+      values.push(value as string | null)
+      paramIndex++
+    }
+  }
+
+  if (setClauses.length === 0) return getCustomMarket(id)
+
+  setClauses.push('updated_at = NOW()')
+  values.push(id)
+
+  const result = await pool.query(
+    `UPDATE custom_markets SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    values,
+  )
+  return result.rows[0] || null
+}
+
+export async function deleteCustomMarket(id: number): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM custom_markets WHERE id = $1`,
+    [id],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+export async function updateCustomMarketStatus(
+  id: number,
+  status: string,
+  expectedCurrentStatus?: string,
+): Promise<CustomMarketRow | null> {
+  const query = expectedCurrentStatus
+    ? `UPDATE custom_markets SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *`
+    : `UPDATE custom_markets SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`
+  const params = expectedCurrentStatus ? [status, id, expectedCurrentStatus] : [status, id]
+  const result = await pool.query(query, params)
+  return result.rows[0] || null
+}
+
+export async function lockCustomMarket(id: number): Promise<CustomMarketRow | null> {
+  const result = await pool.query(
+    `UPDATE custom_markets
+     SET status = 'locked',
+         lock_time = COALESCE(lock_time, NOW()),
+         updated_at = NOW()
+     WHERE id = $1 AND status = 'open'
+     RETURNING *`,
+    [id],
+  )
+  return result.rows[0] || null
+}
+
+export async function getCustomMarket(id: number): Promise<CustomMarketRow | null> {
+  const result = await pool.query(
+    `SELECT * FROM custom_markets WHERE id = $1`,
+    [id],
+  )
+  return result.rows[0] || null
+}
+
+export interface CustomMarketListRow extends CustomMarketRow {
+  word_count: number
+  prediction_count: number
+}
+
+export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> {
+  const result = await pool.query(
+    `SELECT m.*,
+       COALESCE(w.cnt, 0)::int AS word_count,
+       COALESCE(p.cnt, 0)::int AS prediction_count
+     FROM custom_markets m
+     LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
+     LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_predictions GROUP BY market_id) p ON p.market_id = m.id
+     WHERE m.status IN ('open', 'locked', 'resolved')
+     ORDER BY m.created_at DESC`,
+  )
+  return result.rows
+}
+
+export interface CustomMarketAdminRow extends CustomMarketRow {
+  words: CustomMarketWordRow[]
+}
+
+export async function listCustomMarketsAdmin(): Promise<CustomMarketAdminRow[]> {
+  const [marketsResult, wordsResult] = await Promise.all([
+    pool.query(`SELECT * FROM custom_markets ORDER BY created_at DESC`),
+    pool.query(`SELECT * FROM custom_market_words ORDER BY id`),
+  ])
+
+  const wordsByMarket = new Map<number, CustomMarketWordRow[]>()
+  for (const w of wordsResult.rows) {
+    const arr = wordsByMarket.get(w.market_id) || []
+    arr.push(w)
+    wordsByMarket.set(w.market_id, arr)
+  }
+
+  return marketsResult.rows.map((m: CustomMarketRow) => ({
+    ...m,
+    words: wordsByMarket.get(m.id) || [],
+  }))
+}
+
+// -- Words --
+
+export async function addCustomMarketWords(
+  marketId: number,
+  words: string[],
+): Promise<CustomMarketWordRow[]> {
+  if (words.length === 0) return []
+  const values: (number | string)[] = []
+  const placeholders: string[] = []
+  words.forEach((word, i) => {
+    values.push(marketId, word.trim())
+    placeholders.push(`($${i * 2 + 1}, $${i * 2 + 2})`)
+  })
+  const result = await pool.query(
+    `INSERT INTO custom_market_words (market_id, word) VALUES ${placeholders.join(', ')} RETURNING *`,
+    values,
+  )
+  return result.rows
+}
+
+export async function getCustomMarketWords(marketId: number): Promise<CustomMarketWordRow[]> {
+  const result = await pool.query(
+    `SELECT * FROM custom_market_words WHERE market_id = $1 ORDER BY id`,
+    [marketId],
+  )
+  return result.rows
+}
+
+export async function removeCustomMarketWord(marketId: number, wordId: number): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM custom_market_words WHERE id = $1 AND market_id = $2`,
+    [wordId, marketId],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+export async function resolveCustomMarketWords(
+  marketId: number,
+  resolutions: { wordId: number; outcome: boolean }[],
+): Promise<void> {
+  if (resolutions.length === 0) return
+  const cases: string[] = []
+  const ids: number[] = []
+  const values: (number | boolean)[] = []
+  let paramIndex = 1
+
+  // First param is market_id for the WHERE clause
+  values.push(marketId)
+  paramIndex++
+
+  for (const { wordId, outcome } of resolutions) {
+    cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}`)
+    values.push(wordId, outcome)
+    ids.push(wordId)
+    paramIndex += 2
+  }
+
+  values.push(...ids)
+  const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
+
+  await pool.query(
+    `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders})`,
+    values,
+  )
+}
+
+// -- Predictions --
+
+export async function upsertPrediction(
+  marketId: number,
+  wordId: number,
+  wallet: string,
+  prediction: boolean,
+): Promise<CustomMarketPredictionRow> {
+  const result = await pool.query(
+    `INSERT INTO custom_market_predictions (market_id, word_id, wallet, prediction)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (market_id, word_id, wallet) DO UPDATE SET
+       prediction = EXCLUDED.prediction,
+       updated_at = NOW()
+     RETURNING *`,
+    [marketId, wordId, wallet, prediction],
+  )
+  return result.rows[0]
+}
+
+export async function getUserPredictions(
+  marketId: number,
+  wallet: string,
+): Promise<CustomMarketPredictionRow[]> {
+  const result = await pool.query(
+    `SELECT * FROM custom_market_predictions WHERE market_id = $1 AND wallet = $2`,
+    [marketId, wallet],
+  )
+  return result.rows
+}
+
+export async function getAllMarketPredictions(
+  marketId: number,
+): Promise<Map<string, CustomMarketPredictionRow[]>> {
+  const result = await pool.query(
+    `SELECT * FROM custom_market_predictions WHERE market_id = $1`,
+    [marketId],
+  )
+  const byWallet = new Map<string, CustomMarketPredictionRow[]>()
+  for (const row of result.rows) {
+    const arr = byWallet.get(row.wallet) || []
+    arr.push(row)
+    byWallet.set(row.wallet, arr)
+  }
+  return byWallet
+}
+
+export async function getWordSentiment(marketId: number): Promise<WordSentiment[]> {
+  const result = await pool.query(
+    `SELECT
+       w.id AS word_id,
+       w.word,
+       w.resolved_outcome,
+       COUNT(p.id) FILTER (WHERE p.prediction = true)::int AS yes_count,
+       COUNT(p.id) FILTER (WHERE p.prediction = false)::int AS no_count,
+       COUNT(p.id)::int AS total
+     FROM custom_market_words w
+     LEFT JOIN custom_market_predictions p ON p.word_id = w.id
+     WHERE w.market_id = $1
+     GROUP BY w.id
+     ORDER BY w.id`,
+    [marketId],
+  )
+  return result.rows.map((r: any) => ({
+    ...r,
+    yes_pct: r.total > 0 ? Math.round((r.yes_count / r.total) * 100) : 50,
+  }))
+}
+
+export async function getWordSentimentAtLockTime(marketId: number): Promise<WordSentiment[]> {
+  const result = await pool.query(
+    `SELECT
+       w.id AS word_id,
+       w.word,
+       w.resolved_outcome,
+       COUNT(p.id) FILTER (WHERE p.prediction = true)::int AS yes_count,
+       COUNT(p.id) FILTER (WHERE p.prediction = false)::int AS no_count,
+       COUNT(p.id)::int AS total
+     FROM custom_market_words w
+     LEFT JOIN custom_market_predictions p ON p.word_id = w.id
+       AND p.updated_at <= (SELECT lock_time FROM custom_markets WHERE id = $1)
+     WHERE w.market_id = $1
+     GROUP BY w.id
+     ORDER BY w.id`,
+    [marketId],
+  )
+  return result.rows.map((r: any) => ({
+    ...r,
+    yes_pct: r.total > 0 ? Math.round((r.yes_count / r.total) * 100) : 50,
+  }))
+}
+
+export async function getMarketParticipantWallets(marketId: number): Promise<string[]> {
+  const result = await pool.query(
+    `SELECT DISTINCT wallet FROM custom_market_predictions WHERE market_id = $1`,
+    [marketId],
+  )
+  return result.rows.map((r: { wallet: string }) => r.wallet)
+}
+
+export async function getCustomMarketPredictionCount(marketId: number): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_predictions WHERE market_id = $1`,
+    [marketId],
+  )
+  return result.rows[0]?.cnt ?? 0
+}
+
 export { pool }
