@@ -265,6 +265,7 @@ interface CustomMarketSummary {
   lock_time: string | null
   word_count: number
   prediction_count: number
+  words_sentiment: { word_id: number; word: string; yes_pct: number; no_pct: number }[]
 }
 
 type MarketFilter = 'all' | 'paid' | 'free'
@@ -381,33 +382,43 @@ export default function MarketsPage() {
                     </section>
                   )}
 
-                  {/* Live events */}
-                  {filter !== 'free' && liveEvents.length > 0 && (
-                    <section>
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                        <h2 className="text-white text-lg font-semibold">Live Now</h2>
+                  {/* Paid markets */}
+                  {filter !== 'free' && activeEvents.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
+                        <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {liveEvents.map(event => (
-                          <EventCard key={event.eventId} event={event} />
-                        ))}
-                      </div>
-                    </section>
-                  )}
 
-                  {/* Upcoming events */}
-                  {filter !== 'free' && upcomingEvents.length > 0 && (
-                    <section>
+                      {/* Live events */}
                       {liveEvents.length > 0 && (
-                        <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
+                        <section>
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                            <h2 className="text-white text-lg font-semibold">Live Now</h2>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {liveEvents.map(event => (
+                              <EventCard key={event.eventId} event={event} />
+                            ))}
+                          </div>
+                        </section>
                       )}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {upcomingEvents.map(event => (
-                          <EventCard key={event.eventId} event={event} />
-                        ))}
-                      </div>
-                    </section>
+
+                      {/* Upcoming events */}
+                      {upcomingEvents.length > 0 && (
+                        <section>
+                          {liveEvents.length > 0 && (
+                            <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
+                          )}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {upcomingEvents.map(event => (
+                              <EventCard key={event.eventId} event={event} />
+                            ))}
+                          </div>
+                        </section>
+                      )}
+                    </>
                   )}
 
                   {/* Empty state */}
