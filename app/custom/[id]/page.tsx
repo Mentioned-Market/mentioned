@@ -452,7 +452,7 @@ export default function CustomMarketPage() {
           <Header />
           <div className="flex flex-col items-center justify-center py-24">
             <p className="text-neutral-400 mb-4">{error || 'Market not found'}</p>
-            <a href="/polymarkets" className="text-apple-blue hover:underline text-sm">Back to markets</a>
+            <a href="/markets" className="text-apple-blue hover:underline text-sm">Back to markets</a>
           </div>
         </div>
       </div>
