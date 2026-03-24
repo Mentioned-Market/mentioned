@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -182,6 +183,7 @@ async function signAndSendTx(transaction: string, ownerPubkey: string): Promise<
 
 export default function PositionsPage() {
   const { connected, connect, publicKey } = useWallet()
+  const { showAchievementToast } = useAchievements()
 
   const [tab, setTab] = useState<Tab>('positions')
   const [positions, setPositions] = useState<Position[]>([])
@@ -294,7 +296,12 @@ export default function PositionsPage() {
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
-      // Record sell trade for leaderboard (fire-and-forget)
+      // Show achievement toast from close response
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
+      }
+
+      // Record sell trade for leaderboard
       fetch('/api/polymarket/trades/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -309,6 +316,10 @@ export default function PositionsPage() {
           txSignature: sig,
           marketTitle: pos.marketMetadata?.title ?? null,
         }),
+      }).then(r => r.ok ? r.json() : null).then(d => {
+        if (d?.newAchievements?.length) {
+          for (const ach of d.newAchievements) showAchievementToast(ach)
+        }
       }).catch(() => {})
 
       // Refresh data after a delay
@@ -326,7 +337,7 @@ export default function PositionsPage() {
       setClosingPubkey(null)
       setTimeout(() => setCloseStatus(null), 10000)
     }
-  }, [publicKey, fetchPositions, fetchOrders, fetchHistory])
+  }, [publicKey, fetchPositions, fetchOrders, fetchHistory, showAchievementToast])
 
   // ── Claim position ──────────────────────────────────────────
 
@@ -353,7 +364,12 @@ export default function PositionsPage() {
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Claim submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
-      // Record claim trade for leaderboard (fire-and-forget)
+      // Show achievement toast from claim response
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
+      }
+
+      // Record claim trade for leaderboard
       fetch('/api/polymarket/trades/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -368,6 +384,10 @@ export default function PositionsPage() {
           txSignature: sig,
           marketTitle: pos.marketMetadata?.title ?? null,
         }),
+      }).then(r => r.ok ? r.json() : null).then(d => {
+        if (d?.newAchievements?.length) {
+          for (const ach of d.newAchievements) showAchievementToast(ach)
+        }
       }).catch(() => {})
 
       setTimeout(() => {
@@ -384,7 +404,7 @@ export default function PositionsPage() {
       setClosingPubkey(null)
       setTimeout(() => setCloseStatus(null), 10000)
     }
-  }, [publicKey, fetchPositions, fetchOrders, fetchHistory])
+  }, [publicKey, fetchPositions, fetchOrders, fetchHistory, showAchievementToast])
 
   // ── Derived data ──────────────────────────────────────────
 

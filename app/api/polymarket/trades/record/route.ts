@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { insertPolymarketTrade } from '@/lib/db'
 import { awardPoints, checkAndAwardFirstTrade } from '@/lib/points'
+import { tryUnlockAchievement } from '@/lib/achievements'
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,7 +30,16 @@ export async function POST(req: NextRequest) {
       checkAndAwardFirstTrade(wallet),
     ]).catch((err) => console.error('Points award error (trade):', err))
 
-    return NextResponse.json({ success: true, tradeId: trade.id })
+    // Achievement (collect result for toast)
+    const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
+    try {
+      const ach = await tryUnlockAchievement(wallet, 'first_trade')
+      if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+    } catch (err) {
+      console.error('Achievement error (trade):', err)
+    }
+
+    return NextResponse.json({ success: true, tradeId: trade.id, newAchievements })
   } catch (err) {
     console.error('Record trade error:', err)
     return NextResponse.json({ error: 'Failed to record trade' }, { status: 500 })

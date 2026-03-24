@@ -11,6 +11,7 @@ interface ChatMessage {
   username: string
   message: string
   created_at: string
+  pfp_emoji: string | null
 }
 
 interface UserPosition {
@@ -41,7 +42,9 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [username, setUsername] = useState<string | null>(null)
+  const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastIdRef = useRef(0)
   const lastSentRef = useRef(0)
 
@@ -53,12 +56,12 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const positionCache = useRef<Map<string, UserPosition[]>>(new Map())
 
-  // Fetch username
+  // Fetch username + pfp
   useEffect(() => {
-    if (!publicKey) { setUsername(null); return }
+    if (!publicKey) { setUsername(null); setPfpEmoji(null); return }
     fetch(`/api/profile?wallet=${publicKey}`)
       .then((r) => r.json())
-      .then((d) => setUsername(d.username ?? null))
+      .then((d) => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null) })
       .catch(() => {})
   }, [publicKey])
 
@@ -94,9 +97,12 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     return () => clearInterval(interval)
   }, [fetchMessages])
 
-  // Auto-scroll
+  // Auto-scroll within chat container only
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = messagesContainerRef.current
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
   }, [messages])
 
   const sendMessage = useCallback(async () => {
@@ -115,6 +121,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
       username: username || `${publicKey.slice(0, 4)}...${publicKey.slice(-4)}`,
       message: text,
       created_at: new Date().toISOString(),
+      pfp_emoji: pfpEmoji,
     }
     setMessages((prev) => [...prev, optimistic])
 
@@ -123,9 +130,9 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ wallet: publicKey, message: text, eventId }),
     }).catch(() => {})
-  }, [publicKey, input, username, eventId])
+  }, [publicKey, input, username, pfpEmoji, eventId])
 
-  // Fetch positions for hovered user
+  // Fetch positions for hovered user (only this event's markets)
   const fetchUserPositions = useCallback(async (wallet: string) => {
     if (positionCache.current.has(wallet)) {
       setHoverPositions(positionCache.current.get(wallet)!)
@@ -148,10 +155,9 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     } finally {
       setLoadingPositions(false)
     }
-  }, [eventId, marketIds])
+  }, [marketIds])
 
   const handleMouseEnter = useCallback((wallet: string, e: React.MouseEvent) => {
-    if (wallet === publicKey) return // don't show hover for own messages
     const rect = (e.target as HTMLElement).getBoundingClientRect()
     setHoverPos({ top: rect.bottom + 4, left: rect.left })
     if (hoverTimeout.current) clearTimeout(hoverTimeout.current)
@@ -159,7 +165,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
       setHoveredWallet(wallet)
       fetchUserPositions(wallet)
     }, 300)
-  }, [publicKey, fetchUserPositions])
+  }, [fetchUserPositions])
 
   const handleMouseLeave = useCallback(() => {
     if (hoverTimeout.current) clearTimeout(hoverTimeout.current)
@@ -186,7 +192,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <p className="text-neutral-500 text-xs">No messages yet. Be the first to chat!</p>
@@ -197,8 +203,18 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           return (
             <div key={msg.id} className="flex flex-col gap-0.5">
               <div className="flex items-baseline gap-2">
+                {msg.pfp_emoji && (
+                  <span className="text-xs">{msg.pfp_emoji}</span>
+                )}
                 {isOwn ? (
-                  <span className="text-xs font-semibold text-apple-green">{msg.username}</span>
+                  <Link
+                    href={`/profile/${msg.username}`}
+                    className="text-xs font-semibold text-apple-green hover:underline transition-colors"
+                    onMouseEnter={(e) => handleMouseEnter(msg.wallet, e)}
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    {msg.username}
+                  </Link>
                 ) : (
                   <Link
                     href={`/profile/${msg.wallet}`}
@@ -231,12 +247,12 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           onMouseLeave={handleMouseLeave}
         >
           <div className="text-xs text-neutral-400 mb-2">
-            {hoveredWallet.slice(0, 4)}...{hoveredWallet.slice(-4)} positions
+            {hoveredWallet.slice(0, 4)}...{hoveredWallet.slice(-4)} positions in this event
           </div>
           {loadingPositions ? (
             <div className="text-xs text-neutral-500">Loading...</div>
           ) : hoverPositions.length === 0 ? (
-            <div className="text-xs text-neutral-500">No open positions</div>
+            <div className="text-xs text-neutral-500">No positions in this event</div>
           ) : (
             <div className="space-y-2">
               {hoverPositions.slice(0, 4).map((pos, i) => (

@@ -14,6 +14,7 @@ export const POINT_CONFIG = {
   hold_1h:      { points: 5, description: 'Held a position for 1+ hour' },
   hold_4h:      { points: 15, description: 'Held a position for 4+ hours' },
   hold_24h:     { points: 30, description: 'Held a position for 24+ hours' },
+  achievement:  { points: 0, description: 'Achievement unlocked' },
 } as const
 
 type PointAction = keyof typeof POINT_CONFIG

@@ -41,6 +41,8 @@ module.exports = {
         'fade-in': 'fadeIn 0.5s ease-out',
         'scale-in': 'scaleIn 0.3s ease-out',
         'ticker': 'ticker 150s linear infinite',
+        'achievement-in': 'achievementIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        'achievement-emoji': 'achievementEmoji 0.8s ease-in-out 0.3s both',
       },
       keyframes: {
         fadeIn: {
@@ -54,6 +56,17 @@ module.exports = {
         ticker: {
           '0%': { transform: 'translateX(0)' },
           '100%': { transform: 'translateX(-50%)' },
+        },
+        achievementIn: {
+          '0%': { opacity: '0', transform: 'scale(0)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        achievementEmoji: {
+          '0%': { transform: 'scale(1)' },
+          '25%': { transform: 'scale(1.3) rotate(-10deg)' },
+          '50%': { transform: 'scale(1.3) rotate(10deg)' },
+          '75%': { transform: 'scale(1.1) rotate(-5deg)' },
+          '100%': { transform: 'scale(1) rotate(0deg)' },
         },
       },
       boxShadow: {

@@ -1,6 +1,7 @@
 'use client'
 
 import { WalletProvider } from '@/contexts/WalletContext'
+import { AchievementProvider } from '@/contexts/AchievementContext'
 
 export default function WalletProviderWrapper({
   children,
@@ -8,6 +9,8 @@ export default function WalletProviderWrapper({
   children: React.ReactNode
 }) {
   return (
-    <WalletProvider>{children}</WalletProvider>
+    <WalletProvider>
+      <AchievementProvider>{children}</AchievementProvider>
+    </WalletProvider>
   )
 }

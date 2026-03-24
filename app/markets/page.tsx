@@ -83,7 +83,7 @@ function formatCloseTime(isoTime: string): string {
 
 const VISIBLE_COUNT = 5
 
-function ScrollingWordList({ markets }: { markets: Market[] }) {
+function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: string }) {
   const innerRef = useRef<HTMLDivElement>(null)
   const outerRef = useRef<HTMLDivElement>(null)
   const offsetRef = useRef(0)
@@ -138,11 +138,15 @@ function ScrollingWordList({ markets }: { markets: Market[] }) {
         {markets.map(m => {
           const noPriceRaw = 1_000_000 - (m.pricing.buyYesPriceUsd ?? 0)
           return (
-            <div key={m.marketId} className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass">
+            <Link
+              key={m.marketId}
+              href={`/polymarkets/event/${eventId}?market=${encodeURIComponent(m.marketId)}`}
+              className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
+            >
               <span className="text-white text-xs font-medium truncate flex-1">{m.metadata.title}</span>
               <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">Y {formatPrice(m.pricing.buyYesPriceUsd)}</span>
               <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">N {formatPrice(noPriceRaw)}</span>
-            </div>
+            </Link>
           )
         })}
       </div>
@@ -161,9 +165,11 @@ function EventCard({ event }: { event: PolyEvent }) {
   const team1Pct = team1 ? team1.pricing.buyYesPriceUsd / 10_000 : 50
   const team2Pct = team2 ? team2.pricing.buyYesPriceUsd / 10_000 : 50
 
+  const eventUrl = `/polymarkets/event/${event.eventId}`
+
   return (
-    <Link href={`/polymarkets/event/${event.eventId}`} className="group relative block overflow-hidden rounded-2xl glass hover:bg-white/10 transition-all duration-300 hover-lift">
-      <div className="w-full relative overflow-hidden" style={{ height: '140px' }}>
+    <div className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift">
+      <Link href={eventUrl} className="block w-full relative overflow-hidden" style={{ height: '140px' }}>
         {!imgError ? (
           <Image
             src={event.metadata.imageUrl}
@@ -188,15 +194,17 @@ function EventCard({ event }: { event: PolyEvent }) {
             {SUBCATEGORY_LABELS[event.subcategory] || event.subcategory}
           </span>
         </div>
-      </div>
+      </Link>
 
       <div className="p-4 flex flex-col gap-3">
-        <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem]">
-          {event.metadata.title}
-        </h3>
+        <Link href={eventUrl}>
+          <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem] hover:text-neutral-200 transition-colors">
+            {event.metadata.title}
+          </h3>
+        </Link>
 
         {hasTeams && team1 && team2 ? (
-          <div className="flex flex-col gap-2">
+          <Link href={eventUrl} className="flex flex-col gap-2">
             <div className="flex w-full h-8 rounded-lg overflow-hidden">
               <div
                 className="flex items-center justify-center bg-apple-blue/80 transition-all duration-500"
@@ -226,13 +234,12 @@ function EventCard({ event }: { event: PolyEvent }) {
                 <span className="text-apple-red text-[11px] font-semibold">${formatPrice(team2.pricing.buyYesPriceUsd)}</span>
               </div>
             </div>
-          </div>
+          </Link>
         ) : (
-          /* Non-team markets: show 5 at a time with scroll animation */
-          <ScrollingWordList markets={event.markets} />
+          <ScrollingWordList markets={event.markets} eventId={event.eventId} />
         )}
 
-        <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+        <Link href={eventUrl} className="flex items-center gap-2 pt-2 border-t border-white/5">
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {formatVolume(event.volumeUsd)} vol
           </span>
@@ -242,9 +249,9 @@ function EventCard({ event }: { event: PolyEvent }) {
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {event.markets.length} words
           </span>
-        </div>
+        </Link>
       </div>
-    </Link>
+    </div>
   )
 }
 
