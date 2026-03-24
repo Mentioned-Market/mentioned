@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -61,13 +61,14 @@ interface Stats {
 interface PublicProfile {
   username: string | null
   wallet: string
+  pfpEmoji: string | null
   createdAt: string | null
   positions: Position[]
   history: HistoryEvent[]
   stats: Stats
 }
 
-type Tab = 'positions' | 'activity'
+type Tab = 'positions' | 'activity' | 'achievements'
 type PositionFilter = 'active' | 'closed'
 type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
 
@@ -260,6 +261,20 @@ export default function PublicProfilePage() {
   const [search, setSearch] = useState('')
   const [pnlPeriod, setPnlPeriod] = useState<PnlPeriod>('ALL')
 
+  // Achievements state
+  interface Achievement {
+    id: string
+    emoji: string
+    title: string
+    description: string
+    points: number
+    unlocked: boolean
+    unlockedAt: string | null
+  }
+  const [achievements, setAchievements] = useState<Achievement[]>([])
+  const [loadingAchievements, setLoadingAchievements] = useState(true)
+  const unlockedCount = achievements.filter(a => a.unlocked).length
+
   useEffect(() => {
     if (!username) return
     setLoading(true)
@@ -271,6 +286,23 @@ export default function PublicProfilePage() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
   }, [username])
+
+  const fetchAchievements = useCallback(async (wallet: string) => {
+    try {
+      const res = await fetch(`/api/achievements?wallet=${wallet}`)
+      if (res.ok) {
+        const json = await res.json()
+        setAchievements(json.achievements || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingAchievements(false)
+  }, [])
+
+  useEffect(() => {
+    if (profile?.wallet) {
+      fetchAchievements(profile.wallet)
+    }
+  }, [profile?.wallet, fetchAchievements])
 
   const isOwnProfile = publicKey && profile?.wallet === publicKey
 
@@ -362,11 +394,15 @@ export default function PublicProfilePage() {
             <div className="flex items-center gap-4">
               <div
                 className="w-16 h-16 rounded-full flex-shrink-0 flex items-center justify-center shadow-lg"
-                style={{ background: avatarColor(profile.username ?? profile.wallet) }}
+                style={{ background: profile.pfpEmoji ? 'rgba(255,255,255,0.05)' : avatarColor(profile.username ?? profile.wallet) }}
               >
-                <span className="text-white text-2xl font-bold select-none">
-                  {(profile.username ?? profile.wallet)[0].toUpperCase()}
-                </span>
+                {profile.pfpEmoji ? (
+                  <span className="text-3xl">{profile.pfpEmoji}</span>
+                ) : (
+                  <span className="text-white text-2xl font-bold select-none">
+                    {(profile.username ?? profile.wallet)[0].toUpperCase()}
+                  </span>
+                )}
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white leading-tight">
@@ -461,15 +497,22 @@ export default function PublicProfilePage() {
 
       {/* ── Tabs ──────────────────────────────────────────── */}
       <div className="flex items-center gap-6 border-b border-white/10 mb-4">
-        {([['positions', 'Positions'], ['activity', 'Activity']] as [Tab, string][]).map(([key, label]) => (
+        {([['positions', 'Positions'], ['activity', 'Activity'], ['achievements', `Achievements`]] as [Tab, string][]).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all duration-150 ${
+            className={`flex items-center gap-1.5 pb-3 text-sm font-semibold border-b-2 transition-all duration-150 ${
               tab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
             }`}
           >
             {label}
+            {key === 'achievements' && unlockedCount > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                tab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+              }`}>
+                {unlockedCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -617,6 +660,46 @@ export default function PublicProfilePage() {
             </>
           )}
         </>
+      )}
+
+      {/* ── Achievements tab ─────────────────────────────── */}
+      {tab === 'achievements' && (
+        <div>
+          {loadingAchievements ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {achievements.map(a => (
+                <div
+                  key={a.id}
+                  className={`rounded-xl border p-4 flex items-start gap-3 transition-all ${
+                    a.unlocked
+                      ? 'border-white/10 bg-white/5'
+                      : 'border-white/5 bg-white/[0.02] opacity-50'
+                  }`}
+                >
+                  <span className={`text-3xl ${a.unlocked ? '' : 'grayscale'}`}>{a.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-white">{a.title}</span>
+                      {a.unlocked && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-apple-green/10 text-apple-green">
+                          UNLOCKED
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-0.5">{a.description}</p>
+                    <p className="text-xs text-neutral-500 mt-1">
+                      {a.unlocked ? 'Earned' : 'Reward:'} <span className="text-apple-green font-medium">+{a.points} pts</span>
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Activity tab ──────────────────────────────────── */}

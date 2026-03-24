@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
 import { awardPoints, awardHoldPoints } from '@/lib/points'
+import { tryUnlockAchievement } from '@/lib/achievements'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -47,5 +48,14 @@ export async function POST(req: NextRequest) {
   }
   Promise.all(pointsWork).catch((err) => console.error('Points award error (claim):', err))
 
-  return NextResponse.json(data)
+  // Achievement (collect result for toast)
+  const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
+  try {
+    const ach = await tryUnlockAchievement(ownerPubkey, 'win_trade')
+    if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+  } catch (err) {
+    console.error('Achievement error (claim):', err)
+  }
+
+  return NextResponse.json({ ...data, newAchievements })
 }

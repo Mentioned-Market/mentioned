@@ -241,11 +241,12 @@ export async function getVolumeByMarkets(
 export interface ProfileRow {
   wallet: string
   username: string
+  pfp_emoji: string | null
 }
 
 export async function getProfile(wallet: string): Promise<ProfileRow | null> {
   const result = await pool.query(
-    `SELECT wallet, username FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
@@ -253,7 +254,7 @@ export async function getProfile(wallet: string): Promise<ProfileRow | null> {
 
 export async function getProfileByUsername(username: string): Promise<(ProfileRow & { created_at: string }) | null> {
   const result = await pool.query(
-    `SELECT wallet, username, created_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
+    `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
     [username],
   )
   return result.rows[0] || null
@@ -261,7 +262,7 @@ export async function getProfileByUsername(username: string): Promise<(ProfileRo
 
 export async function getProfileByWallet(wallet: string): Promise<(ProfileRow & { created_at: string }) | null> {
   const result = await pool.query(
-    `SELECT wallet, username, created_at FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
@@ -278,6 +279,16 @@ export async function upsertProfile(
        username = EXCLUDED.username,
        updated_at = NOW()`,
     [wallet, username],
+  )
+}
+
+export async function updatePfpEmoji(
+  wallet: string,
+  pfpEmoji: string | null,
+): Promise<void> {
+  await pool.query(
+    `UPDATE user_profiles SET pfp_emoji = $2, updated_at = NOW() WHERE wallet = $1`,
+    [wallet, pfpEmoji],
   )
 }
 
@@ -386,6 +397,7 @@ export interface EventChatRow {
   username: string
   message: string
   created_at: string
+  pfp_emoji: string | null
 }
 
 export async function insertEventChatMessage(
@@ -410,14 +422,22 @@ export async function getRecentEventChatMessages(
 ): Promise<EventChatRow[]> {
   if (afterId) {
     const result = await pool.query(
-      `SELECT * FROM event_chat_messages WHERE event_id = $1 AND id > $2 ORDER BY id ASC LIMIT $3`,
+      `SELECT m.*, p.pfp_emoji
+       FROM event_chat_messages m
+       LEFT JOIN user_profiles p ON p.wallet = m.wallet
+       WHERE m.event_id = $1 AND m.id > $2
+       ORDER BY m.id ASC LIMIT $3`,
       [eventId, afterId, limit],
     )
     return result.rows
   }
   const result = await pool.query(
     `SELECT * FROM (
-       SELECT * FROM event_chat_messages WHERE event_id = $1 ORDER BY id DESC LIMIT $2
+       SELECT m.*, p.pfp_emoji
+       FROM event_chat_messages m
+       LEFT JOIN user_profiles p ON p.wallet = m.wallet
+       WHERE m.event_id = $1
+       ORDER BY m.id DESC LIMIT $2
      ) sub ORDER BY id ASC`,
     [eventId, limit],
   )
@@ -552,6 +572,39 @@ export async function getBulkPointTotals(
      WHERE wallet = ANY($1)
      GROUP BY wallet`,
     [wallets, weekStart.toISOString()],
+  )
+  return result.rows
+}
+
+// ── Achievements ─────────────────────────────────────
+
+/**
+ * Insert an achievement unlock. Returns true if newly inserted (not a dupe).
+ */
+export async function unlockAchievement(
+  wallet: string,
+  achievementId: string,
+  points: number,
+): Promise<boolean> {
+  const result = await pool.query(
+    `INSERT INTO user_achievements (wallet, achievement_id, points_awarded)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (wallet, achievement_id) DO NOTHING
+     RETURNING id`,
+    [wallet, achievementId, points],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+/**
+ * Get all unlocked achievements for a wallet.
+ */
+export async function getUnlockedAchievements(
+  wallet: string,
+): Promise<{ achievement_id: string; unlocked_at: string }[]> {
+  const result = await pool.query(
+    `SELECT achievement_id, unlocked_at FROM user_achievements WHERE wallet = $1`,
+    [wallet],
   )
   return result.rows
 }

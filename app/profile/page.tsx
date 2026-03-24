@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ interface HistoryEvent {
   eventMetadata?: { title: string; imageUrl: string }
 }
 
-type Tab = 'positions' | 'orders' | 'history'
+type Tab = 'positions' | 'orders' | 'history' | 'achievements'
 type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
 
 // ── Helpers ────────────────────────────────────────────────
@@ -285,6 +286,7 @@ async function signAndSendTx(transaction: string, ownerPubkey: string): Promise<
 
 export default function ProfilePage() {
   const { connected, publicKey, connect } = useWallet()
+  const { showAchievementToast } = useAchievements()
 
   // Username state
   const [username, setUsername] = useState<string | null>(null)
@@ -305,15 +307,44 @@ export default function ProfilePage() {
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
+  // Achievements state
+  interface Achievement {
+    id: string
+    emoji: string
+    title: string
+    description: string
+    points: number
+    unlocked: boolean
+    unlockedAt: string | null
+  }
+  const [achievements, setAchievements] = useState<Achievement[]>([])
+  const [loadingAchievements, setLoadingAchievements] = useState(true)
+
+  // PFP emoji state
+  const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
+  const [pfpPickerOpen, setPfpPickerOpen] = useState(false)
+  const pfpPickerRef = useRef<HTMLDivElement>(null)
+
   // ── Load username ───────────────────────────────────────
 
   useEffect(() => {
-    if (!publicKey) { setUsername(null); return }
+    if (!publicKey) { setUsername(null); setPfpEmoji(null); return }
     fetch(`/api/profile?wallet=${publicKey}`)
       .then(r => r.json())
-      .then(d => setUsername(d.username))
-      .catch(() => setUsername(null))
+      .then(d => { setUsername(d.username); setPfpEmoji(d.pfpEmoji ?? null) })
+      .catch(() => { setUsername(null); setPfpEmoji(null) })
   }, [publicKey])
+
+  // Close PFP picker on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (pfpPickerRef.current && !pfpPickerRef.current.contains(e.target as Node)) {
+        setPfpPickerOpen(false)
+      }
+    }
+    if (pfpPickerOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [pfpPickerOpen])
 
   // ── Fetch positions ───────────────────────────────────────
 
@@ -353,13 +384,27 @@ export default function ProfilePage() {
     setLoadingHistory(false)
   }, [publicKey])
 
+  const fetchAchievements = useCallback(async () => {
+    if (!publicKey) { setAchievements([]); setLoadingAchievements(false); return }
+    try {
+      const res = await fetch(`/api/achievements?wallet=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setAchievements(json.achievements || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingAchievements(false)
+  }, [publicKey])
+
   useEffect(() => {
     setLoadingPositions(true)
     setLoadingOrders(true)
     setLoadingHistory(true)
+    setLoadingAchievements(true)
     fetchPositions()
     fetchOrders()
     fetchHistory()
+    fetchAchievements()
 
     const posInterval = setInterval(fetchPositions, 30_000)
     const ordInterval = setInterval(fetchOrders, 15_000)
@@ -369,7 +414,7 @@ export default function ProfilePage() {
       clearInterval(ordInterval)
       clearInterval(histInterval)
     }
-  }, [fetchPositions, fetchOrders, fetchHistory])
+  }, [fetchPositions, fetchOrders, fetchHistory, fetchAchievements])
 
   // ── Close position ─────────────────────────────────────────
 
@@ -396,6 +441,14 @@ export default function ProfilePage() {
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
+      // Show achievement toast if any were unlocked
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) {
+          showAchievementToast(ach)
+        }
+        fetchAchievements()
+      }
+
       // Record sell trade for leaderboard (fire-and-forget)
       fetch('/api/polymarket/trades/record', {
         method: 'POST',
@@ -420,7 +473,7 @@ export default function ProfilePage() {
       setClosingPubkey(null)
       setTimeout(() => setCloseStatus(null), 10000)
     }
-  }, [publicKey, fetchPositions, fetchOrders, fetchHistory])
+  }, [publicKey, fetchPositions, fetchOrders, fetchHistory, showAchievementToast, fetchAchievements])
 
   // ── Claim position ────────────────────────────────────────
 
@@ -447,6 +500,14 @@ export default function ProfilePage() {
       const sig = await signAndSendTx(data.transaction, publicKey)
       setCloseStatus({ msg: `Claim submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
+      // Show achievement toast if any were unlocked
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) {
+          showAchievementToast(ach)
+        }
+        fetchAchievements()
+      }
+
       // Record claim trade for leaderboard (fire-and-forget)
       fetch('/api/polymarket/trades/record', {
         method: 'POST',
@@ -471,7 +532,7 @@ export default function ProfilePage() {
       setClosingPubkey(null)
       setTimeout(() => setCloseStatus(null), 10000)
     }
-  }, [publicKey, fetchPositions, fetchOrders, fetchHistory])
+  }, [publicKey, fetchPositions, fetchOrders, fetchHistory, showAchievementToast, fetchAchievements])
 
   // ── Username save ───────────────────────────────────────
 
@@ -496,6 +557,13 @@ export default function ProfilePage() {
       } else {
         setUsername(trimmed)
         setEditingUsername(false)
+        // Show achievement toast if any were unlocked
+        if (data.newAchievements?.length) {
+          for (const ach of data.newAchievements) {
+            showAchievementToast(ach)
+          }
+          fetchAchievements()
+        }
       }
     } catch {
       setUsernameError('Failed to save username')
@@ -503,6 +571,27 @@ export default function ProfilePage() {
       setUsernameSaving(false)
     }
   }
+
+  // ── PFP emoji selection ─────────────────────────────────────
+
+  const handleSetPfp = async (emoji: string | null) => {
+    if (!publicKey) return
+    setPfpPickerOpen(false)
+    const prev = pfpEmoji
+    setPfpEmoji(emoji) // optimistic
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey, pfpEmoji: emoji }),
+      })
+      if (!res.ok) setPfpEmoji(prev) // revert on error
+    } catch {
+      setPfpEmoji(prev)
+    }
+  }
+
+  const unlockedAchievements = achievements.filter(a => a.unlocked)
 
   // ── Derived data ──────────────────────────────────────────
 
@@ -524,10 +613,13 @@ export default function ProfilePage() {
     return realized + unrealized
   }, [history, pnlPeriod, unrealizedPnl])
 
+  const unlockedCount = achievements.filter(a => a.unlocked).length
+
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'positions', label: 'Positions', count: positions.length },
     { key: 'orders', label: 'Open Orders', count: openOrders.length },
     { key: 'history', label: 'History', count: history.length },
+    { key: 'achievements', label: 'Achievements', count: unlockedCount },
   ]
 
   // ── Not connected ───────────────────────────────────────
@@ -572,55 +664,112 @@ export default function ProfilePage() {
 
             <main className="py-4 md:py-6 flex-1">
               {/* Username section */}
-              <div className="mb-6">
-                {editingUsername ? (
-                  <div className="flex items-center gap-2 mb-1">
-                    <input
-                      type="text"
-                      value={usernameInput}
-                      onChange={(e) => { setUsernameInput(e.target.value); setUsernameError(null) }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); if (e.key === 'Escape') { setEditingUsername(false); setUsernameError(null) } }}
-                      placeholder="username"
-                      autoFocus
-                      maxLength={20}
-                      className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xl md:text-2xl font-bold text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/30 w-56"
-                    />
-                    <button
-                      onClick={handleSaveUsername}
-                      disabled={usernameSaving}
-                      className="px-3 py-1.5 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50"
-                    >
-                      {usernameSaving ? 'Saving...' : 'Save'}
-                    </button>
-                    <button
-                      onClick={() => { setEditingUsername(false); setUsernameError(null) }}
-                      className="px-3 py-1.5 text-neutral-400 text-sm font-medium hover:text-white transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 mb-1">
-                    <h1 className="text-2xl md:text-3xl font-bold text-white">
-                      {username || 'Set Username'}
-                    </h1>
-                    <button
-                      onClick={() => { setUsernameInput(username || ''); setEditingUsername(true); setUsernameError(null) }}
-                      className="text-neutral-500 hover:text-white transition-colors"
-                      title="Edit username"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                        <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+              <div className="mb-6 flex items-start gap-4">
+                {/* PFP avatar */}
+                <div className="relative" ref={pfpPickerRef}>
+                  <button
+                    onClick={() => setPfpPickerOpen(!pfpPickerOpen)}
+                    className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white/5 border-2 border-white/10 hover:border-white/20 flex items-center justify-center transition-all flex-shrink-0"
+                    title={pfpEmoji ? 'Change profile picture' : 'Set profile picture'}
+                  >
+                    {pfpEmoji ? (
+                      <span className="text-2xl md:text-3xl">{pfpEmoji}</span>
+                    ) : (
+                      <svg className="w-6 h-6 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                       </svg>
-                    </button>
-                  </div>
-                )}
-                {usernameError && (
-                  <p className="text-apple-red text-xs mt-1 mb-1">{usernameError}</p>
-                )}
-                <p className="text-neutral-500 text-sm font-mono">
-                  {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
-                </p>
+                    )}
+                  </button>
+
+                  {/* PFP picker dropdown */}
+                  {pfpPickerOpen && (
+                    <div className="absolute top-full left-0 mt-2 bg-neutral-900 border border-white/10 rounded-xl p-3 shadow-2xl z-50 animate-scale-in min-w-[200px]">
+                      <p className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
+                        Choose from unlocked achievements
+                      </p>
+                      {unlockedAchievements.length === 0 ? (
+                        <p className="text-xs text-neutral-500 py-2">Unlock achievements to use as your profile picture</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {unlockedAchievements.map(a => (
+                            <button
+                              key={a.id}
+                              onClick={() => handleSetPfp(a.emoji)}
+                              className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl hover:bg-white/10 transition-colors ${
+                                pfpEmoji === a.emoji ? 'bg-white/15 ring-2 ring-apple-green' : 'bg-white/5'
+                              }`}
+                              title={a.title}
+                            >
+                              {a.emoji}
+                            </button>
+                          ))}
+                          {pfpEmoji && (
+                            <button
+                              onClick={() => handleSetPfp(null)}
+                              className="w-10 h-10 rounded-lg flex items-center justify-center text-xs text-neutral-400 hover:bg-white/10 bg-white/5 transition-colors"
+                              title="Remove profile picture"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  {editingUsername ? (
+                    <div className="flex items-center gap-2 mb-1">
+                      <input
+                        type="text"
+                        value={usernameInput}
+                        onChange={(e) => { setUsernameInput(e.target.value); setUsernameError(null) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); if (e.key === 'Escape') { setEditingUsername(false); setUsernameError(null) } }}
+                        placeholder="username"
+                        autoFocus
+                        maxLength={20}
+                        className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xl md:text-2xl font-bold text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/30 w-56"
+                      />
+                      <button
+                        onClick={handleSaveUsername}
+                        disabled={usernameSaving}
+                        className="px-3 py-1.5 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50"
+                      >
+                        {usernameSaving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => { setEditingUsername(false); setUsernameError(null) }}
+                        className="px-3 py-1.5 text-neutral-400 text-sm font-medium hover:text-white transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mb-1">
+                      <h1 className="text-2xl md:text-3xl font-bold text-white">
+                        {username || 'Set Username'}
+                      </h1>
+                      <button
+                        onClick={() => { setUsernameInput(username || ''); setEditingUsername(true); setUsernameError(null) }}
+                        className="text-neutral-500 hover:text-white transition-colors"
+                        title="Edit username"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                          <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                  {usernameError && (
+                    <p className="text-apple-red text-xs mt-1 mb-1">{usernameError}</p>
+                  )}
+                  <p className="text-neutral-500 text-sm font-mono">
+                    {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
+                  </p>
+                </div>
               </div>
 
               {/* Summary cards */}
@@ -919,6 +1068,46 @@ export default function ProfilePage() {
                         </div>
                       ))}
                     </>
+                  )}
+                </div>
+              )}
+
+              {/* ── Achievements Tab ────────────────────────────── */}
+              {tab === 'achievements' && (
+                <div>
+                  {loadingAchievements ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {achievements.map(a => (
+                        <div
+                          key={a.id}
+                          className={`rounded-xl border p-4 flex items-start gap-3 transition-all ${
+                            a.unlocked
+                              ? 'border-white/10 bg-white/5'
+                              : 'border-white/5 bg-white/[0.02] opacity-50'
+                          }`}
+                        >
+                          <span className={`text-3xl ${a.unlocked ? '' : 'grayscale'}`}>{a.emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-white">{a.title}</span>
+                              {a.unlocked && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-apple-green/10 text-apple-green">
+                                  UNLOCKED
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-neutral-400 mt-0.5">{a.description}</p>
+                            <p className="text-xs text-neutral-500 mt-1">
+                              {a.unlocked ? 'Earned' : 'Reward:'} <span className="text-apple-green font-medium">+{a.points} pts</span>
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -9,6 +9,7 @@ import Footer from '@/components/Footer'
 import EventChat from '@/components/EventChat'
 import EventPriceChart from '@/components/EventPriceChart'
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -244,16 +245,20 @@ function OrderbookPanel({ orderbook }: { orderbook: OrderbookData | null }) {
 
 export default function PolymarketEventPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const eventId = params.eventId as string
   const { connected, connect, publicKey } = useWallet()
+  const { showAchievementToast } = useAchievements()
 
   // Data state
   const [event, setEvent] = useState<PolyEvent | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Selected market (for team events, pick team 1 by default)
-  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null)
+  // Selected market (prefer query param, then first market)
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(
+    searchParams.get('market')
+  )
 
   // Trading state
   const [side, setSide] = useState<'yes' | 'no'>('yes')
@@ -447,7 +452,12 @@ export default function PolymarketEventPage() {
 
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
-      // Record sell trade for leaderboard (fire-and-forget)
+      // Show achievement toast from close response
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
+      }
+
+      // Record sell trade for leaderboard (fire-and-forget, but check for achievements)
       fetch('/api/polymarket/trades/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -462,6 +472,10 @@ export default function PolymarketEventPage() {
           txSignature: sig,
           marketTitle: pos.marketMetadata?.title ?? null,
         }),
+      }).then(r => r.ok ? r.json() : null).then(data => {
+        if (data?.newAchievements?.length) {
+          for (const ach of data.newAchievements) showAchievementToast(ach)
+        }
       }).catch(() => {})
 
       setTimeout(() => {
@@ -533,22 +547,6 @@ export default function PolymarketEventPage() {
 
       const orderData = await orderRes.json()
 
-      // Record trade for leaderboard (fire-and-forget)
-      fetch('/api/polymarket/trades/record', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wallet: publicKey,
-          marketId: selectedMarketId,
-          eventId,
-          isYes: side === 'yes',
-          isBuy: true,
-          side,
-          amountUsd: depositMicro,
-          marketTitle: selectedMarket?.metadata.title ?? null,
-        }),
-      }).catch(() => {})
-
       if (!orderData.transaction) {
         throw new Error('No transaction returned from order creation')
       }
@@ -593,6 +591,28 @@ export default function PolymarketEventPage() {
         error: false,
       })
       setAmount('')
+
+      // Record trade for leaderboard (after tx confirmed, check for achievements)
+      fetch('/api/polymarket/trades/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: selectedMarketId,
+          eventId,
+          isYes: side === 'yes',
+          isBuy: true,
+          side,
+          amountUsd: depositMicro,
+          txSignature: sig,
+          marketTitle: selectedMarket?.metadata.title ?? null,
+        }),
+      }).then(r => r.ok ? r.json() : null).then(data => {
+        if (data?.newAchievements?.length) {
+          for (const ach of data.newAchievements) showAchievementToast(ach)
+        }
+      }).catch(() => {})
+
       fetchOrderbook()
       // Refresh orders after a short delay so the new order shows up
       setTimeout(fetchOrders, 3000)
