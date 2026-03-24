@@ -75,7 +75,7 @@ Admin auth: `ADMIN_WALLETS` env var (comma-separated wallet pubkeys). Same patte
 
 **`/customadmin`** — Admin page. Create form, markets table with expandable detail rows, word management, status transitions, resolution panel with per-word YES/NO + "resolve all".
 
-**`/polymarkets`** — Modified. Filter tabs (All/Paid/Free). Custom markets appear in a "Free" section via `CustomEventCard` component with green "FREE" badge.
+**`/markets`** — Modified. Filter tabs (All/Paid/Free). Custom markets appear in a "Free" section via `CustomEventCard` component with green "FREE" badge.
 
 ## Key Files
 

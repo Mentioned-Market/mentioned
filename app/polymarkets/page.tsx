@@ -5,7 +5,6 @@ import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
-import CustomEventCard from '@/components/CustomEventCard'
 
 interface Pricing {
   buyYesPriceUsd: number
@@ -259,41 +258,21 @@ function EventCard({ event }: { event: PolyEvent }) {
   )
 }
 
-interface CustomMarketSummary {
-  id: number
-  title: string
-  description: string | null
-  cover_image_url: string | null
-  status: string
-  lock_time: string | null
-  word_count: number
-  prediction_count: number
-}
-
-type MarketFilter = 'all' | 'paid' | 'free'
-
 export default function PolymarketsPage() {
   const [events, setEvents] = useState<PolyEvent[]>([])
-  const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<MarketFilter>('all')
 
   useEffect(() => {
     let cancelled = false
 
-    async function fetchAll() {
+    async function fetchEvents() {
       try {
-        const [polyRes, customRes] = await Promise.all([
-          fetch('/api/polymarket?category=mentions'),
-          fetch('/api/custom'),
-        ])
-        if (!polyRes.ok) throw new Error('Failed to fetch events')
-        const polyJson = await polyRes.json()
-        const customJson = customRes.ok ? await customRes.json() : { markets: [] }
+        const res = await fetch('/api/polymarket?category=mentions')
+        if (!res.ok) throw new Error('Failed to fetch events')
+        const json = await res.json()
         if (!cancelled) {
-          setEvents(polyJson.data || [])
-          setCustomMarkets(customJson.markets || [])
+          setEvents(json.data || [])
         }
       } catch (err) {
         if (!cancelled) {
@@ -304,7 +283,7 @@ export default function PolymarketsPage() {
       }
     }
 
-    fetchAll()
+    fetchEvents()
     return () => { cancelled = true }
   }, [])
 
@@ -322,7 +301,7 @@ export default function PolymarketsPage() {
               {/* Page header */}
               <div className="mb-6">
                 <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-white text-2xl md:text-3xl font-bold">Markets</h1>
+                  <h1 className="text-white text-2xl md:text-3xl font-bold">Polymarkets</h1>
                   <span className="px-2.5 py-1 rounded-full bg-apple-blue/20 text-apple-blue text-xs font-semibold">
                     Esports
                   </span>
@@ -330,23 +309,6 @@ export default function PolymarketsPage() {
                 <p className="text-neutral-400 text-sm">
                   Prediction markets powered by Polymarket via Jupiter
                 </p>
-
-                {/* Filter tabs */}
-                <div className="flex items-center gap-1 mt-4">
-                  {(['all', 'paid', 'free'] as const).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setFilter(f)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        filter === f
-                          ? 'bg-white/10 text-white'
-                          : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
-                      }`}
-                    >
-                      {f === 'all' ? 'All' : f === 'paid' ? 'Paid' : 'Free'}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Loading state */}
@@ -382,23 +344,8 @@ export default function PolymarketsPage() {
               {/* Events */}
               {!loading && !error && (
                 <div className="space-y-8 animate-fade-in">
-                  {/* Free markets */}
-                  {filter !== 'paid' && customMarkets.length > 0 && (
-                    <section>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
-                        <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {customMarkets.map(market => (
-                          <CustomEventCard key={`custom-${market.id}`} market={market} />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
                   {/* Live events */}
-                  {filter !== 'free' && liveEvents.length > 0 && (
+                  {liveEvents.length > 0 && (
                     <section>
                       <div className="flex items-center gap-2 mb-4">
                         <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
@@ -413,7 +360,7 @@ export default function PolymarketsPage() {
                   )}
 
                   {/* Upcoming events */}
-                  {filter !== 'free' && upcomingEvents.length > 0 && (
+                  {upcomingEvents.length > 0 && (
                     <section>
                       {liveEvents.length > 0 && (
                         <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
@@ -427,7 +374,7 @@ export default function PolymarketsPage() {
                   )}
 
                   {/* Empty state */}
-                  {activeEvents.length === 0 && customMarkets.length === 0 && (
+                  {activeEvents.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20">
                       <p className="text-neutral-400 text-sm">No markets available right now</p>
                     </div>
