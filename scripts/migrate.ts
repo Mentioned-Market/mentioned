@@ -120,6 +120,44 @@ CREATE INDEX IF NOT EXISTS idx_event_chat_event ON event_chat_messages(event_id,
 CREATE INDEX IF NOT EXISTS idx_event_chat_created ON event_chat_messages(event_id, created_at DESC);
 
 ALTER TABLE polymarket_trades ADD COLUMN IF NOT EXISTS market_title TEXT;
+
+CREATE TABLE IF NOT EXISTS custom_markets (
+  id              SERIAL PRIMARY KEY,
+  title           TEXT NOT NULL,
+  description     TEXT,
+  cover_image_url TEXT,
+  stream_url      TEXT,
+  status          TEXT NOT NULL DEFAULT 'draft',
+  lock_time       TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_markets_status ON custom_markets(status);
+
+CREATE TABLE IF NOT EXISTS custom_market_words (
+  id               SERIAL PRIMARY KEY,
+  market_id        INTEGER NOT NULL REFERENCES custom_markets(id) ON DELETE CASCADE,
+  word             TEXT NOT NULL,
+  resolved_outcome BOOLEAN
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_words_market ON custom_market_words(market_id);
+
+CREATE TABLE IF NOT EXISTS custom_market_predictions (
+  id          SERIAL PRIMARY KEY,
+  market_id   INTEGER NOT NULL REFERENCES custom_markets(id) ON DELETE CASCADE,
+  word_id     INTEGER NOT NULL REFERENCES custom_market_words(id) ON DELETE CASCADE,
+  wallet      TEXT NOT NULL,
+  prediction  BOOLEAN NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_pred_unique ON custom_market_predictions(market_id, word_id, wallet);
+CREATE INDEX IF NOT EXISTS idx_custom_pred_market ON custom_market_predictions(market_id);
+CREATE INDEX IF NOT EXISTS idx_custom_pred_wallet ON custom_market_predictions(wallet, market_id);
+CREATE INDEX IF NOT EXISTS idx_custom_pred_word ON custom_market_predictions(word_id);
 `
 
 async function main() {
