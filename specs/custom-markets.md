@@ -55,7 +55,7 @@ Bands based on YES sentiment percentage at lock time:
 
 | Route | Method | Auth | Purpose |
 |-------|--------|------|---------|
-| `/api/custom` | GET | Public | List public markets (with word_count, prediction_count) |
+| `/api/custom` | GET | Public | List public markets (with word_count, prediction_count, per-word sentiment) |
 | `/api/custom` | POST | Admin | Create market + words |
 | `/api/custom/[id]` | GET | Public | Market detail + words + sentiment |
 | `/api/custom/[id]` | PUT | Admin | Update market fields |
@@ -75,7 +75,7 @@ Admin auth: `ADMIN_WALLETS` env var (comma-separated wallet pubkeys). Same patte
 
 **`/customadmin`** — Admin page. Create form, markets table with expandable detail rows, word management, status transitions, resolution panel with per-word YES/NO + "resolve all".
 
-**`/markets`** — Modified. Filter tabs (All/Paid/Free). Custom markets appear in a "Free" section via `CustomEventCard` component with green "FREE" badge.
+**`/markets`** — Modified. Filter tabs (All/Paid/Free). "Free Prediction Markets" and "Paid Prediction Markets" section headers. Custom markets appear via `CustomEventCard` with green "FREE" badge and scrolling word sentiment list (Y/N percentages per word, matching paid card pattern). Chat on detail page is height-constrained to 500px.
 
 ## Key Files
 
@@ -104,3 +104,5 @@ These were discussed during design and the code is structured to support them:
 - **Transcript auto-resolution**: Parse `market_transcripts` for word mentions. Per-word `resolved_outcome` column supports incremental resolution.
 - **Hidden sentiment**: Conditionally hide sentiment until user has voted on a word. The `WordCard` component can gate the sentiment bar display behind a simple check.
 - **Confidence weighting**: Distribute a fixed budget across predictions instead of flat YES/NO.
+- **Sentiment-over-time chart**: Requires a `custom_market_sentiment_history` table to snapshot YES% per word on each prediction. Record on every prediction change (Option A) for accuracy, or periodic cron snapshots (Option B) for decoupling. Chart would use Recharts line chart similar to the paid market price chart.
+- **Wallet signature auth for admin**: Current admin auth trusts the wallet address in the request body without signature verification. Add nonce signing for production hardening.
