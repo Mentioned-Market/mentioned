@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   getCustomMarket,
   getCustomMarketWords,
-  getWordSentiment,
+  getWordPools,
+  getMarketTraderCount,
   updateCustomMarket,
   deleteCustomMarket,
-  getCustomMarketPredictionCount,
 } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
+import { virtualImpliedPrice } from '@/lib/virtualLmsr'
 
 export async function GET(
   _req: NextRequest,
@@ -24,13 +25,24 @@ export async function GET(
     return NextResponse.json({ error: 'Market not found' }, { status: 404 })
   }
 
-  const [words, sentiment, predictionCount] = await Promise.all([
+  const b = parseFloat(String(market.b_parameter))
+
+  const [words, pools, traderCount] = await Promise.all([
     getCustomMarketWords(marketId),
-    getWordSentiment(marketId),
-    getCustomMarketPredictionCount(marketId),
+    getWordPools(marketId),
+    getMarketTraderCount(marketId),
   ])
 
-  return NextResponse.json({ market, words, sentiment, predictionCount })
+  const poolMap = new Map(pools.map(p => [p.word_id, p]))
+  const wordsWithPrices = words.map(w => {
+    const pool = poolMap.get(w.id)
+    const yesQty = pool ? parseFloat(pool.yes_qty) : 0
+    const noQty = pool ? parseFloat(pool.no_qty) : 0
+    const prices = virtualImpliedPrice(yesQty, noQty, b)
+    return { ...w, yes_price: prices.yes, no_price: prices.no, yes_qty: yesQty, no_qty: noQty }
+  })
+
+  return NextResponse.json({ market, words: wordsWithPrices, traderCount })
 }
 
 export async function PUT(

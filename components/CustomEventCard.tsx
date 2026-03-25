@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 
-interface WordSentiment {
+interface WordPrice {
   word_id: number
   word: string
-  yes_pct: number
-  no_pct: number
+  yes_price: number
+  no_price: number
 }
 
 interface CustomMarketSummary {
@@ -18,8 +18,8 @@ interface CustomMarketSummary {
   status: string
   lock_time: string | null
   word_count: number
-  prediction_count: number
-  words_sentiment: WordSentiment[]
+  trader_count: number
+  words_prices: WordPrice[]
 }
 
 function formatCloseTime(isoTime: string): string {
@@ -37,7 +37,7 @@ function formatCloseTime(isoTime: string): string {
 
 const VISIBLE_COUNT = 5
 
-function ScrollingSentimentList({ words, marketId }: { words: WordSentiment[]; marketId: number }) {
+function ScrollingSentimentList({ words, marketId }: { words: WordPrice[]; marketId: number }) {
   const innerRef = useRef<HTMLDivElement>(null)
   const outerRef = useRef<HTMLDivElement>(null)
   const offsetRef = useRef(0)
@@ -96,8 +96,8 @@ function ScrollingSentimentList({ words, marketId }: { words: WordSentiment[]; m
             className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
           >
             <span className="text-white text-xs font-medium truncate flex-1">{w.word}</span>
-            <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">Y {w.yes_pct}%</span>
-            <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">N {w.no_pct}%</span>
+            <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">{Math.round(w.yes_price * 100)}c</span>
+            <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">{Math.round(w.no_price * 100)}c</span>
           </Link>
         ))}
       </div>
@@ -155,13 +155,13 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
         </Link>
 
         {/* Scrolling word sentiment list */}
-        {market.words_sentiment.length > 0 && (
-          <ScrollingSentimentList words={market.words_sentiment} marketId={market.id} />
+        {market.words_prices.length > 0 && (
+          <ScrollingSentimentList words={market.words_prices} marketId={market.id} />
         )}
 
         <Link href={url} className="flex items-center gap-2 pt-2 border-t border-white/5">
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-            {market.prediction_count} predictor{market.prediction_count !== 1 ? 's' : ''}
+            {market.trader_count} trader{market.trader_count !== 1 ? 's' : ''}
           </span>
           {market.lock_time && market.status === 'open' && (
             <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">

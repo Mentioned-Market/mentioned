@@ -6,14 +6,8 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import EventChat from '@/components/EventChat'
 import { useWallet } from '@/contexts/WalletContext'
-import {
-  getSentimentBand,
-  getPointsForPrediction,
-  INCORRECT_PENALTY,
-  PARTICIPATION_BONUS,
-  PARTICIPATION_THRESHOLD,
-  getStatusLabel,
-} from '@/lib/customMarketUtils'
+import { getStatusLabel } from '@/lib/customMarketUtils'
+import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
 
 // ── Types ──────────────────────────────────────────────
 
@@ -25,6 +19,8 @@ interface CustomMarket {
   stream_url: string | null
   status: string
   lock_time: string | null
+  b_parameter: number
+  play_tokens: number
   created_at: string
 }
 
@@ -33,21 +29,32 @@ interface MarketWord {
   market_id: number
   word: string
   resolved_outcome: boolean | null
+  yes_price: number
+  no_price: number
+  yes_qty: number
+  no_qty: number
 }
 
-interface Sentiment {
+interface Position {
   word_id: number
   word: string
-  yes_count: number
-  no_count: number
-  total: number
-  yes_pct: number
-  resolved_outcome: boolean | null
+  yes_shares: number
+  no_shares: number
+  tokens_spent: number
+  tokens_received: number
 }
 
-interface Prediction {
-  word_id: number
-  prediction: boolean
+interface Trade {
+  id: number
+  wallet: string
+  username: string | null
+  word: string
+  action: string
+  side: string
+  shares: number
+  cost: number
+  yes_price: number
+  created_at: string
 }
 
 // ── Helpers ────────────────────────────────────────────
@@ -77,31 +84,69 @@ function timeUntil(isoTime: string): string {
   return `${hours}h ${minutes}m`
 }
 
+function formatPrice(p: number): string {
+  return `${Math.round(p * 100)}c`
+}
+
+function formatShares(s: number): string {
+  if (s >= 1000) return `${(s / 1000).toFixed(1)}k`
+  if (s >= 100) return s.toFixed(0)
+  if (s >= 1) return s.toFixed(1)
+  return s.toFixed(2)
+}
+
 // ── Word Card Component ────────────────────────────────
 
 function WordCard({
   word,
-  sentiment,
-  userPrediction,
+  position,
   isOpen,
-  onPredict,
+  connected,
+  b,
+  balance,
+  onTrade,
   submitting,
 }: {
   word: MarketWord
-  sentiment: Sentiment | undefined
-  userPrediction: boolean | undefined
+  position: Position | undefined
   isOpen: boolean
-  onPredict: (wordId: number, prediction: boolean) => void
-  submitting: number | null
+  connected: boolean
+  b: number
+  balance: number
+  onTrade: (wordId: number, action: 'buy' | 'sell', side: 'YES' | 'NO', amount: number, amountType: 'tokens' | 'shares') => void
+  submitting: boolean
 }) {
-  const yesPct = sentiment?.yes_pct ?? 50
-  const noPct = 100 - yesPct
-  const band = getSentimentBand(yesPct)
-  const isResolved = word.resolved_outcome !== null
-  const isSubmitting = submitting === word.id
+  const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy')
+  const [side, setSide] = useState<'YES' | 'NO'>('YES')
+  const [amount, setAmount] = useState('')
 
-  const yesPoints = getPointsForPrediction(yesPct, true)
-  const noPoints = getPointsForPrediction(yesPct, false)
+  const isResolved = word.resolved_outcome !== null
+  const yesPct = Math.round(word.yes_price * 100)
+  const noPct = 100 - yesPct
+
+  const hasPosition = position && (position.yes_shares > 0 || position.no_shares > 0)
+
+  // Compute preview
+  const numAmount = parseFloat(amount) || 0
+  let previewShares = 0
+  let previewCost = 0
+
+  if (activeTab === 'buy' && numAmount > 0) {
+    previewShares = sharesForTokens(word.yes_qty, word.no_qty, side, numAmount, b)
+    previewCost = virtualBuyCost(word.yes_qty, word.no_qty, side, previewShares, b)
+  } else if (activeTab === 'sell' && numAmount > 0) {
+    previewCost = virtualSellReturn(word.yes_qty, word.no_qty, side, numAmount, b)
+  }
+
+  function handleSubmit() {
+    if (numAmount <= 0 || submitting) return
+    if (activeTab === 'buy') {
+      onTrade(word.id, 'buy', side, numAmount, 'tokens')
+    } else {
+      onTrade(word.id, 'sell', side, numAmount, 'shares')
+    }
+    setAmount('')
+  }
 
   return (
     <div className={`rounded-xl border transition-colors ${
@@ -109,88 +154,146 @@ function WordCard({
         ? word.resolved_outcome
           ? 'border-apple-green/20 bg-apple-green/5'
           : 'border-apple-red/20 bg-apple-red/5'
-        : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.04]'
+        : 'border-white/5 bg-white/[0.02]'
     }`}>
       <div className="p-4">
-        {/* Word title + resolution badge */}
+        {/* Word title + prices */}
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-semibold">{word.word}</span>
-          {isResolved && (
-            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-              word.resolved_outcome ? 'bg-apple-green/20 text-apple-green' : 'bg-apple-red/20 text-apple-red'
-            }`}>
-              {word.resolved_outcome ? 'YES' : 'NO'}
+          <div className="flex items-center gap-2">
+            {isResolved && (
+              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                word.resolved_outcome ? 'bg-apple-green/20 text-apple-green' : 'bg-apple-red/20 text-apple-red'
+              }`}>
+                {word.resolved_outcome ? 'YES' : 'NO'}
+              </span>
+            )}
+            <span className="text-xs text-neutral-400">
+              <span className="text-apple-green">{formatPrice(word.yes_price)}</span>
+              {' / '}
+              <span className="text-apple-red">{formatPrice(word.no_price)}</span>
             </span>
-          )}
-          {!isResolved && userPrediction !== undefined && (
-            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-              userPrediction ? 'bg-apple-green/20 text-apple-green' : 'bg-apple-red/20 text-apple-red'
-            }`}>
-              Your pick: {userPrediction ? 'YES' : 'NO'}
-            </span>
-          )}
+          </div>
         </div>
 
-        {/* Sentiment bar */}
+        {/* Price bar */}
         <div className="mb-3">
-          <div className="flex items-center justify-between text-[10px] text-neutral-500 mb-1">
-            <span>YES {yesPct}%</span>
-            <span>{noPct}% NO</span>
-          </div>
           <div className="h-2 rounded-full overflow-hidden bg-white/5 flex">
-            <div
-              className="bg-apple-green/60 transition-all duration-300"
-              style={{ width: `${yesPct}%` }}
-            />
-            <div
-              className="bg-apple-red/60 transition-all duration-300"
-              style={{ width: `${noPct}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-[10px] text-neutral-600 mt-1">
-            <span>{sentiment?.total ?? 0} vote{(sentiment?.total ?? 0) !== 1 ? 's' : ''}</span>
-            <span className="text-neutral-500">
-              +{yesPoints} / +{noPoints} pts
-            </span>
+            <div className="bg-apple-green/60 transition-all duration-300" style={{ width: `${yesPct}%` }} />
+            <div className="bg-apple-red/60 transition-all duration-300" style={{ width: `${noPct}%` }} />
           </div>
         </div>
 
-        {/* YES / NO buttons */}
-        {isOpen && !isResolved && (
-          <div className="grid grid-cols-2 gap-2">
+        {/* Position display (if held) */}
+        {hasPosition && (
+          <div className="flex items-center gap-3 text-[11px] text-neutral-400 mb-3 px-1">
+            {position!.yes_shares > 0 && (
+              <span className="text-apple-green">{formatShares(position!.yes_shares)} YES</span>
+            )}
+            {position!.no_shares > 0 && (
+              <span className="text-apple-red">{formatShares(position!.no_shares)} NO</span>
+            )}
+          </div>
+        )}
+
+        {/* Buy/Sell panel */}
+        {isOpen && connected && !isResolved && (
+          <div>
+            {/* Tab selector */}
+            <div className="flex gap-1 mb-2">
+              <button
+                onClick={() => { setActiveTab('buy'); setAmount('') }}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                  activeTab === 'buy' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                }`}
+              >Buy</button>
+              {hasPosition && (
+                <button
+                  onClick={() => { setActiveTab('sell'); setAmount('') }}
+                  className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                    activeTab === 'sell' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                  }`}
+                >Sell</button>
+              )}
+            </div>
+
+            {/* Side selector */}
+            <div className="grid grid-cols-2 gap-1 mb-2">
+              <button
+                onClick={() => setSide('YES')}
+                className={`py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                  side === 'YES' ? 'bg-apple-green/20 text-apple-green' : 'bg-white/5 text-neutral-400'
+                }`}
+              >YES {formatPrice(word.yes_price)}</button>
+              <button
+                onClick={() => setSide('NO')}
+                className={`py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                  side === 'NO' ? 'bg-apple-red/20 text-apple-red' : 'bg-white/5 text-neutral-400'
+                }`}
+              >NO {formatPrice(word.no_price)}</button>
+            </div>
+
+            {/* Amount input */}
+            <div className="relative mb-2">
+              <input
+                type="number"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                placeholder={activeTab === 'buy' ? 'Tokens to spend' : 'Shares to sell'}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:border-white/20 focus:outline-none"
+                min="0"
+                step="any"
+              />
+              {activeTab === 'buy' && balance > 0 && (
+                <button
+                  onClick={() => setAmount(String(Math.floor(balance)))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-apple-blue hover:text-apple-blue/80"
+                >MAX</button>
+              )}
+            </div>
+
+            {/* Preview */}
+            {numAmount > 0 && (
+              <div className="text-[11px] text-neutral-400 mb-2 px-1 space-y-0.5">
+                {activeTab === 'buy' ? (
+                  <>
+                    <div>Shares: ~{formatShares(previewShares)} {side}</div>
+                    <div>Payout if correct: {formatShares(previewShares)} tokens</div>
+                  </>
+                ) : (
+                  <div>Return: ~{previewCost.toFixed(1)} tokens</div>
+                )}
+              </div>
+            )}
+
+            {/* Submit button */}
             <button
-              onClick={() => onPredict(word.id, true)}
-              disabled={isSubmitting}
-              className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
-                userPrediction === true
-                  ? 'bg-apple-green text-white'
-                  : 'bg-white/5 text-neutral-300 hover:bg-apple-green/20 hover:text-apple-green'
-              } disabled:opacity-50`}
+              onClick={handleSubmit}
+              disabled={submitting || numAmount <= 0}
+              className={`w-full py-2 text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 ${
+                side === 'YES'
+                  ? 'bg-apple-green/20 text-apple-green hover:bg-apple-green/30'
+                  : 'bg-apple-red/20 text-apple-red hover:bg-apple-red/30'
+              }`}
             >
-              {isSubmitting ? '...' : 'YES'}
-            </button>
-            <button
-              onClick={() => onPredict(word.id, false)}
-              disabled={isSubmitting}
-              className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
-                userPrediction === false
-                  ? 'bg-apple-red text-white'
-                  : 'bg-white/5 text-neutral-300 hover:bg-apple-red/20 hover:text-apple-red'
-              } disabled:opacity-50`}
-            >
-              {isSubmitting ? '...' : 'NO'}
+              {submitting ? '...' : `${activeTab === 'buy' ? 'Buy' : 'Sell'} ${side}`}
             </button>
           </div>
         )}
 
-        {/* Resolved result for user */}
-        {isResolved && userPrediction !== undefined && (
-          <div className={`text-xs font-medium text-center py-1.5 rounded-lg ${
-            userPrediction === word.resolved_outcome
-              ? 'bg-apple-green/10 text-apple-green'
-              : 'bg-apple-red/10 text-apple-red'
-          }`}>
-            {userPrediction === word.resolved_outcome ? 'Correct!' : 'Incorrect'}
+        {/* Resolved result with payout */}
+        {isResolved && hasPosition && (
+          <div className="text-xs mt-2 space-y-1">
+            {position!.yes_shares > 0 && (
+              <div className={word.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}>
+                {formatShares(position!.yes_shares)} YES {word.resolved_outcome ? `= ${formatShares(position!.yes_shares)} tokens` : '= 0 tokens'}
+              </div>
+            )}
+            {position!.no_shares > 0 && (
+              <div className={!word.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}>
+                {formatShares(position!.no_shares)} NO {!word.resolved_outcome ? `= ${formatShares(position!.no_shares)} tokens` : '= 0 tokens'}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -198,129 +301,45 @@ function WordCard({
   )
 }
 
-// ── Potential Points Panel ─────────────────────────────
+// ── Balance Bar Component ─────────────────────────────
 
-function PotentialPointsPanel({
-  predictions,
-  sentiment,
-  words,
-  marketStatus,
-}: {
-  predictions: Prediction[]
-  sentiment: Sentiment[]
-  words: MarketWord[]
-  marketStatus: string
-}) {
-  if (predictions.length === 0) {
-    return (
-      <div className="glass rounded-xl p-4">
-        <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
-          Potential Points
-        </h3>
-        <p className="text-neutral-500 text-sm">
-          Make predictions to see your potential points
-        </p>
-      </div>
-    )
-  }
-
-  const sentimentMap = new Map(sentiment.map(s => [s.word_id, s]))
-  const wordMap = new Map(words.map(w => [w.id, w]))
-
-  let total = 0
-  const isResolved = marketStatus === 'resolved'
-
-  const breakdown = predictions.map(pred => {
-    const sent = sentimentMap.get(pred.word_id)
-    const word = wordMap.get(pred.word_id)
-    const yesPct = sent?.yes_pct ?? 50
-    const ifCorrect = getPointsForPrediction(yesPct, pred.prediction)
-    const band = getSentimentBand(yesPct)
-
-    if (isResolved && word?.resolved_outcome !== null && word?.resolved_outcome !== undefined) {
-      const correct = pred.prediction === word.resolved_outcome
-      const points = correct ? ifCorrect : -INCORRECT_PENALTY
-      total += points
-      return { wordId: pred.word_id, word: word?.word, points, correct, band: band.band }
-    }
-
-    total += ifCorrect
-    return { wordId: pred.word_id, word: word?.word, points: ifCorrect, correct: null, band: band.band }
-  })
-
-  const bonus = predictions.length >= PARTICIPATION_THRESHOLD
-  if (bonus) total += PARTICIPATION_BONUS
-  const displayTotal = Math.max(0, total)
-
+function BalanceBar({ balance, startingBalance }: { balance: number; startingBalance: number }) {
+  const pct = Math.max(0, Math.min(100, (balance / startingBalance) * 100))
   return (
-    <div className="glass rounded-xl p-4">
-      <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-        {isResolved ? 'Points Earned' : 'Potential Points'}
-      </h3>
-
-      <div className="text-2xl font-bold text-white mb-3">
-        {displayTotal} <span className="text-sm text-neutral-500 font-normal">pts</span>
+    <div className="glass rounded-xl p-4 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Play Tokens</span>
+        <span className="text-sm font-bold text-white">{Math.floor(balance)} / {startingBalance}</span>
       </div>
-
-      <div className="space-y-1.5 mb-3">
-        {breakdown.map(b => (
-          <div key={b.wordId} className="flex items-center justify-between text-xs">
-            <span className="text-neutral-400 truncate mr-2">{b.word}</span>
-            <span className={
-              b.correct === true ? 'text-apple-green font-medium' :
-              b.correct === false ? 'text-apple-red font-medium' :
-              'text-neutral-300'
-            }>
-              {b.points > 0 ? '+' : ''}{b.points}
-              <span className="text-neutral-600 ml-1">({b.band})</span>
-            </span>
-          </div>
-        ))}
+      <div className="h-2 rounded-full overflow-hidden bg-white/5">
+        <div
+          className="h-full bg-apple-blue/60 transition-all duration-300 rounded-full"
+          style={{ width: `${pct}%` }}
+        />
       </div>
-
-      {bonus && (
-        <div className="text-xs text-apple-blue flex items-center justify-between border-t border-white/5 pt-2">
-          <span>4+ predictions bonus</span>
-          <span>+{PARTICIPATION_BONUS}</span>
-        </div>
-      )}
-
-      {!isResolved && (
-        <p className="text-[10px] text-neutral-600 mt-2">
-          Points shown assume all predictions are correct. Wrong answers deduct {INCORRECT_PENALTY} pts each. Floor: 0.
-        </p>
-      )}
     </div>
   )
 }
 
-// ── Sentiment Chart ────────────────────────────────────
+// ── Trade Feed Component ──────────────────────────────
 
-function SentimentChart({ sentiment }: { sentiment: Sentiment[] }) {
-  if (sentiment.length === 0) return null
-
+function TradeFeed({ trades }: { trades: Trade[] }) {
+  if (trades.length === 0) return null
   return (
     <div className="glass rounded-xl p-4">
-      <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-        Crowd Sentiment
-      </h3>
-      <div className="space-y-2">
-        {sentiment.map(s => (
-          <div key={s.word_id}>
-            <div className="flex items-center justify-between text-xs mb-0.5">
-              <span className="text-neutral-300 truncate mr-2">{s.word}</span>
-              <span className="text-neutral-500 tabular-nums">{s.yes_pct}% YES</span>
-            </div>
-            <div className="h-1.5 rounded-full overflow-hidden bg-white/5 flex">
-              <div
-                className="bg-apple-green/50 transition-all duration-300"
-                style={{ width: `${s.yes_pct}%` }}
-              />
-              <div
-                className="bg-apple-red/50 transition-all duration-300"
-                style={{ width: `${100 - s.yes_pct}%` }}
-              />
-            </div>
+      <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Recent Trades</h3>
+      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+        {trades.map(t => (
+          <div key={t.id} className="flex items-center justify-between text-[11px]">
+            <span className="text-neutral-400 truncate mr-2">
+              <span className="text-neutral-300">{t.username || t.wallet.slice(0, 6)}</span>
+              {' '}{t.action === 'buy' ? 'bought' : 'sold'}{' '}
+              <span className={t.side === 'YES' ? 'text-apple-green' : 'text-apple-red'}>
+                {formatShares(t.shares)} {t.side}
+              </span>
+              {' on '}{t.word}
+            </span>
+            <span className="text-neutral-600 shrink-0">{formatPrice(t.yes_price)}</span>
           </div>
         ))}
       </div>
@@ -338,12 +357,14 @@ export default function CustomMarketPage() {
 
   const [market, setMarket] = useState<CustomMarket | null>(null)
   const [words, setWords] = useState<MarketWord[]>([])
-  const [sentiment, setSentiment] = useState<Sentiment[]>([])
-  const [predictions, setPredictions] = useState<Prediction[]>([])
-  const [predictionCount, setPredictionCount] = useState(0)
+  const [positions, setPositions] = useState<Position[]>([])
+  const [balance, setBalance] = useState(1000)
+  const [startingBalance, setStartingBalance] = useState(1000)
+  const [traderCount, setTraderCount] = useState(0)
+  const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState<number | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const [streamHidden, setStreamHidden] = useState(false)
 
   // Fetch market data
@@ -354,8 +375,7 @@ export default function CustomMarketPage() {
       const data = await res.json()
       setMarket(data.market)
       setWords(data.words)
-      setSentiment(data.sentiment)
-      setPredictionCount(data.predictionCount)
+      setTraderCount(data.traderCount)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -363,74 +383,95 @@ export default function CustomMarketPage() {
     }
   }, [marketId])
 
-  // Fetch user predictions
-  const fetchPredictions = useCallback(async () => {
+  // Fetch user positions + balance
+  const fetchPositions = useCallback(async () => {
     if (!publicKey) return
     try {
-      const res = await fetch(`/api/custom/${marketId}/predictions?wallet=${publicKey}`)
+      const res = await fetch(`/api/custom/${marketId}/positions?wallet=${publicKey}`)
       const data = await res.json()
-      setPredictions(data.predictions || [])
+      setPositions(data.positions || [])
+      setBalance(data.balance)
+      setStartingBalance(data.starting_balance)
     } catch { /* ignore */ }
   }, [marketId, publicKey])
 
-  // Fetch sentiment only (for polling)
-  const fetchSentiment = useCallback(async () => {
+  // Fetch prices (sentiment endpoint) for polling
+  const fetchPrices = useCallback(async () => {
     try {
       const res = await fetch(`/api/custom/${marketId}/sentiment`)
       const data = await res.json()
-      setSentiment(data.sentiment)
+      if (data.words) {
+        setWords(prev => prev.map(w => {
+          const updated = data.words.find((d: any) => d.word_id === w.id)
+          if (!updated) return w
+          return { ...w, yes_price: updated.yes_price, no_price: updated.no_price, yes_qty: updated.yes_qty, no_qty: updated.no_qty }
+        }))
+      }
+    } catch { /* ignore */ }
+  }, [marketId])
+
+  // Fetch recent trades
+  const fetchTrades = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/custom/${marketId}/trades?limit=20`)
+      const data = await res.json()
+      setTrades(data.trades || [])
     } catch { /* ignore */ }
   }, [marketId])
 
   useEffect(() => { fetchMarket() }, [fetchMarket])
-  useEffect(() => { fetchPredictions() }, [fetchPredictions])
+  useEffect(() => { fetchPositions() }, [fetchPositions])
+  useEffect(() => { fetchTrades() }, [fetchTrades])
 
-  // Poll sentiment when market is open
+  // Poll prices when market is open
   useEffect(() => {
     if (!market || market.status !== 'open') return
-    const interval = setInterval(fetchSentiment, 10000)
+    const interval = setInterval(() => { fetchPrices(); fetchTrades() }, 10000)
     return () => clearInterval(interval)
-  }, [market?.status, fetchSentiment])
+  }, [market?.status, fetchPrices, fetchTrades])
 
-  async function handlePredict(wordId: number, prediction: boolean) {
+  async function handleTrade(wordId: number, action: 'buy' | 'sell', side: 'YES' | 'NO', amount: number, amountType: 'tokens' | 'shares') {
     if (!publicKey || !market) return
-    setSubmitting(wordId)
-
-    // Optimistic update
-    setPredictions(prev => {
-      const existing = prev.findIndex(p => p.word_id === wordId)
-      if (existing >= 0) {
-        const updated = [...prev]
-        updated[existing] = { ...updated[existing], prediction }
-        return updated
-      }
-      return [...prev, { word_id: wordId, prediction }]
-    })
+    setSubmitting(true)
 
     try {
-      const res = await fetch(`/api/custom/${marketId}/predict`, {
+      const res = await fetch(`/api/custom/${marketId}/trade`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: publicKey, wordId, prediction }),
+        body: JSON.stringify({ wallet: publicKey, word_id: wordId, action, side, amount, amount_type: amountType }),
       })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error)
       }
-      // Refresh sentiment after prediction
-      fetchSentiment()
+      const result = await res.json()
+
+      // Update balance immediately from trade result for responsive UI
+      setBalance(result.new_balance)
+
+      // Refresh all server state to stay in sync
+      fetchPrices()
+      fetchPositions()
+      fetchTrades()
     } catch (err: any) {
-      // Revert optimistic update on error
-      fetchPredictions()
-      console.error('Prediction error:', err.message)
+      console.error('Trade error:', err.message)
     } finally {
-      setSubmitting(null)
+      setSubmitting(false)
     }
   }
 
   const isOpen = market?.status === 'open' && (!market.lock_time || new Date(market.lock_time) > new Date())
-  const predictionMap = new Map(predictions.map(p => [p.word_id, p.prediction]))
+  const b = market?.b_parameter ?? 500
   const streamEmbedUrl = market?.stream_url ? toEmbedUrl(market.stream_url) : null
+  const positionMap = new Map(positions.map(p => [p.word_id, p]))
+
+  // Compute total profit for resolved markets
+  let totalProfit = 0
+  if (market?.status === 'resolved' && positions.length > 0) {
+    const totalSpent = positions.reduce((s, p) => s + p.tokens_spent, 0)
+    const totalReceived = positions.reduce((s, p) => s + p.tokens_received, 0)
+    totalProfit = totalReceived - totalSpent
+  }
 
   if (loading) {
     return (
@@ -494,13 +535,32 @@ export default function CustomMarketPage() {
               )}
               <div className="flex items-center gap-4 mt-2 text-xs text-neutral-500">
                 <span>{words.length} words</span>
-                <span>{predictionCount} predictor{predictionCount !== 1 ? 's' : ''}</span>
+                <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
                 {market.lock_time && isOpen && (
                   <span>Locks in {timeUntil(market.lock_time)}</span>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Resolved summary */}
+          {market.status === 'resolved' && positions.length > 0 && (
+            <div className={`glass rounded-xl p-4 mb-4 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-neutral-400">Your Result</span>
+                <div className="text-right">
+                  <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                    {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
+                  </div>
+                  {totalProfit > 0 && (
+                    <div className="text-xs text-neutral-500">
+                      = {Math.floor(totalProfit * 0.5)} platform points
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Stream embed */}
           {streamEmbedUrl && !streamHidden && (
@@ -510,9 +570,7 @@ export default function CustomMarketPage() {
                 <button
                   onClick={() => setStreamHidden(true)}
                   className="text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
-                >
-                  Hide
-                </button>
+                >Hide</button>
               </div>
               <div className="relative w-full rounded-xl overflow-hidden border border-white/5" style={{ paddingBottom: '56.25%' }}>
                 <iframe
@@ -527,54 +585,52 @@ export default function CustomMarketPage() {
 
           {/* Main content: two-column layout */}
           <div className="flex flex-col lg:flex-row gap-6">
-            {/* Left column: Words + Chart */}
+            {/* Left column: Balance + Words */}
             <div className="flex-1 min-w-0 space-y-6">
+              {/* Balance bar */}
+              {connected && (
+                <BalanceBar balance={balance} startingBalance={startingBalance} />
+              )}
+
               {/* Connect wallet prompt */}
               {!connected && isOpen && (
                 <div className="glass rounded-xl p-4 text-center">
-                  <p className="text-neutral-400 text-sm mb-3">Connect your wallet to make predictions</p>
+                  <p className="text-neutral-400 text-sm mb-3">Connect your wallet to start trading</p>
                   <button
                     onClick={connect}
                     className="px-5 py-2.5 bg-apple-blue text-white text-sm font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors"
-                  >
-                    Connect Wallet
-                  </button>
+                  >Connect Wallet</button>
                 </div>
               )}
 
               {/* Word grid */}
               <div>
                 <h2 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-                  Predictions {isOpen ? '' : market.status === 'locked' ? '(Locked)' : market.status === 'resolved' ? '(Resolved)' : ''}
+                  Markets {isOpen ? '' : market.status === 'locked' ? '(Locked)' : market.status === 'resolved' ? '(Resolved)' : ''}
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {words.map(word => (
                     <WordCard
                       key={word.id}
                       word={word}
-                      sentiment={sentiment.find(s => s.word_id === word.id)}
-                      userPrediction={predictionMap.get(word.id)}
+                      position={positionMap.get(word.id)}
                       isOpen={isOpen && connected}
-                      onPredict={handlePredict}
+                      connected={connected}
+                      b={b}
+                      balance={balance}
+                      onTrade={handleTrade}
                       submitting={submitting}
                     />
                   ))}
                 </div>
               </div>
 
-              {/* Sentiment chart */}
-              <SentimentChart sentiment={sentiment} />
+              {/* Trade feed */}
+              <TradeFeed trades={trades} />
             </div>
 
-            {/* Right column: Points + Chat */}
+            {/* Right column: Chat */}
             <div className="w-full lg:w-80 xl:w-96 space-y-4 flex-shrink-0">
-              <PotentialPointsPanel
-                predictions={predictions}
-                sentiment={sentiment}
-                words={words}
-                marketStatus={market.status}
-              />
-
               <div className="h-[500px]">
                 <EventChat
                   eventId={`custom_${marketId}`}
