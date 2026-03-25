@@ -24,6 +24,8 @@ export default function CustomAdminPage() {
   const [coverImageUrl, setCoverImageUrl] = useState('')
   const [streamUrl, setStreamUrl] = useState('')
   const [lockTime, setLockTime] = useState('')
+  const [bParameter, setBParameter] = useState('500')
+  const [playTokens, setPlayTokens] = useState('1000')
   const [wordsInput, setWordsInput] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -97,6 +99,8 @@ export default function CustomAdminPage() {
           coverImageUrl: coverImageUrl.trim() || undefined,
           streamUrl: streamUrl.trim() || undefined,
           lockTime: lockTime || undefined,
+          bParameter: parseFloat(bParameter) || 500,
+          playTokens: parseInt(playTokens) || 1000,
           words: words.length > 0 ? words : undefined,
         }),
       })
@@ -108,6 +112,8 @@ export default function CustomAdminPage() {
       setCoverImageUrl('')
       setStreamUrl('')
       setLockTime('')
+      setBParameter('500')
+      setPlayTokens('1000')
       setWordsInput('')
       fetchMarkets()
     } catch (err: any) {
@@ -293,6 +299,37 @@ export default function CustomAdminPage() {
                 onChange={e => setLockTime(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
               />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div>
+                <input
+                  type="number"
+                  placeholder="b Parameter (default: 500)"
+                  value={bParameter}
+                  onChange={e => setBParameter(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                  min="10"
+                  max="10000"
+                />
+                <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                  Price sensitivity. Lower = more volatile. For 10 users: 500. For 50 users: 1500.
+                </p>
+              </div>
+              <div>
+                <input
+                  type="number"
+                  placeholder="Play Tokens (default: 1000)"
+                  value={playTokens}
+                  onChange={e => setPlayTokens(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                  min="100"
+                  max="10000"
+                />
+                <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                  Starting tokens per user. Higher = more trades possible.
+                </p>
+              </div>
             </div>
 
             <textarea

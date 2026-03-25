@@ -25,13 +25,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { wallet, title, description, coverImageUrl, streamUrl, lockTime, words } = body as {
+  const { wallet, title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words } = body as {
     wallet?: string
     title?: string
     description?: string
     coverImageUrl?: string
     streamUrl?: string
     lockTime?: string
+    bParameter?: number
+    playTokens?: number
     words?: string[]
   }
 
@@ -42,12 +44,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
   }
 
+  const b = bParameter ?? 500
+  if (typeof b !== 'number' || b < 10 || b > 10000) {
+    return NextResponse.json({ error: 'bParameter must be between 10 and 10000' }, { status: 400 })
+  }
+  const tokens = playTokens ?? 1000
+  if (typeof tokens !== 'number' || tokens < 100 || tokens > 10000) {
+    return NextResponse.json({ error: 'playTokens must be between 100 and 10000' }, { status: 400 })
+  }
+
   const market = await createCustomMarket(
     title,
     description ?? null,
     coverImageUrl ?? null,
     streamUrl ?? null,
     lockTime ?? null,
+    b,
+    tokens,
   )
 
   let marketWords: any[] = []

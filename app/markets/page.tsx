@@ -264,8 +264,8 @@ interface CustomMarketSummary {
   status: string
   lock_time: string | null
   word_count: number
-  prediction_count: number
-  words_sentiment: { word_id: number; word: string; yes_pct: number; no_pct: number }[]
+  trader_count: number
+  words_prices: { word_id: number; word: string; yes_price: number; no_price: number }[]
 }
 
 type MarketFilter = 'all' | 'paid' | 'free'

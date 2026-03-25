@@ -6,7 +6,7 @@ import {
   updateCustomMarketStatus,
 } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
-import { resolveAndScoreMarket } from '@/lib/customScoring'
+import { resolveWordPositions, resolveAndScoreVirtualMarket } from '@/lib/customScoring'
 
 export async function POST(
   req: NextRequest,
@@ -44,6 +44,11 @@ export async function POST(
 
   await resolveCustomMarketWords(marketId, resolutions)
 
+  // Compute payouts for each resolved word
+  for (const { wordId, outcome } of resolutions) {
+    await resolveWordPositions(marketId, wordId, outcome ? 'YES' : 'NO')
+  }
+
   // Check if all words are now resolved
   const words = await getCustomMarketWords(marketId)
   const allResolved = words.every(w => w.resolved_outcome !== null)
@@ -53,9 +58,9 @@ export async function POST(
     const updated = await updateCustomMarketStatus(marketId, 'resolved', 'locked')
     if (updated) {
       // Fire-and-forget scoring (idempotent via point_events dedup)
-      resolveAndScoreMarket(marketId)
-        .then(results => {
-          console.log(`Scored custom market ${marketId}: ${results.length} participants`)
+      resolveAndScoreVirtualMarket(marketId)
+        .then(() => {
+          console.log(`Scored virtual market ${marketId}`)
         })
         .catch(err => console.error(`Scoring error for market ${marketId}:`, err))
     }
