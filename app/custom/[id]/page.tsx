@@ -209,7 +209,8 @@ export default function CustomMarketPage() {
 
   // ── Derived data ────────────────────────────────────
 
-  const isOpen = market?.status === 'open' && (!market.lock_time || new Date(market.lock_time) > new Date())
+  const isOpen = market?.status === 'open'
+  const lockTimePassed = market?.lock_time ? new Date(market.lock_time) <= new Date() : false
   const b = market?.b_parameter ?? 500
   const selectedWord = words.find(w => w.id === selectedWordId) || words[0]
   const positionMap = new Map(positions.map(p => [p.word_id, p]))
@@ -625,7 +626,7 @@ export default function CustomMarketPage() {
                 <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
                 <span className="text-neutral-700">·</span>
                 <span>{words.length} words</span>
-                {market.lock_time && isOpen && (
+                {market.lock_time && isOpen && !lockTimePassed && (
                   <>
                     <span className="text-neutral-700">·</span>
                     <span>Locks {formatCloseTime(market.lock_time)}</span>
