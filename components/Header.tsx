@@ -1,6 +1,7 @@
 'use client'
 
 import { useWallet } from '@/contexts/WalletContext'
+import ConnectModal from '@/components/ConnectModal'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
@@ -43,6 +44,7 @@ export default function Header() {
   }, [dropdownOpen])
 
   return (
+    <>
     <header className="flex items-center justify-between py-3 md:py-5 backdrop-blur-xl bg-black/30 sticky top-0 z-50 -mx-4 md:-mx-10 lg:-mx-20 px-4 md:px-10 lg:px-20 border-b border-white/10">
       <div className="flex items-center gap-4 md:gap-6">
         <Link href="/" className="flex items-center text-white hover:opacity-70 transition-opacity duration-300 flex-shrink-0" aria-label="Mentioned - Home">
@@ -137,5 +139,7 @@ export default function Header() {
         )}
       </div>
     </header>
+    <ConnectModal />
+    </>
   )
 }

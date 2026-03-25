@@ -652,7 +652,7 @@ export default function AdminPage() {
         {!connected ? (
           <div className="text-center py-24 text-neutral-500">
             <p className="text-xl">
-              Connect your Phantom wallet to get started
+              Connect your wallet to get started
             </p>
             <p className="text-sm mt-2">
               Make sure you have SOL on Devnet

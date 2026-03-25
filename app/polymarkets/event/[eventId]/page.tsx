@@ -10,6 +10,7 @@ import EventChat from '@/components/EventChat'
 import EventPriceChart from '@/components/EventPriceChart'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
+import { signAndSendTx } from '@/lib/walletUtils'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -247,7 +248,7 @@ export default function PolymarketEventPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const eventId = params.eventId as string
-  const { connected, connect, publicKey } = useWallet()
+  const { connected, connect, publicKey, walletType } = useWallet()
   const { showAchievementToast } = useAchievements()
 
   // Data state
@@ -430,25 +431,7 @@ export default function PolymarketEventPage() {
       if (!data.transaction) throw new Error('No transaction returned')
 
       // Sign & send
-      const { getWallets } = await import('@wallet-standard/app')
-      const wallets = getWallets().get()
-      const wallet = wallets.find(w => w.name === 'Phantom')
-      if (!wallet) throw new Error('Phantom wallet not found')
-
-      const account = wallet.accounts.find(a => a.address === publicKey)
-      if (!account) throw new Error('Wallet account not found')
-
-      const signAndSend = wallet.features['solana:signAndSendTransaction'] as {
-        signAndSendTransaction(
-          ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
-        ): Promise<Array<{ signature: Uint8Array }>>
-      }
-
-      const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0))
-      const chain = account.chains.find(c => c.startsWith('solana:')) || 'solana:mainnet-beta'
-
-      const [result] = await signAndSend.signAndSendTransaction({ transaction: txBytes, account, chain })
-      const sig = Array.from(result.signature).map(b => b.toString(16).padStart(2, '0')).join('')
+      const sig = await signAndSendTx(data.transaction, publicKey, walletType!)
 
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
@@ -551,40 +534,12 @@ export default function PolymarketEventPage() {
         throw new Error('No transaction returned from order creation')
       }
 
-      // 2. Sign & send via Wallet Standard
+      // 2. Sign & send
       setTradingPhase('signing')
 
-      const { getWallets } = await import('@wallet-standard/app')
-      const wallets = getWallets().get()
-      const wallet = wallets.find(w => w.name === 'Phantom')
-      if (!wallet) throw new Error('Phantom wallet not found')
-
-      const account = wallet.accounts.find(a => a.address === publicKey)
-      if (!account) throw new Error('Wallet account not found')
-
-      const signAndSend = wallet.features['solana:signAndSendTransaction'] as {
-        signAndSendTransaction(
-          ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
-        ): Promise<Array<{ signature: Uint8Array }>>
-      }
-
-      // Decode the base64 transaction into bytes
-      const txBytes = Uint8Array.from(atob(orderData.transaction), c => c.charCodeAt(0))
-
-      // Use whichever solana chain the account supports (mainnet)
-      const chain = account.chains.find(c => c.startsWith('solana:')) || 'solana:mainnet-beta'
-
-      const [result] = await signAndSend.signAndSendTransaction({
-        transaction: txBytes,
-        account,
-        chain,
-      })
+      const sig = await signAndSendTx(orderData.transaction, publicKey, walletType!)
 
       setTradingPhase('confirming')
-
-      const sig = Array.from(result.signature)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('')
 
       setTradeStatus({
         msg: `Order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`,
