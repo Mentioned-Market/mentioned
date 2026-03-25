@@ -269,13 +269,40 @@ export default function CustomMarketPage() {
     }))
   }, [words])
 
-  // Total profit for resolved markets
+  // Total profit for resolved markets (final, based on actual payouts)
   const totalProfit = useMemo(() => {
     if (market?.status !== 'resolved' || positions.length === 0) return 0
     const totalSpent = positions.reduce((s, p) => s + p.tokens_spent, 0)
     const totalReceived = positions.reduce((s, p) => s + p.tokens_received, 0)
     return totalReceived - totalSpent
   }, [market?.status, positions])
+
+  // Current unrealised profit (for active/locked markets — values shares at current price)
+  const currentProfit = useMemo(() => {
+    if (positions.length === 0) return { spent: 0, received: 0, unrealised: 0, total: 0 }
+    const wordMap = new Map(words.map(w => [w.id, w]))
+    let totalSpent = 0
+    let totalReceived = 0
+    let unrealisedValue = 0
+
+    for (const pos of positions) {
+      totalSpent += pos.tokens_spent
+      totalReceived += pos.tokens_received
+      const word = wordMap.get(pos.word_id)
+      if (word) {
+        // Value shares at current implied price (what they'd be worth if sold now via LMSR)
+        if (pos.yes_shares > 0) {
+          unrealisedValue += virtualSellReturn(word.yes_qty, word.no_qty, 'YES', pos.yes_shares, b)
+        }
+        if (pos.no_shares > 0) {
+          unrealisedValue += virtualSellReturn(word.yes_qty, word.no_qty, 'NO', pos.no_shares, b)
+        }
+      }
+    }
+
+    const total = totalReceived + unrealisedValue - totalSpent
+    return { spent: totalSpent, received: totalReceived, unrealised: unrealisedValue, total }
+  }, [positions, words, b])
 
   // ── Handlers ────────────────────────────────────────
 
@@ -349,6 +376,37 @@ export default function CustomMarketPage() {
           <p className="text-[10px] text-neutral-600 mt-2">
             Profit from trades converts to platform points at 0.5x. Buy low, sell high, or hold until resolution.
           </p>
+        </div>
+      )}
+
+      {/* Current profit summary */}
+      {connected && positions.length > 0 && market?.status !== 'resolved' && (
+        <div className="mb-4 pb-4 border-b border-white/10">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Current P&L</span>
+            <span className={`text-sm font-bold ${currentProfit.total >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+              {currentProfit.total >= 0 ? '+' : ''}{currentProfit.total.toFixed(1)} tokens
+            </span>
+          </div>
+          <div className="space-y-0.5 text-[11px]">
+            <div className="flex justify-between text-neutral-500">
+              <span>Spent</span>
+              <span>{currentProfit.spent.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between text-neutral-500">
+              <span>Realised (from sells)</span>
+              <span>{currentProfit.received.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between text-neutral-500">
+              <span>Unrealised (if sold now)</span>
+              <span>{currentProfit.unrealised.toFixed(1)}</span>
+            </div>
+          </div>
+          {currentProfit.total > 0 && (
+            <div className="mt-1.5 text-[11px] text-apple-blue font-medium">
+              = {Math.floor(currentProfit.total * VIRTUAL_MARKET_POINTS_MULTIPLIER)} points if resolved now
+            </div>
+          )}
         </div>
       )}
 
