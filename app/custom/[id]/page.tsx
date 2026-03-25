@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import EventChat from '@/components/EventChat'
-import MarketChart from '@/components/MarketChart'
+import EventPriceChart from '@/components/EventPriceChart'
 import FlashValue from '@/components/FlashValue'
 import { useWallet } from '@/contexts/WalletContext'
 import { getStatusLabel } from '@/lib/customMarketUtils'
@@ -237,29 +237,37 @@ export default function CustomMarketPage() {
     }
   }, [selectedWord, amountNum, tradeMode, side, b])
 
-  // Chart series from chart data
-  const chartColors = ['#34C759', '#007AFF', '#FF9500', '#FF3B30', '#AF52DE', '#5AC8FA', '#FF9F0A']
-  const chartSeries = useMemo(() => {
-    return chartData.map((cw, i) => {
+  // Chart series for EventPriceChart (uses { t: epoch_seconds, p: price } format)
+  const chartSeriesForChart = useMemo(() => {
+    return chartData.map((cw) => {
       const word = words.find(w => w.id === cw.word_id)
       const currentPrice = word?.yes_price ?? 0.5
       const data = cw.history.length > 0
-        ? cw.history.map(h => ({ timestamp: new Date(h.t).getTime(), price: h.yes }))
-        : [{ timestamp: Date.now() - 3600000, price: 0.5 }, { timestamp: Date.now(), price: currentPrice }]
+        ? cw.history.map(h => ({ t: Math.floor(new Date(h.t).getTime() / 1000), p: h.yes }))
+        : [{ t: Math.floor((Date.now() - 3600000) / 1000), p: 0.5 }]
 
       // Extend to now with current price if market is active
-      if (data.length > 0 && market?.status !== 'resolved') {
-        data.push({ timestamp: Date.now(), price: currentPrice })
+      if (market?.status !== 'resolved') {
+        data.push({ t: Math.floor(Date.now() / 1000), p: currentPrice })
       }
 
       return {
-        label: cw.word,
-        color: chartColors[i % chartColors.length],
-        data,
+        marketId: String(cw.word_id),
+        title: cw.word,
         currentPrice,
+        data,
       }
     })
   }, [chartData, words, market?.status])
+
+  // Markets list for EventPriceChart props
+  const chartMarkets = useMemo(() => {
+    return words.map(w => ({
+      marketId: String(w.id),
+      title: w.word,
+      currentPrice: w.yes_price,
+    }))
+  }, [words])
 
   // Total profit for resolved markets
   const totalProfit = useMemo(() => {
@@ -325,7 +333,7 @@ export default function CustomMarketPage() {
 
   const tradingPanel = selectedWord ? (
     <>
-      {/* Balance bar */}
+      {/* Balance bar + points info */}
       {connected && (
         <div className="mb-4 pb-4 border-b border-white/10">
           <div className="flex items-center justify-between mb-1.5">
@@ -338,6 +346,9 @@ export default function CustomMarketPage() {
               style={{ width: `${Math.max(0, Math.min(100, (balance / startingBalance) * 100))}%` }}
             />
           </div>
+          <p className="text-[10px] text-neutral-600 mt-2">
+            Profit from trades converts to platform points at 0.5x. Buy low, sell high, or hold until resolution.
+          </p>
         </div>
       )}
 
@@ -436,6 +447,10 @@ export default function CustomMarketPage() {
           <div className="flex justify-between">
             <span className="text-neutral-400">Profit</span>
             <span className="text-apple-green font-semibold">+{preview.profit.toFixed(1)} tokens</span>
+          </div>
+          <div className="flex justify-between pt-1 border-t border-white/5">
+            <span className="text-neutral-400">Points earned</span>
+            <span className="text-apple-blue font-semibold">+{Math.floor(preview.profit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} pts</span>
           </div>
         </div>
       )}
@@ -690,14 +705,15 @@ export default function CustomMarketPage() {
                 </button>
               )}
 
-              {/* Price chart */}
-              {chartSeries.length > 0 && (
+              {/* Price chart — matches polymarket event chart with legend + timeframes */}
+              {chartMarkets.length > 0 && (
                 <div className="mb-5">
-                  <div className="glass rounded-2xl overflow-hidden">
-                    <div className="h-[240px] md:h-[320px] p-2">
-                      <MarketChart series={chartSeries} />
-                    </div>
-                  </div>
+                  <EventPriceChart
+                    eventId={`custom_${marketId}`}
+                    markets={chartMarkets}
+                    selectedMarketId={selectedWordId ? String(selectedWordId) : null}
+                    preloadedSeries={chartSeriesForChart.length > 0 ? chartSeriesForChart : undefined}
+                  />
                 </div>
               )}
 
