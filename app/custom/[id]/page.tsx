@@ -100,6 +100,61 @@ function formatCloseTime(isoTime: string): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
+// ── How It Works Tooltip ───────────────────────────────
+
+function HowItWorks() {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative mb-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-300 transition-colors"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        <span>How does this work?</span>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-neutral-900 border border-white/10 rounded-xl p-4 shadow-xl animate-scale-in">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-white">Free Prediction Market</span>
+              <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-2 text-[11px] text-neutral-400 leading-relaxed">
+              <p>
+                <span className="text-white font-medium">You start with play tokens</span> — virtual currency to practice trading. No real money involved.
+              </p>
+              <p>
+                <span className="text-white font-medium">Buy YES or NO shares</span> on words you think will (or won&apos;t) be mentioned. Prices move as people trade — buy early for better prices.
+              </p>
+              <p>
+                <span className="text-white font-medium">When the market resolves</span>, correct shares pay out 1 token each. Wrong shares pay nothing.
+              </p>
+              <p>
+                <span className="text-white font-medium">Your profit earns points</span> — every token of profit converts to 0.5 platform points. Unspent tokens don&apos;t count.
+              </p>
+              <p className="text-neutral-500">
+                This works exactly like the real mention markets on Mentioned, just with play tokens instead of SOL.
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────
 
 export default function CustomMarketPage() {
@@ -409,6 +464,9 @@ export default function CustomMarketPage() {
           )}
         </div>
       )}
+
+      {/* How it works */}
+      <HowItWorks />
 
       {/* Selected word label */}
       <div className="mb-4">
