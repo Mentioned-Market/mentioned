@@ -13,12 +13,17 @@ import { getWallets } from '@wallet-standard/app'
 import type { Wallet, WalletAccount } from '@wallet-standard/base'
 import {
   address as toAddress,
-  type Address,
   type TransactionSendingSigner,
   createSolanaRpc,
   mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
+import { usePrivy } from '@privy-io/react-auth'
+import {
+  useWallets as usePrivySolanaWallets,
+  useSignAndSendTransaction,
+} from '@privy-io/react-auth/solana'
+import { setPrivySolanaProvider } from '@/lib/walletUtils'
 
 const MAINNET_URL = 'https://api.mainnet-beta.solana.com'
 const SOLANA_CHAIN = 'solana:mainnet-beta'
@@ -41,7 +46,10 @@ interface DisconnectFeature {
 }
 
 interface EventsFeature {
-  on(event: 'change', listener: (props: { accounts?: readonly WalletAccount[] }) => void): () => void
+  on(
+    event: 'change',
+    listener: (props: { accounts?: readonly WalletAccount[] }) => void
+  ): () => void
 }
 
 interface SignAndSendFeature {
@@ -55,17 +63,19 @@ interface SignAndSendFeature {
 }
 
 interface WalletContextType {
-  /** Wallet address as a string (backward-compat: has .toString()) */
   publicKey: string | null
-  /** SOL balance (number) */
   balance: number | null
-  connect: () => Promise<void>
+  connect: () => void
   disconnect: () => void
   connected: boolean
-  /** Kit v2 TransactionSendingSigner for transaction signing */
   signer: TransactionSendingSigner | null
   mode: 'normal' | 'pro'
   setMode: (mode: 'normal' | 'pro') => void
+  walletType: 'phantom' | 'privy' | null
+  showConnectModal: boolean
+  setShowConnectModal: (show: boolean) => void
+  connectPhantom: () => Promise<void>
+  connectPrivy: () => void
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -84,7 +94,7 @@ function findPhantomWallet(wallets: readonly Wallet[]): Wallet | null {
   )
 }
 
-function buildSigner(
+function buildPhantomSigner(
   wallet: Wallet,
   account: WalletAccount
 ): TransactionSendingSigner {
@@ -101,7 +111,6 @@ function buildSigner(
       }))
 
       const results = await feature.signAndSendTransaction(...inputs)
-      // SignatureBytes is a branded Uint8Array — safe to cast
       return results.map((r) => r.signature) as any
     },
   }
@@ -115,17 +124,45 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false)
   const [signer, setSigner] = useState<TransactionSendingSigner | null>(null)
   const [mode, setMode] = useState<'normal' | 'pro'>('normal')
+  const [walletType, setWalletType] = useState<'phantom' | 'privy' | null>(
+    null
+  )
+  const [showConnectModal, setShowConnectModal] = useState(false)
 
   const walletRef = useRef<Wallet | null>(null)
   const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
+  // Prevent Privy sync effect from re-connecting after explicit disconnect
+  const disconnectingRef = useRef(false)
 
-  // Apply connected account state
-  const applyAccount = useCallback(
+  // Privy hooks
+  const {
+    login: privyLogin,
+    logout: privyLogout,
+    authenticated: privyAuthenticated,
+    ready: privyReady,
+  } = usePrivy()
+  const { wallets: privySolanaWallets, ready: privySolanaReady } = usePrivySolanaWallets()
+  const { signAndSendTransaction: privySignAndSend } =
+    useSignAndSendTransaction()
+
+  // Store a ref to the Privy signAndSendTransaction so we can use it in the signer
+  const privySignAndSendRef = useRef(privySignAndSend)
+  useEffect(() => {
+    privySignAndSendRef.current = privySignAndSend
+  }, [privySignAndSend])
+
+  // Store a ref to the Privy wallet for the signer
+  const privyWalletRef = useRef<any>(null)
+
+  // ── Phantom logic ──────────────────────────────────────
+
+  const applyPhantomAccount = useCallback(
     (wallet: Wallet, account: WalletAccount) => {
       walletRef.current = wallet
       setPubkey(account.address)
       setConnected(true)
-      setSigner(buildSigner(wallet, account))
+      setSigner(buildPhantomSigner(wallet, account))
+      setWalletType('phantom')
     },
     []
   )
@@ -135,53 +172,55 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setBalance(null)
     setConnected(false)
     setSigner(null)
+    setWalletType(null)
+    privyWalletRef.current = null
   }, [])
 
-  // Detect wallet on mount
+  // Detect Phantom wallet on mount (auto-reconnect)
   useEffect(() => {
     if (typeof window === 'undefined') return
+    if (walletType === 'privy') return
 
     const { get, on } = getWallets()
 
     const setup = (wallet: Wallet) => {
       walletRef.current = wallet
 
-      // Auto-reconnect if wallet already has accounts (trusted connection)
       if (wallet.accounts.length > 0) {
-        applyAccount(wallet, wallet.accounts[0])
+        applyPhantomAccount(wallet, wallet.accounts[0])
       } else {
-        // Try silent connect
-        const connectFeat = wallet.features[FEAT_CONNECT] as ConnectFeature | undefined
+        const connectFeat = wallet.features[
+          FEAT_CONNECT
+        ] as ConnectFeature | undefined
         if (connectFeat) {
-          connectFeat.connect({ silent: true }).then((accounts) => {
-            if (accounts.length > 0) applyAccount(wallet, accounts[0])
-          }).catch(() => { /* not previously authorized */ })
+          connectFeat
+            .connect({ silent: true })
+            .then((accounts) => {
+              if (accounts.length > 0)
+                applyPhantomAccount(wallet, accounts[0])
+            })
+            .catch(() => {})
         }
       }
 
-      // Listen for account changes
       if (FEAT_EVENTS in wallet.features) {
         const events = wallet.features[FEAT_EVENTS] as EventsFeature
         events.on('change', (props) => {
           const accounts = props.accounts ?? wallet.accounts
           if (accounts.length > 0) {
-            applyAccount(wallet, accounts[0])
-          } else {
+            applyPhantomAccount(wallet, accounts[0])
+          } else if (walletType === 'phantom') {
             clearState()
           }
         })
       }
     }
 
-    // Check already-registered wallets
     const existing = findPhantomWallet(get())
-    if (existing) {
-      setup(existing)
-    }
+    if (existing) setup(existing)
 
-    // Listen for late-registering wallets
     const unsub = on('register', (...newWallets: Wallet[]) => {
-      if (walletRef.current) return // already have one
+      if (walletRef.current) return
       const found = findPhantomWallet(newWallets)
       if (found) setup(found)
     })
@@ -189,9 +228,72 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => {
       unsub()
     }
-  }, [applyAccount, clearState])
+  }, [applyPhantomAccount, clearState, walletType])
 
-  // Balance polling
+  // ── Privy wallet sync ──────────────────────────────────
+
+  useEffect(() => {
+    if (!privyReady || !privySolanaReady) return
+    if (!privyAuthenticated) {
+      if (walletType === 'privy') clearState()
+      disconnectingRef.current = false
+      return
+    }
+
+    // Don't re-connect if user just clicked disconnect
+    if (disconnectingRef.current) return
+
+    // Find the Privy embedded Solana wallet
+    // ConnectedStandardSolanaWallet has .standardWallet with .isPrivyWallet
+    const embeddedWallet = privySolanaWallets.find(
+      (w: any) => w.standardWallet?.isPrivyWallet === true
+    ) ?? privySolanaWallets[0]
+    if (!embeddedWallet) return
+
+    // Only apply if not already connected via Phantom
+    if (walletType === 'phantom' && connected) return
+
+    const addr = embeddedWallet.address
+    privyWalletRef.current = embeddedWallet
+
+    // Store the wallet for the signAndSendTx utility
+    setPrivySolanaProvider(embeddedWallet)
+
+    setPubkey(addr)
+    setConnected(true)
+    setWalletType('privy')
+
+    // Build a TransactionSendingSigner that uses Privy's signAndSendTransaction
+    const encoder = getTransactionEncoder()
+    const privySigner: TransactionSendingSigner = {
+      address: toAddress(addr),
+      signAndSendTransactions: async (transactions) => {
+        const results = []
+        for (const tx of transactions) {
+          const txBytes = new Uint8Array(encoder.encode(tx))
+          const result = await privySignAndSendRef.current({
+            transaction: txBytes,
+            wallet: privyWalletRef.current,
+            chain: SOLANA_CHAIN as any,
+          })
+          results.push(result.signature)
+        }
+        return results as any
+      },
+    }
+    setSigner(privySigner)
+  }, [
+    privyAuthenticated,
+    privyReady,
+    privySolanaReady,
+    privySolanaWallets,
+    walletType,
+    connected,
+    clearState,
+  ])
+
+  // ── Balance polling ────────────────────────────────────
+
   useEffect(() => {
     if (!pubkey) return
 
@@ -210,8 +312,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [pubkey])
 
-  // Connect
-  const connect = useCallback(async () => {
+  // ── Connect methods ────────────────────────────────────
+
+  const connectPhantom = useCallback(async () => {
+    setShowConnectModal(false)
     let wallet = walletRef.current
     if (!wallet) {
       const { get } = getWallets()
@@ -228,19 +332,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     const accounts = await feat.connect()
     if (accounts.length > 0) {
-      applyAccount(wallet, accounts[0])
+      applyPhantomAccount(wallet, accounts[0])
     }
-  }, [applyAccount])
+  }, [applyPhantomAccount])
 
-  // Disconnect
+  const connectPrivyFn = useCallback(() => {
+    setShowConnectModal(false)
+    privyLogin()
+  }, [privyLogin])
+
+  const connect = useCallback(() => {
+    setShowConnectModal(true)
+  }, [])
+
+  // ── Disconnect ─────────────────────────────────────────
+
   const disconnect = useCallback(async () => {
-    const wallet = walletRef.current
-    if (wallet && FEAT_DISCONNECT in wallet.features) {
-      const feat = wallet.features[FEAT_DISCONNECT] as DisconnectFeature
-      await feat.disconnect()
+    if (walletType === 'privy') {
+      disconnectingRef.current = true
+      setPrivySolanaProvider(null)
+      clearState()
+      await privyLogout()
+    } else {
+      const wallet = walletRef.current
+      if (wallet && FEAT_DISCONNECT in wallet.features) {
+        const feat = wallet.features[FEAT_DISCONNECT] as DisconnectFeature
+        await feat.disconnect()
+      }
+      clearState()
     }
-    clearState()
-  }, [clearState])
+  }, [walletType, clearState, privyLogout])
 
   return (
     <WalletContext.Provider
@@ -253,6 +374,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         signer,
         mode,
         setMode,
+        walletType,
+        showConnectModal,
+        setShowConnectModal,
+        connectPhantom,
+        connectPrivy: connectPrivyFn,
       }}
     >
       {children}

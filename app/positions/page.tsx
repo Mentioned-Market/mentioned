@@ -6,6 +6,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
+import { signAndSendTx } from '@/lib/walletUtils'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -155,34 +156,12 @@ function eventTypeToStatus(eventType: string): { label: string; color: string } 
   }
 }
 
-// ── Wallet signing helper ──────────────────────────────────
-
-async function signAndSendTx(transaction: string, ownerPubkey: string): Promise<string> {
-  const { getWallets } = await import('@wallet-standard/app')
-  const wallets = getWallets().get()
-  const wallet = wallets.find(w => w.name === 'Phantom')
-  if (!wallet) throw new Error('Phantom wallet not found')
-
-  const account = wallet.accounts.find(a => a.address === ownerPubkey)
-  if (!account) throw new Error('Wallet account not found')
-
-  const signAndSend = wallet.features['solana:signAndSendTransaction'] as {
-    signAndSendTransaction(
-      ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
-    ): Promise<Array<{ signature: Uint8Array }>>
-  }
-
-  const txBytes = Uint8Array.from(atob(transaction), c => c.charCodeAt(0))
-  const chain = account.chains.find(c => c.startsWith('solana:')) || 'solana:mainnet-beta'
-
-  const [result] = await signAndSend.signAndSendTransaction({ transaction: txBytes, account, chain })
-  return Array.from(result.signature).map(b => b.toString(16).padStart(2, '0')).join('')
-}
+// signAndSendTx imported from @/lib/walletUtils
 
 // ── Page ───────────────────────────────────────────────────
 
 export default function PositionsPage() {
-  const { connected, connect, publicKey } = useWallet()
+  const { connected, connect, publicKey, walletType } = useWallet()
   const { showAchievementToast } = useAchievements()
 
   const [tab, setTab] = useState<Tab>('positions')
@@ -293,7 +272,7 @@ export default function PositionsPage() {
       const data = await res.json()
       if (!data.transaction) throw new Error('No transaction returned')
 
-      const sig = await signAndSendTx(data.transaction, publicKey)
+      const sig = await signAndSendTx(data.transaction, publicKey, walletType!)
       setCloseStatus({ msg: `Close order submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
       // Show achievement toast from close response
@@ -361,7 +340,7 @@ export default function PositionsPage() {
       const data = await res.json()
       if (!data.transaction) throw new Error('No transaction returned')
 
-      const sig = await signAndSendTx(data.transaction, publicKey)
+      const sig = await signAndSendTx(data.transaction, publicKey, walletType!)
       setCloseStatus({ msg: `Claim submitted! Tx: ${sig.slice(0, 8)}...${sig.slice(-8)}`, error: false })
 
       // Show achievement toast from claim response
