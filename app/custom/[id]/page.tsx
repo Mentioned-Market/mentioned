@@ -1,13 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
+import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import EventChat from '@/components/EventChat'
+import MarketChart from '@/components/MarketChart'
+import FlashValue from '@/components/FlashValue'
 import { useWallet } from '@/contexts/WalletContext'
 import { getStatusLabel } from '@/lib/customMarketUtils'
-import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
+import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
+// Points multiplier — matches lib/customScoring.ts constant
+const VIRTUAL_MARKET_POINTS_MULTIPLIER = 0.5
 
 // ── Types ──────────────────────────────────────────────
 
@@ -57,6 +62,12 @@ interface Trade {
   created_at: string
 }
 
+interface ChartWord {
+  word_id: number
+  word: string
+  history: { t: string; yes: number; no: number }[]
+}
+
 // ── Helpers ────────────────────────────────────────────
 
 function toEmbedUrl(url: string): string {
@@ -84,267 +95,9 @@ function timeUntil(isoTime: string): string {
   return `${hours}h ${minutes}m`
 }
 
-function formatPrice(p: number): string {
-  return `${Math.round(p * 100)}c`
-}
-
-function formatShares(s: number): string {
-  if (s >= 1000) return `${(s / 1000).toFixed(1)}k`
-  if (s >= 100) return s.toFixed(0)
-  if (s >= 1) return s.toFixed(1)
-  return s.toFixed(2)
-}
-
-// ── Word Card Component ────────────────────────────────
-
-function WordCard({
-  word,
-  position,
-  isOpen,
-  connected,
-  b,
-  balance,
-  onTrade,
-  submitting,
-}: {
-  word: MarketWord
-  position: Position | undefined
-  isOpen: boolean
-  connected: boolean
-  b: number
-  balance: number
-  onTrade: (wordId: number, action: 'buy' | 'sell', side: 'YES' | 'NO', amount: number, amountType: 'tokens' | 'shares') => void
-  submitting: boolean
-}) {
-  const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy')
-  const [side, setSide] = useState<'YES' | 'NO'>('YES')
-  const [amount, setAmount] = useState('')
-
-  const isResolved = word.resolved_outcome !== null
-  const yesPct = Math.round(word.yes_price * 100)
-  const noPct = 100 - yesPct
-
-  const hasPosition = position && (position.yes_shares > 0 || position.no_shares > 0)
-
-  // Compute preview
-  const numAmount = parseFloat(amount) || 0
-  let previewShares = 0
-  let previewCost = 0
-
-  if (activeTab === 'buy' && numAmount > 0) {
-    previewShares = sharesForTokens(word.yes_qty, word.no_qty, side, numAmount, b)
-    previewCost = virtualBuyCost(word.yes_qty, word.no_qty, side, previewShares, b)
-  } else if (activeTab === 'sell' && numAmount > 0) {
-    previewCost = virtualSellReturn(word.yes_qty, word.no_qty, side, numAmount, b)
-  }
-
-  function handleSubmit() {
-    if (numAmount <= 0 || submitting) return
-    if (activeTab === 'buy') {
-      onTrade(word.id, 'buy', side, numAmount, 'tokens')
-    } else {
-      onTrade(word.id, 'sell', side, numAmount, 'shares')
-    }
-    setAmount('')
-  }
-
-  return (
-    <div className={`rounded-xl border transition-colors ${
-      isResolved
-        ? word.resolved_outcome
-          ? 'border-apple-green/20 bg-apple-green/5'
-          : 'border-apple-red/20 bg-apple-red/5'
-        : 'border-white/5 bg-white/[0.02]'
-    }`}>
-      <div className="p-4">
-        {/* Word title + prices */}
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-semibold">{word.word}</span>
-          <div className="flex items-center gap-2">
-            {isResolved && (
-              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                word.resolved_outcome ? 'bg-apple-green/20 text-apple-green' : 'bg-apple-red/20 text-apple-red'
-              }`}>
-                {word.resolved_outcome ? 'YES' : 'NO'}
-              </span>
-            )}
-            <span className="text-xs text-neutral-400">
-              <span className="text-apple-green">{formatPrice(word.yes_price)}</span>
-              {' / '}
-              <span className="text-apple-red">{formatPrice(word.no_price)}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Price bar */}
-        <div className="mb-3">
-          <div className="h-2 rounded-full overflow-hidden bg-white/5 flex">
-            <div className="bg-apple-green/60 transition-all duration-300" style={{ width: `${yesPct}%` }} />
-            <div className="bg-apple-red/60 transition-all duration-300" style={{ width: `${noPct}%` }} />
-          </div>
-        </div>
-
-        {/* Position display (if held) */}
-        {hasPosition && (
-          <div className="flex items-center gap-3 text-[11px] text-neutral-400 mb-3 px-1">
-            {position!.yes_shares > 0 && (
-              <span className="text-apple-green">{formatShares(position!.yes_shares)} YES</span>
-            )}
-            {position!.no_shares > 0 && (
-              <span className="text-apple-red">{formatShares(position!.no_shares)} NO</span>
-            )}
-          </div>
-        )}
-
-        {/* Buy/Sell panel */}
-        {isOpen && connected && !isResolved && (
-          <div>
-            {/* Tab selector */}
-            <div className="flex gap-1 mb-2">
-              <button
-                onClick={() => { setActiveTab('buy'); setAmount('') }}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  activeTab === 'buy' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
-                }`}
-              >Buy</button>
-              {hasPosition && (
-                <button
-                  onClick={() => { setActiveTab('sell'); setAmount('') }}
-                  className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                    activeTab === 'sell' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
-                  }`}
-                >Sell</button>
-              )}
-            </div>
-
-            {/* Side selector */}
-            <div className="grid grid-cols-2 gap-1 mb-2">
-              <button
-                onClick={() => setSide('YES')}
-                className={`py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  side === 'YES' ? 'bg-apple-green/20 text-apple-green' : 'bg-white/5 text-neutral-400'
-                }`}
-              >YES {formatPrice(word.yes_price)}</button>
-              <button
-                onClick={() => setSide('NO')}
-                className={`py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  side === 'NO' ? 'bg-apple-red/20 text-apple-red' : 'bg-white/5 text-neutral-400'
-                }`}
-              >NO {formatPrice(word.no_price)}</button>
-            </div>
-
-            {/* Amount input */}
-            <div className="relative mb-2">
-              <input
-                type="number"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                placeholder={activeTab === 'buy' ? 'Tokens to spend' : 'Shares to sell'}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:border-white/20 focus:outline-none"
-                min="0"
-                step="any"
-              />
-              {activeTab === 'buy' && balance > 0 && (
-                <button
-                  onClick={() => setAmount(String(Math.floor(balance)))}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-apple-blue hover:text-apple-blue/80"
-                >MAX</button>
-              )}
-            </div>
-
-            {/* Preview */}
-            {numAmount > 0 && (
-              <div className="text-[11px] text-neutral-400 mb-2 px-1 space-y-0.5">
-                {activeTab === 'buy' ? (
-                  <>
-                    <div>Shares: ~{formatShares(previewShares)} {side}</div>
-                    <div>Payout if correct: {formatShares(previewShares)} tokens</div>
-                  </>
-                ) : (
-                  <div>Return: ~{previewCost.toFixed(1)} tokens</div>
-                )}
-              </div>
-            )}
-
-            {/* Submit button */}
-            <button
-              onClick={handleSubmit}
-              disabled={submitting || numAmount <= 0}
-              className={`w-full py-2 text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 ${
-                side === 'YES'
-                  ? 'bg-apple-green/20 text-apple-green hover:bg-apple-green/30'
-                  : 'bg-apple-red/20 text-apple-red hover:bg-apple-red/30'
-              }`}
-            >
-              {submitting ? '...' : `${activeTab === 'buy' ? 'Buy' : 'Sell'} ${side}`}
-            </button>
-          </div>
-        )}
-
-        {/* Resolved result with payout */}
-        {isResolved && hasPosition && (
-          <div className="text-xs mt-2 space-y-1">
-            {position!.yes_shares > 0 && (
-              <div className={word.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}>
-                {formatShares(position!.yes_shares)} YES {word.resolved_outcome ? `= ${formatShares(position!.yes_shares)} tokens` : '= 0 tokens'}
-              </div>
-            )}
-            {position!.no_shares > 0 && (
-              <div className={!word.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}>
-                {formatShares(position!.no_shares)} NO {!word.resolved_outcome ? `= ${formatShares(position!.no_shares)} tokens` : '= 0 tokens'}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Balance Bar Component ─────────────────────────────
-
-function BalanceBar({ balance, startingBalance }: { balance: number; startingBalance: number }) {
-  const pct = Math.max(0, Math.min(100, (balance / startingBalance) * 100))
-  return (
-    <div className="glass rounded-xl p-4 mb-4">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Play Tokens</span>
-        <span className="text-sm font-bold text-white">{Math.floor(balance)} / {startingBalance}</span>
-      </div>
-      <div className="h-2 rounded-full overflow-hidden bg-white/5">
-        <div
-          className="h-full bg-apple-blue/60 transition-all duration-300 rounded-full"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  )
-}
-
-// ── Trade Feed Component ──────────────────────────────
-
-function TradeFeed({ trades }: { trades: Trade[] }) {
-  if (trades.length === 0) return null
-  return (
-    <div className="glass rounded-xl p-4">
-      <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Recent Trades</h3>
-      <div className="space-y-1.5 max-h-48 overflow-y-auto">
-        {trades.map(t => (
-          <div key={t.id} className="flex items-center justify-between text-[11px]">
-            <span className="text-neutral-400 truncate mr-2">
-              <span className="text-neutral-300">{t.username || t.wallet.slice(0, 6)}</span>
-              {' '}{t.action === 'buy' ? 'bought' : 'sold'}{' '}
-              <span className={t.side === 'YES' ? 'text-apple-green' : 'text-apple-red'}>
-                {formatShares(t.shares)} {t.side}
-              </span>
-              {' on '}{t.word}
-            </span>
-            <span className="text-neutral-600 shrink-0">{formatPrice(t.yes_price)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+function formatCloseTime(isoTime: string): string {
+  const d = new Date(isoTime)
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 // ── Main Page ──────────────────────────────────────────
@@ -362,12 +115,24 @@ export default function CustomMarketPage() {
   const [startingBalance, setStartingBalance] = useState(1000)
   const [traderCount, setTraderCount] = useState(0)
   const [trades, setTrades] = useState<Trade[]>([])
+  const [chartData, setChartData] = useState<ChartWord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
   const [streamHidden, setStreamHidden] = useState(false)
 
-  // Fetch market data
+  // Trading state
+  const [selectedWordId, setSelectedWordId] = useState<number | null>(null)
+  const [side, setSide] = useState<'YES' | 'NO'>('YES')
+  const [tradeMode, setTradeMode] = useState<'buy' | 'sell'>('buy')
+  const [amount, setAmount] = useState('')
+  const [trading, setTrading] = useState(false)
+  const [tradeStatus, setTradeStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
+  // Mobile trade sheet
+  const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
+
+  // ── Fetch data ──────────────────────────────────────
+
   const fetchMarket = useCallback(async () => {
     try {
       const res = await fetch(`/api/custom/${marketId}`)
@@ -376,6 +141,9 @@ export default function CustomMarketPage() {
       setMarket(data.market)
       setWords(data.words)
       setTraderCount(data.traderCount)
+      if (data.words.length > 0 && selectedWordId === null) {
+        setSelectedWordId(data.words[0].id)
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -383,7 +151,6 @@ export default function CustomMarketPage() {
     }
   }, [marketId])
 
-  // Fetch user positions + balance
   const fetchPositions = useCallback(async () => {
     if (!publicKey) return
     try {
@@ -395,7 +162,6 @@ export default function CustomMarketPage() {
     } catch { /* ignore */ }
   }, [marketId, publicKey])
 
-  // Fetch prices (sentiment endpoint) for polling
   const fetchPrices = useCallback(async () => {
     try {
       const res = await fetch(`/api/custom/${marketId}/sentiment`)
@@ -410,7 +176,6 @@ export default function CustomMarketPage() {
     } catch { /* ignore */ }
   }, [marketId])
 
-  // Fetch recent trades
   const fetchTrades = useCallback(async () => {
     try {
       const res = await fetch(`/api/custom/${marketId}/trades?limit=20`)
@@ -419,67 +184,369 @@ export default function CustomMarketPage() {
     } catch { /* ignore */ }
   }, [marketId])
 
+  const fetchChart = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/custom/${marketId}/chart`)
+      const data = await res.json()
+      setChartData(data.words || [])
+    } catch { /* ignore */ }
+  }, [marketId])
+
   useEffect(() => { fetchMarket() }, [fetchMarket])
   useEffect(() => { fetchPositions() }, [fetchPositions])
   useEffect(() => { fetchTrades() }, [fetchTrades])
+  useEffect(() => { fetchChart() }, [fetchChart])
 
-  // Poll prices when market is open
+  // Poll when market is open
   useEffect(() => {
     if (!market || market.status !== 'open') return
-    const interval = setInterval(() => { fetchPrices(); fetchTrades() }, 10000)
+    const interval = setInterval(() => {
+      fetchPrices()
+      fetchTrades()
+    }, 10000)
     return () => clearInterval(interval)
   }, [market?.status, fetchPrices, fetchTrades])
 
-  async function handleTrade(wordId: number, action: 'buy' | 'sell', side: 'YES' | 'NO', amount: number, amountType: 'tokens' | 'shares') {
-    if (!publicKey || !market) return
-    setSubmitting(true)
+  // ── Derived data ────────────────────────────────────
+
+  const isOpen = market?.status === 'open' && (!market.lock_time || new Date(market.lock_time) > new Date())
+  const b = market?.b_parameter ?? 500
+  const selectedWord = words.find(w => w.id === selectedWordId) || words[0]
+  const positionMap = new Map(positions.map(p => [p.word_id, p]))
+  const selectedPosition = selectedWord ? positionMap.get(selectedWord.id) : undefined
+  const streamEmbedUrl = market?.stream_url ? toEmbedUrl(market.stream_url) : null
+
+  const yesCents = selectedWord ? Math.round(selectedWord.yes_price * 100) : 50
+  const noCents = selectedWord ? 100 - yesCents : 50
+
+  const amountNum = parseFloat(amount) || 0
+
+  // Compute trade preview
+  const preview = useMemo(() => {
+    if (!selectedWord || amountNum <= 0) return null
+    if (tradeMode === 'buy') {
+      const shares = sharesForTokens(selectedWord.yes_qty, selectedWord.no_qty, side, amountNum, b)
+      const cost = virtualBuyCost(selectedWord.yes_qty, selectedWord.no_qty, side, shares, b)
+      const payout = shares
+      const profit = payout - cost
+      return { shares, cost: Math.min(cost, amountNum), payout, profit }
+    } else {
+      const cost = virtualSellReturn(selectedWord.yes_qty, selectedWord.no_qty, side, amountNum, b)
+      return { shares: amountNum, cost, payout: 0, profit: 0 }
+    }
+  }, [selectedWord, amountNum, tradeMode, side, b])
+
+  // Chart series from chart data
+  const chartColors = ['#34C759', '#007AFF', '#FF9500', '#FF3B30', '#AF52DE', '#5AC8FA', '#FF9F0A']
+  const chartSeries = useMemo(() => {
+    return chartData.map((cw, i) => {
+      const word = words.find(w => w.id === cw.word_id)
+      const currentPrice = word?.yes_price ?? 0.5
+      const data = cw.history.length > 0
+        ? cw.history.map(h => ({ timestamp: new Date(h.t).getTime(), price: h.yes }))
+        : [{ timestamp: Date.now() - 3600000, price: 0.5 }, { timestamp: Date.now(), price: currentPrice }]
+
+      // Extend to now with current price if market is active
+      if (data.length > 0 && market?.status !== 'resolved') {
+        data.push({ timestamp: Date.now(), price: currentPrice })
+      }
+
+      return {
+        label: cw.word,
+        color: chartColors[i % chartColors.length],
+        data,
+        currentPrice,
+      }
+    })
+  }, [chartData, words, market?.status])
+
+  // Total profit for resolved markets
+  const totalProfit = useMemo(() => {
+    if (market?.status !== 'resolved' || positions.length === 0) return 0
+    const totalSpent = positions.reduce((s, p) => s + p.tokens_spent, 0)
+    const totalReceived = positions.reduce((s, p) => s + p.tokens_received, 0)
+    return totalReceived - totalSpent
+  }, [market?.status, positions])
+
+  // ── Handlers ────────────────────────────────────────
+
+  const handleWordClick = (wordId: number) => {
+    setSelectedWordId(wordId)
+  }
+
+  const handleTrade = async () => {
+    if (!publicKey || !market || !selectedWord) return
+    if (amountNum <= 0) return
+
+    setTrading(true)
+    setTradeStatus(null)
 
     try {
       const res = await fetch(`/api/custom/${marketId}/trade`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: publicKey, word_id: wordId, action, side, amount, amount_type: amountType }),
+        body: JSON.stringify({
+          wallet: publicKey,
+          word_id: selectedWord.id,
+          action: tradeMode,
+          side,
+          amount: amountNum,
+          amount_type: tradeMode === 'buy' ? 'tokens' : 'shares',
+        }),
       })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error)
       }
+
       const result = await res.json()
-
-      // Update balance immediately from trade result for responsive UI
       setBalance(result.new_balance)
+      setAmount('')
+      setTradeStatus({
+        msg: `${tradeMode === 'buy' ? 'Bought' : 'Sold'} ${result.shares.toFixed(1)} ${side} shares of "${selectedWord.word}"`,
+        error: false,
+      })
 
-      // Refresh all server state to stay in sync
+      // Refresh everything
       fetchPrices()
       fetchPositions()
       fetchTrades()
+      fetchChart()
     } catch (err: any) {
-      console.error('Trade error:', err.message)
+      setTradeStatus({ msg: err.message || 'Trade failed', error: true })
     } finally {
-      setSubmitting(false)
+      setTrading(false)
+      setTimeout(() => setTradeStatus(null), 8000)
     }
   }
 
-  const isOpen = market?.status === 'open' && (!market.lock_time || new Date(market.lock_time) > new Date())
-  const b = market?.b_parameter ?? 500
-  const streamEmbedUrl = market?.stream_url ? toEmbedUrl(market.stream_url) : null
-  const positionMap = new Map(positions.map(p => [p.word_id, p]))
+  // ── Trading Panel (shared between desktop & mobile) ────
 
-  // Compute total profit for resolved markets
-  let totalProfit = 0
-  if (market?.status === 'resolved' && positions.length > 0) {
-    const totalSpent = positions.reduce((s, p) => s + p.tokens_spent, 0)
-    const totalReceived = positions.reduce((s, p) => s + p.tokens_received, 0)
-    totalProfit = totalReceived - totalSpent
-  }
+  const tradingPanel = selectedWord ? (
+    <>
+      {/* Balance bar */}
+      {connected && (
+        <div className="mb-4 pb-4 border-b border-white/10">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Play Tokens</span>
+            <span className="text-sm font-semibold text-white">{Math.floor(balance)} / {startingBalance}</span>
+          </div>
+          <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
+            <div
+              className="h-full bg-apple-blue/60 transition-all duration-300 rounded-full"
+              style={{ width: `${Math.max(0, Math.min(100, (balance / startingBalance) * 100))}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Selected word label */}
+      <div className="mb-4">
+        <span className={`font-semibold text-sm ${side === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+          {tradeMode === 'buy' ? 'Buy' : 'Sell'} {side}
+        </span>
+        <span className="text-neutral-400 text-sm"> · </span>
+        <span className="text-white font-semibold text-sm">{selectedWord.word}</span>
+      </div>
+
+      {/* Buy / Sell toggle */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => { setTradeMode('buy'); setAmount('') }}
+          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
+            tradeMode === 'buy' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+          }`}
+        >Buy</button>
+        <button
+          onClick={() => { setTradeMode('sell'); setAmount('') }}
+          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
+            tradeMode === 'sell' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+          }`}
+        >Sell</button>
+      </div>
+
+      {/* Yes / No buttons */}
+      <div className="flex gap-2 mb-5">
+        <button
+          onClick={() => setSide('YES')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+            side === 'YES'
+              ? 'bg-apple-green/15 text-apple-green border border-apple-green/40'
+              : 'border border-white/10 text-neutral-400 hover:border-white/20'
+          }`}
+        >
+          Yes <FlashValue value={`${yesCents}¢`} />
+        </button>
+        <button
+          onClick={() => setSide('NO')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+            side === 'NO'
+              ? 'bg-apple-red/15 text-apple-red border border-apple-red/40'
+              : 'border border-white/10 text-neutral-400 hover:border-white/20'
+          }`}
+        >
+          No <FlashValue value={`${noCents}¢`} />
+        </button>
+      </div>
+
+      {/* Amount input */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between py-3">
+          <div>
+            <div className="text-sm text-neutral-400 font-medium">
+              {tradeMode === 'buy' ? 'Amount (Tokens)' : 'Shares to sell'}
+            </div>
+            {preview && (
+              <div className="text-xs text-neutral-500 mt-0.5">
+                {tradeMode === 'buy'
+                  ? `~${preview.shares.toFixed(1)} shares`
+                  : `~${preview.cost.toFixed(1)} tokens returned`}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={amount}
+              onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="0"
+              className="bg-transparent border-0 text-right text-2xl font-semibold text-white w-24 focus:outline-none focus:ring-0 placeholder:text-neutral-600 p-0"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Cost breakdown */}
+      {preview && amountNum > 0 && tradeMode === 'buy' && (
+        <div className="mb-5 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Avg Price</span>
+            <span className="text-white font-medium">{preview.shares > 0 ? Math.round((preview.cost / preview.shares) * 100) : 0}¢</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Shares</span>
+            <span className="text-white font-medium">{preview.shares.toFixed(1)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Payout if correct</span>
+            <span className="text-white font-medium">{preview.payout.toFixed(1)} tokens</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Profit</span>
+            <span className="text-apple-green font-semibold">+{preview.profit.toFixed(1)} tokens</span>
+          </div>
+        </div>
+      )}
+
+      {/* Sell preview */}
+      {preview && amountNum > 0 && tradeMode === 'sell' && (
+        <div className="mb-5 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-neutral-400">Tokens returned</span>
+            <span className="text-white font-medium">{preview.cost.toFixed(1)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Trade status */}
+      {tradeStatus && (
+        <div className={`mb-3 p-3 rounded-lg text-xs ${
+          tradeStatus.error
+            ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+            : 'bg-green-500/10 border border-green-500/30 text-green-300'
+        }`}>
+          {tradeStatus.msg}
+        </div>
+      )}
+
+      {/* Action button */}
+      {!isOpen ? (
+        <button disabled className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed">
+          {market?.status === 'resolved' ? 'Market Resolved' : market?.status === 'locked' ? 'Market Locked' : 'Market Closed'}
+        </button>
+      ) : connected ? (
+        <button
+          onClick={handleTrade}
+          disabled={!amount || amountNum <= 0 || trading}
+          className={`w-full py-3.5 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+            side === 'YES'
+              ? 'bg-apple-green hover:bg-apple-green/90'
+              : 'bg-apple-red hover:bg-apple-red/90'
+          }`}
+        >
+          {trading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Processing...
+            </span>
+          ) : (
+            `${tradeMode === 'buy' ? 'Buy' : 'Sell'} ${side === 'YES' ? 'Yes' : 'No'}`
+          )}
+        </button>
+      ) : (
+        <button
+          onClick={connect}
+          className="w-full py-3.5 bg-apple-green hover:bg-apple-green/90 text-white font-semibold text-base rounded-xl transition-all duration-200"
+        >
+          Connect wallet to trade
+        </button>
+      )}
+
+      {/* User positions for this market */}
+      {connected && positions.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
+            Positions ({positions.length})
+          </div>
+          <div className="space-y-2">
+            {positions.map(pos => {
+              const pnl = pos.tokens_received - pos.tokens_spent
+              const hasShares = pos.yes_shares > 0 || pos.no_shares > 0
+              if (!hasShares && pnl === 0) return null
+              return (
+                <div key={pos.word_id} className="glass rounded-lg p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-white font-medium text-xs truncate max-w-[140px]">{pos.word}</span>
+                    {market?.status === 'resolved' && (
+                      <span className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                        {pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                    <span>
+                      {pos.yes_shares > 0 && <span className="text-apple-green">{pos.yes_shares.toFixed(1)} YES</span>}
+                      {pos.yes_shares > 0 && pos.no_shares > 0 && ' · '}
+                      {pos.no_shares > 0 && <span className="text-apple-red">{pos.no_shares.toFixed(1)} NO</span>}
+                    </span>
+                    <span>spent {pos.tokens_spent.toFixed(1)}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  ) : null
+
+  // ── Render ──────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="max-w-7xl mx-auto px-4 md:px-10 lg:px-20">
-          <Header />
-          <div className="flex items-center justify-center py-24">
-            <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+      <div className="relative flex min-h-screen w-full flex-col bg-black">
+        <div className="flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <div className="flex items-center justify-center py-32">
+                <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -488,12 +555,18 @@ export default function CustomMarketPage() {
 
   if (error || !market) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="max-w-7xl mx-auto px-4 md:px-10 lg:px-20">
-          <Header />
-          <div className="flex flex-col items-center justify-center py-24">
-            <p className="text-neutral-400 mb-4">{error || 'Market not found'}</p>
-            <a href="/markets" className="text-apple-blue hover:underline text-sm">Back to markets</a>
+      <div className="relative flex min-h-screen w-full flex-col bg-black">
+        <div className="flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <div className="flex flex-col items-center justify-center py-32 gap-3">
+                <span className="text-neutral-400 text-lg font-medium">{error || 'Market not found'}</span>
+                <Link href="/markets" className="mt-4 px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors">
+                  Back to Markets
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -501,147 +574,302 @@ export default function CustomMarketPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="max-w-7xl mx-auto px-4 md:px-10 lg:px-20">
-        <Header />
+    <div className="relative flex min-h-screen w-full flex-col bg-black">
+      <div className="flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="flex flex-col w-full max-w-7xl flex-1">
+            <Header />
 
-        <main className="py-4 md:py-6 animate-fade-in">
-          {/* Header */}
-          <div className="flex items-start gap-4 mb-6">
-            {market.cover_image_url && (
-              <img
-                src={market.cover_image_url}
-                alt={market.title}
-                className="w-16 h-16 md:w-20 md:h-20 rounded-xl object-cover"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green">
-                  FREE
-                </span>
-                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                  market.status === 'open' ? 'bg-green-500/20 text-green-400' :
-                  market.status === 'locked' ? 'bg-orange-500/20 text-orange-400' :
-                  market.status === 'resolved' ? 'bg-blue-500/20 text-blue-400' :
-                  'bg-white/10 text-neutral-400'
-                }`}>
-                  {getStatusLabel(market.status)}
-                </span>
+            <main className="py-4 md:py-6 flex-1">
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-2 text-xs text-neutral-500 mb-4">
+                <Link href="/markets" className="hover:text-white transition-colors">Markets</Link>
+                <span>/</span>
+                <span className="text-neutral-400">Free Market</span>
               </div>
-              <h1 className="text-xl md:text-2xl font-bold">{market.title}</h1>
-              {market.description && (
-                <p className="text-neutral-400 text-sm mt-1">{market.description}</p>
-              )}
-              <div className="flex items-center gap-4 mt-2 text-xs text-neutral-500">
-                <span>{words.length} words</span>
-                <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
-                {market.lock_time && isOpen && (
-                  <span>Locks in {timeUntil(market.lock_time)}</span>
-                )}
-              </div>
-            </div>
-          </div>
 
-          {/* Resolved summary */}
-          {market.status === 'resolved' && positions.length > 0 && (
-            <div className={`glass rounded-xl p-4 mb-4 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-neutral-400">Your Result</span>
-                <div className="text-right">
-                  <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
-                    {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
+              {/* Event Header */}
+              <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
+                  {market.cover_image_url ? (
+                    <img src={market.cover_image_url} alt={market.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 text-xs md:text-sm text-neutral-400 font-medium mb-0.5">
+                    <span className="px-2 py-0.5 rounded-full bg-apple-green/90 text-white text-[10px] font-bold uppercase tracking-wide">
+                      Free
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                      market.status === 'open' ? 'bg-apple-green/15 text-apple-green' :
+                      market.status === 'locked' ? 'bg-orange-500/15 text-orange-400' :
+                      market.status === 'resolved' ? 'bg-white/10 text-neutral-300' :
+                      'bg-white/10 text-neutral-400'
+                    }`}>
+                      {getStatusLabel(market.status)}
+                    </span>
                   </div>
-                  {totalProfit > 0 && (
-                    <div className="text-xs text-neutral-500">
-                      = {Math.floor(totalProfit * 0.5)} platform points
-                    </div>
+                  <h1 className="text-lg md:text-xl font-semibold text-white leading-tight">
+                    {market.title}
+                  </h1>
+                  {market.description && (
+                    <p className="text-neutral-500 text-sm mt-1">{market.description}</p>
                   )}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Stream embed */}
-          {streamEmbedUrl && !streamHidden && (
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-neutral-500 font-medium uppercase tracking-wider">Live Stream</span>
+              {/* Meta bar */}
+              <div className="flex items-center gap-4 mb-5 text-xs md:text-sm text-neutral-400">
+                <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
+                <span className="text-neutral-700">·</span>
+                <span>{words.length} words</span>
+                {market.lock_time && isOpen && (
+                  <>
+                    <span className="text-neutral-700">·</span>
+                    <span>Locks {formatCloseTime(market.lock_time)}</span>
+                    <span className="text-neutral-700">·</span>
+                    <span>{timeUntil(market.lock_time)} left</span>
+                  </>
+                )}
+              </div>
+
+              {/* Resolved summary */}
+              {market.status === 'resolved' && positions.length > 0 && (
+                <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-neutral-400">Your Result</span>
+                    <div className="text-right">
+                      <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                        {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
+                      </div>
+                      {totalProfit > 0 && (
+                        <div className="text-xs text-neutral-500">
+                          = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stream embed + event chat */}
+              {streamEmbedUrl && !streamHidden && (
+                <div className="mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                      <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
+                    </div>
+                    <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                      Hide stream
+                    </button>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
+                        <iframe src={streamEmbedUrl} className="absolute inset-0 w-full h-full" allowFullScreen allow="autoplay; encrypted-media" />
+                      </div>
+                    </div>
+                    <div className="hidden lg:block w-[340px] flex-shrink-0 aspect-video">
+                      <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {streamEmbedUrl && streamHidden && (
                 <button
-                  onClick={() => setStreamHidden(true)}
-                  className="text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
-                >Hide</button>
-              </div>
-              <div className="relative w-full rounded-xl overflow-hidden border border-white/5" style={{ paddingBottom: '56.25%' }}>
-                <iframe
-                  src={streamEmbedUrl}
-                  className="absolute inset-0 w-full h-full"
-                  allowFullScreen
-                  allow="autoplay; encrypted-media"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Main content: two-column layout */}
-          <div className="flex flex-col lg:flex-row gap-6">
-            {/* Left column: Balance + Words */}
-            <div className="flex-1 min-w-0 space-y-6">
-              {/* Balance bar */}
-              {connected && (
-                <BalanceBar balance={balance} startingBalance={startingBalance} />
+                  onClick={() => setStreamHidden(false)}
+                  className="flex items-center gap-2 mb-5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                  <span className="text-xs font-medium text-neutral-300">Show live stream</span>
+                </button>
               )}
 
-              {/* Connect wallet prompt */}
-              {!connected && isOpen && (
-                <div className="glass rounded-xl p-4 text-center">
-                  <p className="text-neutral-400 text-sm mb-3">Connect your wallet to start trading</p>
-                  <button
-                    onClick={connect}
-                    className="px-5 py-2.5 bg-apple-blue text-white text-sm font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors"
-                  >Connect Wallet</button>
+              {/* Price chart */}
+              {chartSeries.length > 0 && (
+                <div className="mb-5">
+                  <div className="glass rounded-2xl overflow-hidden">
+                    <div className="h-[240px] md:h-[320px] p-2">
+                      <MarketChart series={chartSeries} />
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Word grid */}
-              <div>
-                <h2 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-                  Markets {isOpen ? '' : market.status === 'locked' ? '(Locked)' : market.status === 'resolved' ? '(Resolved)' : ''}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {words.map(word => (
-                    <WordCard
-                      key={word.id}
-                      word={word}
-                      position={positionMap.get(word.id)}
-                      isOpen={isOpen && connected}
-                      connected={connected}
-                      b={b}
-                      balance={balance}
-                      onTrade={handleTrade}
-                      submitting={submitting}
-                    />
-                  ))}
+              {/* Two-column layout */}
+              <div className="flex gap-6">
+                {/* Left Column */}
+                <div className="flex-1 min-w-0">
+                  {/* Words table */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Word</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1">Chance</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-right w-[180px] md:w-[240px]">Trade</span>
+                    </div>
+
+                    {words.map(word => {
+                      const pct = Math.round(word.yes_price * 100)
+                      const wordYesCents = Math.round(word.yes_price * 100)
+                      const wordNoCents = 100 - wordYesCents
+                      const isSelected = word.id === selectedWordId
+                      const isResolved = word.resolved_outcome !== null
+
+                      return (
+                        <button
+                          key={word.id}
+                          onClick={() => handleWordClick(word.id)}
+                          className={`w-full flex items-center justify-between px-3 md:px-4 py-3 md:py-4 border-b border-white/5 transition-all duration-200 hover:bg-white/[0.03] ${
+                            isSelected ? 'bg-white/[0.05]' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 md:gap-3 w-2/5">
+                            <span className="text-white font-semibold text-sm md:text-[15px]">{word.word}</span>
+                            {isResolved && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                word.resolved_outcome ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                              }`}>
+                                {word.resolved_outcome ? 'YES' : 'NO'}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 md:gap-2 flex-1 justify-center">
+                            <FlashValue value={`${pct}%`} className="text-white font-bold text-base md:text-lg" />
+                          </div>
+
+                          <div className="flex items-center gap-1.5 md:gap-2 w-[180px] md:w-[240px] justify-end">
+                            {isResolved ? (
+                              <span className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border ${
+                                word.resolved_outcome
+                                  ? 'bg-apple-green/10 border-apple-green/30 text-apple-green'
+                                  : 'bg-apple-red/10 border-apple-red/30 text-apple-red'
+                              }`}>
+                                Resolved {word.resolved_outcome ? 'Yes' : 'No'}
+                              </span>
+                            ) : (
+                              <>
+                                <span
+                                  className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
+                                    isSelected && side === 'YES'
+                                      ? 'bg-apple-green/15 border-apple-green text-apple-green'
+                                      : 'border-white/10 text-apple-green hover:border-apple-green/30'
+                                  }`}
+                                  onClick={e => { e.stopPropagation(); setSelectedWordId(word.id); setSide('YES') }}
+                                >
+                                  Yes <FlashValue value={`${wordYesCents}¢`} />
+                                </span>
+                                <span
+                                  className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
+                                    isSelected && side === 'NO'
+                                      ? 'bg-apple-red/15 border-apple-red text-apple-red'
+                                      : 'border-white/10 text-apple-red hover:border-apple-red/30'
+                                  }`}
+                                  onClick={e => { e.stopPropagation(); setSelectedWordId(word.id); setSide('NO') }}
+                                >
+                                  No <FlashValue value={`${wordNoCents}¢`} />
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Recent trades */}
+                  {trades.length > 0 && (
+                    <div className="mb-6">
+                      <h2 className="text-base font-semibold text-white mb-3">Recent Trades</h2>
+                      <div className="glass rounded-2xl p-4">
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                          {trades.map(t => (
+                            <div key={t.id} className="flex items-center justify-between text-xs py-1">
+                              <div className="flex items-center gap-2 text-neutral-400 truncate">
+                                <span className="text-neutral-300 font-medium">{t.username || t.wallet.slice(0, 6)}</span>
+                                <span>{t.action === 'buy' ? 'bought' : 'sold'}</span>
+                                <span className={t.side === 'YES' ? 'text-apple-green font-medium' : 'text-apple-red font-medium'}>
+                                  {t.shares.toFixed(1)} {t.side}
+                                </span>
+                                <span>on {t.word}</span>
+                              </div>
+                              <span className="text-neutral-600 flex-shrink-0 ml-2">{Math.round(t.yes_price * 100)}¢</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Event chat (when no stream, show inline) */}
+                  {!streamEmbedUrl && (
+                    <div className="mb-6">
+                      <div className="h-[400px]">
+                        <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Spacer for mobile bottom bar */}
+                  <div className="h-20 lg:hidden" />
+                </div>
+
+                {/* Right Column — Trading Panel (desktop) */}
+                <div className="w-[340px] flex-shrink-0 hidden lg:block">
+                  <div className="sticky top-24">
+                    <div className="glass rounded-2xl p-5">
+                      {tradingPanel}
+                    </div>
+
+                    {/* Event chat below trading panel when stream is visible (already shown beside stream above) */}
+                    {streamEmbedUrl && (
+                      <div className="mt-4 h-[400px]">
+                        <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
+            </main>
 
-              {/* Trade feed */}
-              <TradeFeed trades={trades} />
-            </div>
-
-            {/* Right column: Chat */}
-            <div className="w-full lg:w-80 xl:w-96 space-y-4 flex-shrink-0">
-              <div className="h-[500px]">
-                <EventChat
-                  eventId={`custom_${marketId}`}
-                  marketIds={[]}
-                />
-              </div>
-            </div>
+            <Footer />
           </div>
-        </main>
+        </div>
+      </div>
 
-        <Footer />
+      {/* Mobile Trade Bar */}
+      <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40">
+        {mobileTradeOpen ? (
+          <>
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileTradeOpen(false)} />
+            <div className="relative z-50 bg-neutral-900 border-t border-white/10 rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto animate-slide-up">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-sm font-semibold text-white">Trade</span>
+                <button onClick={() => setMobileTradeOpen(false)} className="text-neutral-400 hover:text-white">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {tradingPanel}
+            </div>
+          </>
+        ) : (
+          <div className="bg-neutral-900/95 backdrop-blur-md border-t border-white/10 px-4 py-3 safe-pb">
+            <button
+              onClick={() => setMobileTradeOpen(true)}
+              className={`w-full py-3 font-semibold text-white rounded-xl transition-all ${
+                side === 'YES' ? 'bg-apple-green' : 'bg-apple-red'
+              }`}
+            >
+              {selectedWord ? `Trade ${selectedWord.word}` : 'Trade'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
