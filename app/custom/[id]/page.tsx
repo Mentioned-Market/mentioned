@@ -109,14 +109,14 @@ function HowItWorks() {
     <div className="relative mb-3">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-300 transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-apple-blue/10 border border-apple-blue/20 text-xs text-apple-blue hover:bg-apple-blue/15 transition-colors"
       >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <circle cx="12" cy="12" r="10" />
           <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
           <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
-        <span>How does this work?</span>
+        <span className="font-medium">How does this work?</span>
       </button>
 
       {open && (
@@ -415,6 +415,9 @@ export default function CustomMarketPage() {
 
   const tradingPanel = selectedWord ? (
     <>
+      {/* How it works */}
+      <HowItWorks />
+
       {/* Balance bar + points info */}
       {connected && (
         <div className="mb-4 pb-4 border-b border-white/10">
@@ -464,9 +467,6 @@ export default function CustomMarketPage() {
           )}
         </div>
       )}
-
-      {/* How it works */}
-      <HowItWorks />
 
       {/* Selected word label */}
       <div className="mb-4">
