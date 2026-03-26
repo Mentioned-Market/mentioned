@@ -375,10 +375,9 @@ export default function CustomMarketPage() {
 
   const handleSliderChange = (pct: number) => {
     if (tradeMode === 'buy') {
-      // At 100%, use the exact balance (including fractional) so the user can spend everything.
-      // Otherwise floor to a whole-token amount — Math.round could overshoot available balance.
-      const value = pct === 100 ? sliderMax : Math.floor((pct / 100) * sliderMax)
-      setAmount(String(value))
+      // Always floor — balance is displayed as Math.floor(balance) and sell returns are fractional,
+      // so the raw balance can have decimals the user never sees. Floor keeps the input clean.
+      setAmount(String(Math.floor((pct / 100) * sliderMax)))
     } else {
       // Truncate to 2dp — share counts are fractional (LMSR outputs, not whole numbers) but
       // showing 6dp is confusing. The tiny dust remainder (<0.01 shares) is negligible.
