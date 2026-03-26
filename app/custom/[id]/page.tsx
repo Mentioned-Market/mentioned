@@ -359,10 +359,13 @@ export default function CustomMarketPage() {
     return { spent: totalSpent, received: totalReceived, unrealised: unrealisedValue, total }
   }, [positions, words, b])
 
-  // Shares held for the currently-selected side (used by slider in sell mode)
-  const sharesForSelectedSide = selectedPosition
+  // Shares held for the currently-selected side (used by slider in sell mode).
+  // Treat anything below 0.01 as zero — dust left behind by 2dp truncation shouldn't
+  // be presented as a tradeable position.
+  const rawSharesForSide = selectedPosition
     ? (side === 'YES' ? selectedPosition.yes_shares : selectedPosition.no_shares)
     : 0
+  const sharesForSelectedSide = rawSharesForSide >= 0.01 ? rawSharesForSide : 0
   const sliderMax = tradeMode === 'buy' ? balance : sharesForSelectedSide
   const sliderValue = sliderMax > 0 ? Math.min(100, (amountNum / sliderMax) * 100) : 0
 
@@ -693,7 +696,8 @@ export default function CustomMarketPage() {
           <div className="space-y-2">
             {positions.map(pos => {
               const pnl = pos.tokens_received - pos.tokens_spent
-              const hasShares = pos.yes_shares > 0 || pos.no_shares > 0
+              // Use 0.01 threshold — dust shares (<0.01) left by truncation aren't tradeable
+              const hasShares = pos.yes_shares >= 0.01 || pos.no_shares >= 0.01
               if (!hasShares && pnl === 0) return null
               const isClickable = isOpen && hasShares
               return (
