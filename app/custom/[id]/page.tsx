@@ -380,9 +380,10 @@ export default function CustomMarketPage() {
       const value = pct === 100 ? sliderMax : Math.floor((pct / 100) * sliderMax)
       setAmount(String(value))
     } else {
-      // At 100%, use the exact share count to avoid any floating-point overshoot above what is held.
-      const value = pct === 100 ? sliderMax : (pct / 100) * sliderMax
-      setAmount(value.toFixed(6))
+      // Truncate to 2dp — share counts are fractional (LMSR outputs, not whole numbers) but
+      // showing 6dp is confusing. The tiny dust remainder (<0.01 shares) is negligible.
+      const value = (pct / 100) * sliderMax
+      setAmount(value.toFixed(2))
     }
   }
 
