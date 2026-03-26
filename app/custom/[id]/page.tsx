@@ -454,7 +454,7 @@ export default function CustomMarketPage() {
       {connected && (
         <div className="mb-4 pb-4 border-b border-white/10">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Play Tokens ¢</span>
+            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Play Tokens $</span>
             <span className="text-sm font-semibold text-white">{Math.floor(balance)} / {startingBalance}</span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
@@ -573,7 +573,7 @@ export default function CustomMarketPage() {
               placeholder="0"
               className="bg-transparent border-0 text-right text-2xl font-semibold text-white w-24 focus:outline-none focus:ring-0 placeholder:text-neutral-600 p-0"
             />
-            {tradeMode === 'buy' && <span className="text-neutral-500 text-xl font-semibold">¢</span>}
+            {tradeMode === 'buy' && <span className="text-neutral-500 text-xl font-semibold">$</span>}
           </div>
         </div>
 
@@ -699,7 +699,8 @@ export default function CustomMarketPage() {
               const pnl = pos.tokens_received - pos.tokens_spent
               // Use 0.01 threshold — dust shares (<0.01) left by truncation aren't tradeable
               const hasShares = pos.yes_shares >= 0.01 || pos.no_shares >= 0.01
-              if (!hasShares && pnl === 0) return null
+              // Hide if no shares remain unless market is resolved (where final P&L is worth showing)
+              if (!hasShares && (market?.status !== 'resolved' || pnl === 0)) return null
               const isClickable = isOpen && hasShares
               return (
                 <div
