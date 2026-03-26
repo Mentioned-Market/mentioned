@@ -379,10 +379,11 @@ export default function CustomMarketPage() {
       // so the raw balance can have decimals the user never sees. Floor keeps the input clean.
       setAmount(String(Math.floor((pct / 100) * sliderMax)))
     } else {
-      // Truncate to 2dp — share counts are fractional (LMSR outputs, not whole numbers) but
-      // showing 6dp is confusing. The tiny dust remainder (<0.01 shares) is negligible.
-      const value = (pct / 100) * sliderMax
-      setAmount(value.toFixed(2))
+      // Truncate (floor) to 2dp — toFixed(2) rounds, which can produce a value higher than
+      // shares actually held, causing the API to reject with "Insufficient shares".
+      const raw = (pct / 100) * sliderMax
+      const truncated = Math.floor(raw * 100) / 100
+      setAmount(truncated.toFixed(2))
     }
   }
 
