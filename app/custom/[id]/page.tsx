@@ -454,7 +454,7 @@ export default function CustomMarketPage() {
       {connected && (
         <div className="mb-4 pb-4 border-b border-white/10">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Play Tokens</span>
+            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Play Tokens ¢</span>
             <span className="text-sm font-semibold text-white">{Math.floor(balance)} / {startingBalance}</span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
@@ -564,7 +564,7 @@ export default function CustomMarketPage() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <input
               type="text"
               inputMode="decimal"
@@ -573,6 +573,7 @@ export default function CustomMarketPage() {
               placeholder="0"
               className="bg-transparent border-0 text-right text-2xl font-semibold text-white w-24 focus:outline-none focus:ring-0 placeholder:text-neutral-600 p-0"
             />
+            {tradeMode === 'buy' && <span className="text-neutral-500 text-xl font-semibold">¢</span>}
           </div>
         </div>
 
@@ -718,9 +719,9 @@ export default function CustomMarketPage() {
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-neutral-400">
                     <span>
-                      {pos.yes_shares > 0 && <span className="text-apple-green">{pos.yes_shares.toFixed(1)} YES</span>}
-                      {pos.yes_shares > 0 && pos.no_shares > 0 && ' · '}
-                      {pos.no_shares > 0 && <span className="text-apple-red">{pos.no_shares.toFixed(1)} NO</span>}
+                      {pos.yes_shares >= 0.01 && <span className="text-apple-green">{pos.yes_shares.toFixed(1)} YES</span>}
+                      {pos.yes_shares >= 0.01 && pos.no_shares >= 0.01 && ' · '}
+                      {pos.no_shares >= 0.01 && <span className="text-apple-red">{pos.no_shares.toFixed(1)} NO</span>}
                     </span>
                     <span>spent {pos.tokens_spent.toFixed(1)}</span>
                   </div>
