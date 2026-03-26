@@ -351,10 +351,10 @@ The detail page mirrors the polymarket event page layout (`/polymarkets/event/[e
 4. **Selected word** — "Buy YES - Iran"
 5. **Buy / Sell toggle**
 6. **YES / NO buttons** — With live prices in cents
-7. **Amount input** — Tokens to spend (buy) or shares to sell
+7. **Amount input** — Tokens to spend (buy) or shares to sell. Below the input: quick-select preset buttons (25% / 50% / 75% / MAX) and a percentage slider. In buy mode the slider represents a percentage of the user's available token balance; in sell mode it represents a percentage of shares held for the selected side. The slider is hidden in sell mode when the user holds zero shares on the selected side. Changing the side or selected word resets the amount.
 8. **Cost breakdown** — Average price, shares, payout if correct, profit, points earned
 9. **Action button** — "Buy Yes" / "Sell No" etc.
-10. **Positions** — Cards showing held shares per word with P&L
+10. **Positions** — Cards showing held shares per word with P&L. In an open market, clicking a position card selects that word, switches the panel to Sell mode, and sets the side to YES (if the user holds YES shares) or NO otherwise. Cards are not interactive on locked or resolved markets.
 
 ### Mobile
 

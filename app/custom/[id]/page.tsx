@@ -359,10 +359,38 @@ export default function CustomMarketPage() {
     return { spent: totalSpent, received: totalReceived, unrealised: unrealisedValue, total }
   }, [positions, words, b])
 
+  // Shares held for the currently-selected side (used by slider in sell mode)
+  const sharesForSelectedSide = selectedPosition
+    ? (side === 'YES' ? selectedPosition.yes_shares : selectedPosition.no_shares)
+    : 0
+  const sliderMax = tradeMode === 'buy' ? balance : sharesForSelectedSide
+  const sliderValue = sliderMax > 0 ? Math.min(100, (amountNum / sliderMax) * 100) : 0
+
   // ── Handlers ────────────────────────────────────────
 
   const handleWordClick = (wordId: number) => {
     setSelectedWordId(wordId)
+    setAmount('')
+  }
+
+  const handleSliderChange = (pct: number) => {
+    if (tradeMode === 'buy') {
+      // At 100%, use the exact balance (including fractional) so the user can spend everything.
+      // Otherwise floor to a whole-token amount — Math.round could overshoot available balance.
+      const value = pct === 100 ? sliderMax : Math.floor((pct / 100) * sliderMax)
+      setAmount(String(value))
+    } else {
+      // At 100%, use the exact share count to avoid any floating-point overshoot above what is held.
+      const value = pct === 100 ? sliderMax : (pct / 100) * sliderMax
+      setAmount(value.toFixed(6))
+    }
+  }
+
+  const handlePositionClick = (pos: Position) => {
+    setSelectedWordId(pos.word_id)
+    setTradeMode('sell')
+    setSide(pos.yes_shares > 0 ? 'YES' : 'NO')
+    setAmount('')
   }
 
   const handleTrade = async () => {
@@ -496,7 +524,7 @@ export default function CustomMarketPage() {
       {/* Yes / No buttons */}
       <div className="flex gap-2 mb-5">
         <button
-          onClick={() => setSide('YES')}
+          onClick={() => { setSide('YES'); setAmount('') }}
           className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
             side === 'YES'
               ? 'bg-apple-green/15 text-apple-green border border-apple-green/40'
@@ -506,7 +534,7 @@ export default function CustomMarketPage() {
           Yes <FlashValue value={`${yesCents}¢`} />
         </button>
         <button
-          onClick={() => setSide('NO')}
+          onClick={() => { setSide('NO'); setAmount('') }}
           className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
             side === 'NO'
               ? 'bg-apple-red/15 text-apple-red border border-apple-red/40'
@@ -518,7 +546,7 @@ export default function CustomMarketPage() {
       </div>
 
       {/* Amount input */}
-      <div className="mb-5">
+      <div className="mb-4">
         <div className="flex items-center justify-between py-3">
           <div>
             <div className="text-sm text-neutral-400 font-medium">
@@ -543,6 +571,33 @@ export default function CustomMarketPage() {
             />
           </div>
         </div>
+
+        {/* Slider + presets — hidden in sell mode when no shares on selected side */}
+        {(tradeMode === 'buy' || sharesForSelectedSide > 0) && (
+          <div className="pb-2">
+            <div className="flex gap-1.5 mb-3">
+              {[25, 50, 75, 100].map(pct => (
+                <button
+                  key={pct}
+                  onClick={() => handleSliderChange(pct)}
+                  className="flex-1 py-1 text-xs font-medium rounded-md border border-white/10 text-neutral-400 hover:border-white/20 hover:text-white transition-colors"
+                >
+                  {pct === 100 ? 'MAX' : `${pct}%`}
+                </button>
+              ))}
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(sliderValue)}
+              onChange={e => handleSliderChange(Number(e.target.value))}
+              className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+              style={{ accentColor: side === 'YES' ? 'var(--apple-green, #30d158)' : 'var(--apple-red, #ff453a)' }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Cost breakdown */}
@@ -639,14 +694,21 @@ export default function CustomMarketPage() {
               const pnl = pos.tokens_received - pos.tokens_spent
               const hasShares = pos.yes_shares > 0 || pos.no_shares > 0
               if (!hasShares && pnl === 0) return null
+              const isClickable = isOpen && hasShares
               return (
-                <div key={pos.word_id} className="glass rounded-lg p-2.5">
+                <div
+                  key={pos.word_id}
+                  onClick={isClickable ? () => handlePositionClick(pos) : undefined}
+                  className={`glass rounded-lg p-2.5 transition-colors ${isClickable ? 'cursor-pointer hover:bg-white/5' : ''}`}
+                >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-white font-medium text-xs truncate max-w-[140px]">{pos.word}</span>
-                    {market?.status === 'resolved' && (
+                    {market?.status === 'resolved' ? (
                       <span className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
                         {pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}
                       </span>
+                    ) : isClickable && (
+                      <span className="text-[10px] text-neutral-600">sell →</span>
                     )}
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-neutral-400">
