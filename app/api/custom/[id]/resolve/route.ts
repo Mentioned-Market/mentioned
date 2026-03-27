@@ -34,7 +34,14 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
   }
 
-  const market = await getCustomMarket(marketId)
+  let market, words
+  try {
+    market = await getCustomMarket(marketId)
+  } catch (err: any) {
+    console.error('Resolve: failed to fetch market', err)
+    return NextResponse.json({ error: 'Database error' }, { status: 500 })
+  }
+
   if (!market || market.status !== 'locked') {
     return NextResponse.json(
       { error: 'Market must be locked before resolving' },
@@ -42,15 +49,21 @@ export async function POST(
     )
   }
 
-  await resolveCustomMarketWords(marketId, resolutions)
+  try {
+    await resolveCustomMarketWords(marketId, resolutions)
 
-  // Compute payouts for each resolved word
-  for (const { wordId, outcome } of resolutions) {
-    await resolveWordPositions(marketId, wordId, outcome ? 'YES' : 'NO')
+    // Compute payouts for each resolved word
+    for (const { wordId, outcome } of resolutions) {
+      await resolveWordPositions(marketId, wordId, outcome ? 'YES' : 'NO')
+    }
+
+    // Check if all words are now resolved
+    words = await getCustomMarketWords(marketId)
+  } catch (err: any) {
+    console.error('Resolve: error during resolution', err)
+    return NextResponse.json({ error: err.message || 'Failed to resolve words' }, { status: 500 })
   }
 
-  // Check if all words are now resolved
-  const words = await getCustomMarketWords(marketId)
   const allResolved = words.every(w => w.resolved_outcome !== null)
 
   if (allResolved) {
@@ -59,9 +72,7 @@ export async function POST(
     if (updated) {
       // Fire-and-forget scoring (idempotent via point_events dedup)
       resolveAndScoreVirtualMarket(marketId)
-        .then(() => {
-          console.log(`Scored virtual market ${marketId}`)
-        })
+        .then(() => console.log(`Scored virtual market ${marketId}`))
         .catch(err => console.error(`Scoring error for market ${marketId}:`, err))
     }
   }
