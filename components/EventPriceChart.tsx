@@ -18,6 +18,8 @@ interface EventPriceChartProps {
   eventId: string
   markets: { marketId: string; title: string; currentPrice: number }[]
   selectedMarketId: string | null
+  /** Pre-loaded series data — skips fetching from polymarket API when provided */
+  preloadedSeries?: { marketId: string; title: string; currentPrice: number; data: PricePoint[] }[]
 }
 
 const MAX_VISIBLE = 5
@@ -47,6 +49,7 @@ export default function EventPriceChart({
   eventId,
   markets,
   selectedMarketId,
+  preloadedSeries,
 }: EventPriceChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -113,8 +116,14 @@ export default function EventPriceChart({
     [],
   )
 
-  // Fetch price history for all markets
+  // Use preloaded series if provided, otherwise fetch from polymarket API
   useEffect(() => {
+    if (preloadedSeries) {
+      setSeries(preloadedSeries.filter(s => s.data.length > 0))
+      setLoading(false)
+      return
+    }
+
     if (markets.length === 0) return
     if (series.length === 0) setLoading(true)
 
@@ -135,7 +144,7 @@ export default function EventPriceChart({
       setSeries(results.filter((s) => s.data.length > 0))
       setLoading(false)
     })
-  }, [markets, eventId, timeframe])
+  }, [markets, eventId, timeframe, preloadedSeries])
 
   // Only draw visible series
   const visibleSeries = series.filter((s) => visibleIds.has(s.marketId))
