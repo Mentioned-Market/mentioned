@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useWallet } from '@/contexts/WalletContext'
 
 interface ChatMessage {
@@ -17,6 +18,7 @@ const MAX_LENGTH = 200
 const SEND_COOLDOWN = 500
 
 export default function GlobalChat() {
+  const pathname = usePathname()
   const { connected, publicKey } = useWallet()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -117,6 +119,9 @@ export default function GlobalChat() {
     const d = new Date(ts)
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
+
+  // Hide on homepage
+  if (pathname === '/') return null
 
   // Collapsed state — chat bubble
   if (!open) {

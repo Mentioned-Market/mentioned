@@ -177,6 +177,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (walletType === 'privy') return
+    if (disconnectingRef.current) return
 
     const { get, on } = getWallets()
 
@@ -193,7 +194,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           connectFeat
             .connect({ silent: true })
             .then((accounts) => {
-              if (accounts.length > 0)
+              if (accounts.length > 0 && !disconnectingRef.current)
                 applyPhantomAccount(wallet, accounts[0])
             })
             .catch(() => {})
@@ -203,6 +204,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (FEAT_EVENTS in wallet.features) {
         const events = wallet.features[FEAT_EVENTS] as EventsFeature
         events.on('change', (props) => {
+          if (disconnectingRef.current) return
           const accounts = props.accounts ?? wallet.accounts
           if (accounts.length > 0) {
             applyPhantomAccount(wallet, accounts[0])
@@ -308,6 +310,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const connectPhantom = useCallback(async () => {
     setShowConnectModal(false)
+    disconnectingRef.current = false
     let wallet = walletRef.current
     if (!wallet) {
       const { get } = getWallets()
@@ -346,6 +349,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       clearState()
       await privyLogout()
     } else {
+      disconnectingRef.current = true
       const wallet = walletRef.current
       if (wallet && FEAT_DISCONNECT in wallet.features) {
         const feat = wallet.features[FEAT_DISCONNECT] as DisconnectFeature
