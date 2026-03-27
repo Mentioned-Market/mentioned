@@ -24,6 +24,15 @@ interface UserPosition {
   marketMetadata?: { title: string }
 }
 
+interface CustomPosition {
+  word_id: number
+  word: string
+  yes_shares: number
+  no_shares: number
+  tokens_spent: number
+  tokens_received: number
+}
+
 interface EventChatProps {
   eventId: string
   marketIds: string[]
@@ -48,13 +57,18 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const lastIdRef = useRef(0)
   const lastSentRef = useRef(0)
 
+  // Detect free market context from eventId (e.g. "custom_42")
+  const customMarketId = eventId.startsWith('custom_') ? parseInt(eventId.slice(7), 10) : null
+
   // Hover card state
   const [hoveredWallet, setHoveredWallet] = useState<string | null>(null)
   const [hoverPositions, setHoverPositions] = useState<UserPosition[]>([])
+  const [hoverCustomPositions, setHoverCustomPositions] = useState<CustomPosition[]>([])
   const [hoverPos, setHoverPos] = useState({ top: 0, left: 0 })
   const [loadingPositions, setLoadingPositions] = useState(false)
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const positionCache = useRef<Map<string, UserPosition[]>>(new Map())
+  const customPositionCache = useRef<Map<string, CustomPosition[]>>(new Map())
 
   // Fetch username + pfp
   useEffect(() => {
@@ -132,30 +146,55 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     }).catch(() => {})
   }, [publicKey, input, username, pfpEmoji, eventId])
 
-  // Fetch positions for hovered user (only this event's markets)
+  // Fetch positions for hovered user
   const fetchUserPositions = useCallback(async (wallet: string) => {
-    if (positionCache.current.has(wallet)) {
-      setHoverPositions(positionCache.current.get(wallet)!)
-      setLoadingPositions(false)
-      return
-    }
     setLoadingPositions(true)
-    try {
-      const res = await fetch(`/api/polymarket/positions?ownerPubkey=${wallet}`)
-      if (!res.ok) { setHoverPositions([]); return }
-      const json = await res.json()
-      const marketIdSet = new Set(marketIds)
-      const positions: UserPosition[] = (json.data || json || []).filter(
-        (p: any) => marketIdSet.has(p.marketId)
-      )
-      positionCache.current.set(wallet, positions)
-      setHoverPositions(positions)
-    } catch {
-      setHoverPositions([])
-    } finally {
-      setLoadingPositions(false)
+
+    if (customMarketId !== null) {
+      // Free market: fetch from custom positions API
+      if (customPositionCache.current.has(wallet)) {
+        setHoverCustomPositions(customPositionCache.current.get(wallet)!)
+        setLoadingPositions(false)
+        return
+      }
+      try {
+        const res = await fetch(`/api/custom/${customMarketId}/positions?wallet=${wallet}`)
+        if (!res.ok) { setHoverCustomPositions([]); return }
+        const json = await res.json()
+        const positions: CustomPosition[] = (json.positions || []).filter(
+          (p: CustomPosition) => p.yes_shares >= 0.01 || p.no_shares >= 0.01
+        )
+        customPositionCache.current.set(wallet, positions)
+        setHoverCustomPositions(positions)
+      } catch {
+        setHoverCustomPositions([])
+      } finally {
+        setLoadingPositions(false)
+      }
+    } else {
+      // Polymarket: fetch from Jupiter positions API
+      if (positionCache.current.has(wallet)) {
+        setHoverPositions(positionCache.current.get(wallet)!)
+        setLoadingPositions(false)
+        return
+      }
+      try {
+        const res = await fetch(`/api/polymarket/positions?ownerPubkey=${wallet}`)
+        if (!res.ok) { setHoverPositions([]); return }
+        const json = await res.json()
+        const marketIdSet = new Set(marketIds)
+        const positions: UserPosition[] = (json.data || json || []).filter(
+          (p: any) => marketIdSet.has(p.marketId)
+        )
+        positionCache.current.set(wallet, positions)
+        setHoverPositions(positions)
+      } catch {
+        setHoverPositions([])
+      } finally {
+        setLoadingPositions(false)
+      }
     }
-  }, [marketIds])
+  }, [customMarketId, marketIds])
 
   const handleMouseEnter = useCallback((wallet: string, e: React.MouseEvent) => {
     const rect = (e.target as HTMLElement).getBoundingClientRect()
@@ -247,36 +286,63 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           onMouseLeave={handleMouseLeave}
         >
           <div className="text-xs text-neutral-400 mb-2">
-            {hoveredWallet.slice(0, 4)}...{hoveredWallet.slice(-4)} positions in this event
+            {hoveredWallet.slice(0, 4)}...{hoveredWallet.slice(-4)} positions in this {customMarketId !== null ? 'market' : 'event'}
           </div>
           {loadingPositions ? (
             <div className="text-xs text-neutral-500">Loading...</div>
-          ) : hoverPositions.length === 0 ? (
-            <div className="text-xs text-neutral-500">No positions in this event</div>
+          ) : customMarketId !== null ? (
+            // Free market positions
+            hoverCustomPositions.length === 0 ? (
+              <div className="text-xs text-neutral-500">No open positions</div>
+            ) : (
+              <div className="space-y-2">
+                {hoverCustomPositions.flatMap((pos) => {
+                  const rows = []
+                  if (pos.yes_shares >= 0.01) rows.push({ word: pos.word, side: 'YES', shares: pos.yes_shares })
+                  if (pos.no_shares >= 0.01) rows.push({ word: pos.word, side: 'NO', shares: pos.no_shares })
+                  return rows
+                }).slice(0, 6).map((row, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.side === 'YES' ? 'bg-apple-green/10 text-apple-green' : 'bg-apple-red/10 text-apple-red'}`}>
+                        {row.side}
+                      </span>
+                      <span className="text-neutral-300 truncate">{row.word}</span>
+                    </div>
+                    <span className="text-neutral-400 flex-shrink-0">{row.shares.toFixed(1)} shares</span>
+                  </div>
+                ))}
+              </div>
+            )
           ) : (
-            <div className="space-y-2">
-              {hoverPositions.slice(0, 4).map((pos, i) => (
-                <div key={i} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pos.isYes ? 'bg-apple-green/10 text-apple-green' : 'bg-apple-red/10 text-apple-red'}`}>
-                      {pos.isYes ? 'YES' : 'NO'}
-                    </span>
-                    <span className="text-neutral-300 truncate">
-                      {pos.marketMetadata?.title || pos.marketId.slice(-8)}
-                    </span>
+            // Polymarket positions
+            hoverPositions.length === 0 ? (
+              <div className="text-xs text-neutral-500">No positions in this event</div>
+            ) : (
+              <div className="space-y-2">
+                {hoverPositions.slice(0, 4).map((pos, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pos.isYes ? 'bg-apple-green/10 text-apple-green' : 'bg-apple-red/10 text-apple-red'}`}>
+                        {pos.isYes ? 'YES' : 'NO'}
+                      </span>
+                      <span className="text-neutral-300 truncate">
+                        {pos.marketMetadata?.title || pos.marketId.slice(-8)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-neutral-400">{pos.contracts}ct</span>
+                      <span className={pos.pnlUsd >= 0 ? 'text-apple-green' : 'text-apple-red'}>
+                        {pos.pnlUsd >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-neutral-400">{pos.contracts}ct</span>
-                    <span className={pos.pnlUsd >= 0 ? 'text-apple-green' : 'text-apple-red'}>
-                      {pos.pnlUsd >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-              {hoverPositions.length > 4 && (
-                <div className="text-[10px] text-neutral-500">+{hoverPositions.length - 4} more</div>
-              )}
-            </div>
+                ))}
+                {hoverPositions.length > 4 && (
+                  <div className="text-[10px] text-neutral-500">+{hoverPositions.length - 4} more</div>
+                )}
+              </div>
+            )
           )}
         </div>
       )}

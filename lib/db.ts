@@ -1,5 +1,6 @@
 import pg from 'pg'
 import type { ParsedTradeEvent } from './tradeParser'
+import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from './virtualLmsr'
 
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -607,6 +608,656 @@ export async function getUnlockedAchievements(
     [wallet],
   )
   return result.rows
+}
+
+// ── Custom Markets ───────────────────────────────────
+
+export interface CustomMarketRow {
+  id: number
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  stream_url: string | null
+  status: string
+  lock_time: string | null
+  b_parameter: number
+  play_tokens: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CustomMarketWordRow {
+  id: number
+  market_id: number
+  word: string
+  resolved_outcome: boolean | null
+}
+
+export interface CustomMarketPoolRow {
+  word_id: number
+  yes_qty: string
+  no_qty: string
+  updated_at: string
+}
+
+export interface CustomMarketPositionRow {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  yes_shares: string
+  no_shares: string
+  tokens_spent: string
+  tokens_received: string
+  updated_at: string
+}
+
+export interface CustomMarketBalanceRow {
+  market_id: number
+  wallet: string
+  balance: string
+}
+
+export interface CustomMarketTradeRow {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  action: string
+  side: string
+  shares: string
+  cost: string
+  yes_price: string
+  no_price: string
+  created_at: string
+}
+
+export interface CustomMarketPriceHistoryRow {
+  id: number
+  word_id: number
+  yes_price: string
+  no_price: string
+  recorded_at: string
+}
+
+export async function createCustomMarket(
+  title: string,
+  description: string | null,
+  coverImageUrl: string | null,
+  streamUrl: string | null,
+  lockTime: string | null,
+  bParameter: number,
+  playTokens: number,
+): Promise<CustomMarketRow> {
+  const result = await pool.query(
+    `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, lock_time, b_parameter, play_tokens)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens],
+  )
+  return result.rows[0]
+}
+
+const UPDATABLE_MARKET_FIELDS = ['title', 'description', 'cover_image_url', 'stream_url', 'lock_time'] as const
+
+export async function updateCustomMarket(
+  id: number,
+  fields: Partial<Pick<CustomMarketRow, 'title' | 'description' | 'cover_image_url' | 'stream_url' | 'lock_time'>>,
+): Promise<CustomMarketRow | null> {
+  const setClauses: string[] = []
+  const values: (string | number | null)[] = []
+  let paramIndex = 1
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && (UPDATABLE_MARKET_FIELDS as readonly string[]).includes(key)) {
+      setClauses.push(`"${key}" = $${paramIndex}`)
+      values.push(value as string | null)
+      paramIndex++
+    }
+  }
+
+  if (setClauses.length === 0) return getCustomMarket(id)
+
+  setClauses.push('updated_at = NOW()')
+  values.push(id)
+
+  const result = await pool.query(
+    `UPDATE custom_markets SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    values,
+  )
+  return result.rows[0] || null
+}
+
+export async function deleteCustomMarket(id: number): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM custom_markets WHERE id = $1`,
+    [id],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+export async function updateCustomMarketStatus(
+  id: number,
+  status: string,
+  expectedCurrentStatus?: string,
+): Promise<CustomMarketRow | null> {
+  const query = expectedCurrentStatus
+    ? `UPDATE custom_markets SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *`
+    : `UPDATE custom_markets SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`
+  const params = expectedCurrentStatus ? [status, id, expectedCurrentStatus] : [status, id]
+  const result = await pool.query(query, params)
+  return result.rows[0] || null
+}
+
+export async function lockCustomMarket(id: number): Promise<CustomMarketRow | null> {
+  const result = await pool.query(
+    `UPDATE custom_markets
+     SET status = 'locked',
+         lock_time = COALESCE(lock_time, NOW()),
+         updated_at = NOW()
+     WHERE id = $1 AND status = 'open'
+     RETURNING *`,
+    [id],
+  )
+  return result.rows[0] || null
+}
+
+export async function getCustomMarket(id: number): Promise<CustomMarketRow | null> {
+  const result = await pool.query(
+    `SELECT * FROM custom_markets WHERE id = $1`,
+    [id],
+  )
+  return result.rows[0] || null
+}
+
+export interface CustomMarketWordPrice {
+  word_id: number
+  market_id: number
+  word: string
+  yes_price: number
+  no_price: number
+}
+
+export interface CustomMarketListRow extends CustomMarketRow {
+  word_count: number
+  trader_count: number
+  words_prices: CustomMarketWordPrice[]
+}
+
+export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> {
+  const [marketsResult, poolsResult] = await Promise.all([
+    pool.query(
+      `SELECT m.*,
+         COALESCE(w.cnt, 0)::int AS word_count,
+         COALESCE(p.cnt, 0)::int AS trader_count
+       FROM custom_markets m
+       LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
+       LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_positions GROUP BY market_id) p ON p.market_id = m.id
+       WHERE m.status IN ('open', 'locked', 'resolved')
+       ORDER BY m.created_at DESC`,
+    ),
+    pool.query(
+      `SELECT w.id AS word_id, w.market_id, w.word,
+              COALESCE(p.yes_qty, 0) AS yes_qty, COALESCE(p.no_qty, 0) AS no_qty
+       FROM custom_market_words w
+       INNER JOIN custom_markets m ON m.id = w.market_id AND m.status IN ('open', 'locked', 'resolved')
+       LEFT JOIN custom_market_word_pools p ON p.word_id = w.id
+       ORDER BY w.id`,
+    ),
+  ])
+
+  const bByMarket = new Map<number, number>()
+  for (const m of marketsResult.rows) {
+    bByMarket.set(m.id, parseFloat(m.b_parameter))
+  }
+
+  const pricesByMarket = new Map<number, CustomMarketWordPrice[]>()
+  for (const r of poolsResult.rows) {
+    const b = bByMarket.get(r.market_id) || 500
+    const yesQty = parseFloat(r.yes_qty)
+    const noQty = parseFloat(r.no_qty)
+    const prices = virtualImpliedPrice(yesQty, noQty, b)
+    const entry: CustomMarketWordPrice = {
+      word_id: r.word_id,
+      market_id: r.market_id,
+      word: r.word,
+      yes_price: prices.yes,
+      no_price: prices.no,
+    }
+    const arr = pricesByMarket.get(r.market_id) || []
+    arr.push(entry)
+    pricesByMarket.set(r.market_id, arr)
+  }
+
+  return marketsResult.rows.map((m: any) => ({
+    ...m,
+    words_prices: pricesByMarket.get(m.id) || [],
+  }))
+}
+
+export interface CustomMarketAdminRow extends CustomMarketRow {
+  words: CustomMarketWordRow[]
+}
+
+export async function listCustomMarketsAdmin(): Promise<CustomMarketAdminRow[]> {
+  const [marketsResult, wordsResult] = await Promise.all([
+    pool.query(`SELECT * FROM custom_markets ORDER BY created_at DESC`),
+    pool.query(`SELECT * FROM custom_market_words ORDER BY id`),
+  ])
+
+  const wordsByMarket = new Map<number, CustomMarketWordRow[]>()
+  for (const w of wordsResult.rows) {
+    const arr = wordsByMarket.get(w.market_id) || []
+    arr.push(w)
+    wordsByMarket.set(w.market_id, arr)
+  }
+
+  return marketsResult.rows.map((m: CustomMarketRow) => ({
+    ...m,
+    words: wordsByMarket.get(m.id) || [],
+  }))
+}
+
+// -- Words --
+
+export async function addCustomMarketWords(
+  marketId: number,
+  words: string[],
+): Promise<CustomMarketWordRow[]> {
+  if (words.length === 0) return []
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const values: (number | string)[] = []
+    const placeholders: string[] = []
+    words.forEach((word, i) => {
+      values.push(marketId, word.trim())
+      placeholders.push(`($${i * 2 + 1}, $${i * 2 + 2})`)
+    })
+    const result = await client.query(
+      `INSERT INTO custom_market_words (market_id, word) VALUES ${placeholders.join(', ')} RETURNING *`,
+      values,
+    )
+    // Create pool rows for each word atomically
+    if (result.rows.length > 0) {
+      const poolPlaceholders = result.rows.map((_: CustomMarketWordRow, i: number) => `($${i + 1})`).join(', ')
+      const poolValues = result.rows.map((r: CustomMarketWordRow) => r.id)
+      await client.query(
+        `INSERT INTO custom_market_word_pools (word_id) VALUES ${poolPlaceholders}`,
+        poolValues,
+      )
+    }
+    await client.query('COMMIT')
+    return result.rows
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function getCustomMarketWords(marketId: number): Promise<CustomMarketWordRow[]> {
+  const result = await pool.query(
+    `SELECT * FROM custom_market_words WHERE market_id = $1 ORDER BY id`,
+    [marketId],
+  )
+  return result.rows
+}
+
+export async function removeCustomMarketWord(marketId: number, wordId: number): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM custom_market_words WHERE id = $1 AND market_id = $2`,
+    [wordId, marketId],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+export async function resolveCustomMarketWords(
+  marketId: number,
+  resolutions: { wordId: number; outcome: boolean }[],
+): Promise<void> {
+  if (resolutions.length === 0) return
+  const cases: string[] = []
+  const ids: number[] = []
+  const values: (number | boolean)[] = []
+  let paramIndex = 1
+
+  // First param is market_id for the WHERE clause
+  values.push(marketId)
+  paramIndex++
+
+  for (const { wordId, outcome } of resolutions) {
+    cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}`)
+    values.push(wordId, outcome)
+    ids.push(wordId)
+    paramIndex += 2
+  }
+
+  values.push(...ids)
+  const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
+
+  await pool.query(
+    `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders})`,
+    values,
+  )
+}
+
+// -- Pools --
+
+export async function getWordPools(marketId: number): Promise<CustomMarketPoolRow[]> {
+  const result = await pool.query(
+    `SELECT p.* FROM custom_market_word_pools p
+     JOIN custom_market_words w ON w.id = p.word_id
+     WHERE w.market_id = $1
+     ORDER BY p.word_id`,
+    [marketId],
+  )
+  return result.rows
+}
+
+// -- Positions & Balances --
+
+export async function getUserPositions(
+  marketId: number,
+  wallet: string,
+): Promise<(CustomMarketPositionRow & { word: string })[]> {
+  const result = await pool.query(
+    `SELECT p.*, w.word FROM custom_market_positions p
+     JOIN custom_market_words w ON w.id = p.word_id
+     WHERE p.market_id = $1 AND p.wallet = $2
+     ORDER BY p.word_id`,
+    [marketId, wallet],
+  )
+  return result.rows
+}
+
+export async function getUserBalance(
+  marketId: number,
+  wallet: string,
+): Promise<CustomMarketBalanceRow | null> {
+  const result = await pool.query(
+    `SELECT * FROM custom_market_balances WHERE market_id = $1 AND wallet = $2`,
+    [marketId, wallet],
+  )
+  return result.rows[0] || null
+}
+
+export async function getMarketTraderCount(marketId: number): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_positions WHERE market_id = $1`,
+    [marketId],
+  )
+  return result.rows[0]?.cnt ?? 0
+}
+
+export async function getWordTraderCounts(
+  marketId: number,
+): Promise<{ word_id: number; trader_count: number }[]> {
+  const result = await pool.query(
+    `SELECT word_id, COUNT(DISTINCT wallet)::int AS trader_count
+     FROM custom_market_positions WHERE market_id = $1
+     GROUP BY word_id`,
+    [marketId],
+  )
+  return result.rows
+}
+
+// -- Trade History --
+
+export async function getTradeHistory(
+  marketId: number,
+  limit: number = 50,
+  wallet?: string,
+): Promise<(CustomMarketTradeRow & { username: string | null; word: string })[]> {
+  const params: (number | string)[] = [marketId]
+  let walletClause = ''
+  if (wallet) {
+    walletClause = ` AND t.wallet = $2`
+    params.push(wallet)
+  }
+  params.push(limit)
+  const limitParam = `$${params.length}`
+  const result = await pool.query(
+    `SELECT t.*, up.username, w.word
+     FROM custom_market_trades t
+     LEFT JOIN user_profiles up ON up.wallet = t.wallet
+     JOIN custom_market_words w ON w.id = t.word_id
+     WHERE t.market_id = $1${walletClause}
+     ORDER BY t.created_at DESC
+     LIMIT ${limitParam}`,
+    params,
+  )
+  return result.rows
+}
+
+// -- Price History --
+
+export async function getPriceHistory(wordId: number): Promise<CustomMarketPriceHistoryRow[]> {
+  const result = await pool.query(
+    `SELECT * FROM custom_market_price_history WHERE word_id = $1 ORDER BY recorded_at ASC`,
+    [wordId],
+  )
+  return result.rows
+}
+
+export async function getPriceHistoryForMarket(
+  marketId: number,
+): Promise<(CustomMarketPriceHistoryRow & { word: string })[]> {
+  const result = await pool.query(
+    `SELECT ph.*, w.word FROM custom_market_price_history ph
+     JOIN custom_market_words w ON w.id = ph.word_id
+     WHERE w.market_id = $1
+     ORDER BY ph.recorded_at ASC`,
+    [marketId],
+  )
+  return result.rows
+}
+
+// -- Scoring Queries --
+
+export async function getMarketProfitByWallet(
+  marketId: number,
+): Promise<{ wallet: string; tokens_spent: number; tokens_received: number }[]> {
+  const result = await pool.query(
+    `SELECT wallet,
+            SUM(tokens_spent)::numeric AS tokens_spent,
+            SUM(tokens_received)::numeric AS tokens_received
+     FROM custom_market_positions WHERE market_id = $1
+     GROUP BY wallet`,
+    [marketId],
+  )
+  return result.rows.map((r: any) => ({
+    wallet: r.wallet,
+    tokens_spent: parseFloat(r.tokens_spent),
+    tokens_received: parseFloat(r.tokens_received),
+  }))
+}
+
+export async function resolveWordPositionsPayout(
+  wordId: number,
+  outcome: 'YES' | 'NO',
+): Promise<void> {
+  await pool.query(
+    `UPDATE custom_market_positions
+     SET tokens_received = tokens_received + CASE WHEN $2 = 'YES' THEN yes_shares ELSE no_shares END,
+         updated_at = NOW()
+     WHERE word_id = $1`,
+    [wordId, outcome],
+  )
+}
+
+// -- Virtual Trade (transactional) --
+
+export interface VirtualTradeResult {
+  tradeId: number
+  cost: number
+  shares: number
+  newYesPrice: number
+  newNoPrice: number
+  newBalance: number
+  newYesShares: number
+  newNoShares: number
+}
+
+export async function executeVirtualTrade(
+  marketId: number,
+  wordId: number,
+  wallet: string,
+  action: 'buy' | 'sell',
+  side: 'YES' | 'NO',
+  amount: number,
+  amountType: 'tokens' | 'shares',
+): Promise<VirtualTradeResult> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // 1. Lock pool row
+    const poolResult = await client.query(
+      'SELECT * FROM custom_market_word_pools WHERE word_id = $1 FOR UPDATE',
+      [wordId],
+    )
+    const poolRow = poolResult.rows[0]
+    if (!poolRow) throw new Error('Pool not found for word')
+
+    const yesQty = parseFloat(poolRow.yes_qty)
+    const noQty = parseFloat(poolRow.no_qty)
+
+    // 2. Get market for b_parameter and play_tokens
+    const marketResult = await client.query(
+      'SELECT b_parameter, play_tokens FROM custom_markets WHERE id = $1',
+      [marketId],
+    )
+    const market = marketResult.rows[0]
+    if (!market) throw new Error('Market not found')
+    const b = parseFloat(market.b_parameter)
+
+    // 3. Get or create balance (lazy creation with FOR UPDATE)
+    let balanceResult = await client.query(
+      'SELECT balance FROM custom_market_balances WHERE market_id = $1 AND wallet = $2 FOR UPDATE',
+      [marketId, wallet],
+    )
+    if (balanceResult.rows.length === 0) {
+      balanceResult = await client.query(
+        'INSERT INTO custom_market_balances (market_id, wallet, balance) VALUES ($1, $2, $3) RETURNING balance',
+        [marketId, wallet, market.play_tokens],
+      )
+    }
+    let balance = parseFloat(balanceResult.rows[0].balance)
+
+    // 4. Get current position (or defaults)
+    const posResult = await client.query(
+      'SELECT * FROM custom_market_positions WHERE word_id = $1 AND wallet = $2 FOR UPDATE',
+      [wordId, wallet],
+    )
+    const pos = posResult.rows[0]
+    let curYesShares = pos ? parseFloat(pos.yes_shares) : 0
+    let curNoShares = pos ? parseFloat(pos.no_shares) : 0
+    let curTokensSpent = pos ? parseFloat(pos.tokens_spent) : 0
+    let curTokensReceived = pos ? parseFloat(pos.tokens_received) : 0
+
+    // 5. Compute cost/shares
+    let shares: number
+    let cost: number
+
+    if (action === 'buy') {
+      if (amountType === 'tokens') {
+        shares = sharesForTokens(yesQty, noQty, side, amount, b)
+        cost = virtualBuyCost(yesQty, noQty, side, shares, b)
+        // Clamp cost to not exceed the requested token amount
+        if (cost > amount) {
+          cost = amount
+          shares = sharesForTokens(yesQty, noQty, side, cost, b)
+        }
+      } else {
+        shares = amount
+        cost = virtualBuyCost(yesQty, noQty, side, shares, b)
+      }
+      if (cost > balance + 0.000001) throw new Error('Insufficient balance')
+      cost = Math.min(cost, balance) // clamp for float precision
+    } else {
+      shares = amount // sells always in shares
+      const held = side === 'YES' ? curYesShares : curNoShares
+      if (shares > held + 0.000001) throw new Error('Insufficient shares')
+      shares = Math.min(shares, held)
+      cost = virtualSellReturn(yesQty, noQty, side, shares, b)
+    }
+
+    // 6. Update pool quantities
+    const newYesQty = side === 'YES'
+      ? (action === 'buy' ? yesQty + shares : yesQty - shares)
+      : yesQty
+    const newNoQty = side === 'NO'
+      ? (action === 'buy' ? noQty + shares : noQty - shares)
+      : noQty
+
+    await client.query(
+      'UPDATE custom_market_word_pools SET yes_qty = $1, no_qty = $2, updated_at = NOW() WHERE word_id = $3',
+      [newYesQty, newNoQty, wordId],
+    )
+
+    // 7. Upsert position
+    if (action === 'buy') {
+      if (side === 'YES') curYesShares += shares
+      else curNoShares += shares
+      curTokensSpent += cost
+    } else {
+      if (side === 'YES') curYesShares -= shares
+      else curNoShares -= shares
+      curTokensReceived += cost
+    }
+
+    await client.query(
+      `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (word_id, wallet) DO UPDATE SET
+         yes_shares = $4, no_shares = $5, tokens_spent = $6, tokens_received = $7, updated_at = NOW()`,
+      [marketId, wordId, wallet, curYesShares, curNoShares, curTokensSpent, curTokensReceived],
+    )
+
+    // 8. Update balance
+    const newBalance = action === 'buy' ? balance - cost : balance + cost
+    await client.query(
+      'UPDATE custom_market_balances SET balance = $1 WHERE market_id = $2 AND wallet = $3',
+      [newBalance, marketId, wallet],
+    )
+
+    // 9. Compute new implied price
+    const newPrices = virtualImpliedPrice(newYesQty, newNoQty, b)
+
+    // 10. Insert trade record
+    const tradeResult = await client.query(
+      `INSERT INTO custom_market_trades (market_id, word_id, wallet, action, side, shares, cost, yes_price, no_price)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [marketId, wordId, wallet, action, side, shares, cost, newPrices.yes, newPrices.no],
+    )
+
+    // 11. Insert price history
+    await client.query(
+      'INSERT INTO custom_market_price_history (word_id, yes_price, no_price) VALUES ($1, $2, $3)',
+      [wordId, newPrices.yes, newPrices.no],
+    )
+
+    await client.query('COMMIT')
+
+    return {
+      tradeId: tradeResult.rows[0].id,
+      cost,
+      shares,
+      newYesPrice: newPrices.yes,
+      newNoPrice: newPrices.no,
+      newBalance,
+      newYesShares: curYesShares,
+      newNoShares: curNoShares,
+    }
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 export { pool }
