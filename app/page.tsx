@@ -205,7 +205,7 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
         <span>12 traders</span><span>{words.length} words</span>
       </div>
       {selected && <div className="absolute w-5 h-5 pointer-events-none" style={{ opacity: clamp01(sub(p, delay + 0.25, delay + 0.4)), bottom: '35%', right: '20%', transform: `translate(${lerp(30, 0, sub(p, delay + 0.25, delay + 0.4))}px, ${lerp(20, 0, sub(p, delay + 0.25, delay + 0.4))}px)` }}>
-        <svg viewBox="0 0 24 24" fill="white" width="20" height="20"><path d="M5.65 3.15l13.14 7.57a.5.5 0 01-.01.87l-5.22 2.83-2.83 5.22a.5.5 0 01-.87.01L2.29 6.51a.5.5 0 01.56-.76l2.8.4z" /></svg>
+        <svg viewBox="0 0 320 512" fill="white" width="14" height="22"><path d="M0 55.2V426c0 12.2 9.9 22 22 22 6.3 0 12-2.6 16.2-6.8l81.8-86.8 61.8 144.2c2.8 6.6 10.5 9.6 17.1 6.8l40.8-17.2c6.6-2.8 9.6-10.5 6.8-17.1L184.9 327l113.8-3.2c12.2-.3 21.9-10.5 21.3-22.7-.3-6.3-3.2-11.9-7.8-15.8L32.9 37.5C19.4 26.7 0 36.2 0 55.2z" /></svg>
       </div>}
     </div>
   )
@@ -259,7 +259,7 @@ function MockWordList({ play }: { play: boolean }) {
         })}
       </div>
       <div className="absolute w-5 h-5 pointer-events-none" style={{ opacity: sub(progress, 0.15, 0.25), right: '15%', top: `${lerp(55, 35, sub(progress, 0.2, 0.75))}%`, transition: 'top 0.6s ease-out' }}>
-        <svg viewBox="0 0 24 24" fill="white" width="20" height="20"><path d="M5.65 3.15l13.14 7.57a.5.5 0 01-.01.87l-5.22 2.83-2.83 5.22a.5.5 0 01-.87.01L2.29 6.51a.5.5 0 01.56-.76l2.8.4z" /></svg>
+        <svg viewBox="0 0 320 512" fill="white" width="14" height="22"><path d="M0 55.2V426c0 12.2 9.9 22 22 22 6.3 0 12-2.6 16.2-6.8l81.8-86.8 61.8 144.2c2.8 6.6 10.5 9.6 17.1 6.8l40.8-17.2c6.6-2.8 9.6-10.5 6.8-17.1L184.9 327l113.8-3.2c12.2-.3 21.9-10.5 21.3-22.7-.3-6.3-3.2-11.9-7.8-15.8L32.9 37.5C19.4 26.7 0 36.2 0 55.2z" /></svg>
       </div>
     </div>
   )
@@ -349,15 +349,15 @@ function MockClaimPanel({ play }: { play: boolean }) {
       </div>
       <div className="mb-4 space-y-1.5 overflow-hidden" style={{ maxHeight: `${payoutT * 120}px`, opacity: payoutT }}>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Your shares</span><span className="text-neutral-300 font-mono">116.2</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Cost basis</span><span className="text-neutral-300 font-mono">50.0 tokens</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout</span><span className="text-green-400 font-mono">116.2 tokens</span></div>
-        <div className="flex justify-between text-[11px] pt-1 border-t border-white/5"><span className="text-neutral-400 font-medium">Profit</span><span className="text-green-400 font-semibold font-mono">+66.2 tokens (+132%)</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Cost basis</span><span className="text-neutral-300 font-mono">$50.00</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout</span><span className="text-green-400 font-mono">$116.20</span></div>
+        <div className="flex justify-between text-[11px] pt-1 border-t border-white/5"><span className="text-neutral-400 font-medium">Profit</span><span className="text-green-400 font-semibold font-mono">+$66.20 (+132%)</span></div>
       </div>
       <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: claimed ? '#34C759' : claimReady ? 'linear-gradient(135deg, #34C759, #30d158)' : `rgba(255,255,255,${0.1 + claimT * 0.1})`, color: claimT > 0.3 ? 'white' : '#525252', transform: `scale(${lerp(1, 1.02, claimedT)})`, boxShadow: `0 0 ${claimT * 25}px rgba(52,199,89,${claimT * 0.2})` }}>
         {claimed ? '✓ Winnings Claimed!' : claimReady ? 'Claim Winnings' : 'Waiting for result...'}
       </button>
       <div className="mt-3 text-center" style={{ opacity: claimedT, transform: `translateY(${lerp(15, 0, claimedT)}px) scale(${lerp(0.95, 1, claimedT)})` }}>
-        <p className="text-green-400 text-sm font-semibold">+66.2 tokens earned!</p>
+        <p className="text-green-400 text-sm font-semibold">+$66.20 earned!</p>
         <p className="text-neutral-500 text-[10px] mt-0.5">33 points added to your score</p>
       </div>
     </div>
@@ -607,7 +607,7 @@ export default function Home() {
               <div className="reveal reveal-up">
                 <p className="text-neutral-500 text-xs font-semibold uppercase tracking-widest mb-4">More than trading</p>
                 <h2 className="text-2xl md:text-4xl font-bold text-white mb-3">Compete. Climb. Flex.</h2>
-                <p className="text-neutral-400 text-base md:text-lg max-w-xl mx-auto">Every trade earns points. Unlock achievements. Climb the weekly leaderboard. Talk trash in market chat. This isn&apos;t just a market — it&apos;s a game.</p>
+                <p className="text-neutral-400 text-base md:text-lg max-w-xl mx-auto">Every trade earns you points. Rack up achievements, climb the weekly leaderboard, and talk trash in market chat.<br />Trading is just the start.</p>
               </div>
               <div className="reveal reveal-up stagger-1 grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-4xl"><MockPointsBreakdown /><MockLeaderboard /></div>
               <div className="reveal reveal-up stagger-2 grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-4xl"><MockAchievements /><MockChat /></div>
