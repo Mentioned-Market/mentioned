@@ -341,7 +341,7 @@ The detail page mirrors the polymarket event page layout (`/polymarkets/event/[e
 6. **Price chart** — `EventPriceChart` component (same as polymarket pages) showing all words as colored lines with clickable legend and timeframe buttons
 7. **Word table** — Each row: word name, chance %, YES/NO price buttons. Clicking selects the word in the trading panel.
 8. **Recent trades** — Feed showing "alice bought 142 YES on earnings at 63c"
-9. **Event chat** — Reuses existing `EventChat` component with `eventId="custom_{id}"`
+9. **Event chat** — Reuses existing `EventChat` component with `eventId="custom_{id}"`. Hovering a username shows a popover of that user's current open positions in this market (word, YES/NO, share count). Results are fetched from `/api/custom/[id]/positions` and cached per wallet for the session.
 
 ### Trading Panel (right sidebar, sticky)
 
@@ -354,7 +354,7 @@ The detail page mirrors the polymarket event page layout (`/polymarkets/event/[e
 7. **Amount input** — Tokens to spend (buy) or shares to sell. Below the input: quick-select preset buttons (25% / 50% / 75% / MAX) and a percentage slider. In buy mode the slider represents a percentage of the user's available token balance; in sell mode it represents a percentage of shares held for the selected side. The slider is hidden in sell mode when the user holds zero shares on the selected side. Changing the side or selected word resets the amount.
 8. **Cost breakdown** — Average price, shares, payout if correct, profit, points earned
 9. **Action button** — "Buy Yes" / "Sell No" etc.
-10. **Positions** — Cards showing held shares per word with P&L. In an open market, clicking a position card selects that word, switches the panel to Sell mode, and sets the side to YES (if the user holds YES shares) or NO otherwise. Cards are not interactive on locked or resolved markets.
+10. **Positions** — Cards showing held shares per word with P&L. Visibility rules: cards are hidden while the market is open or locked if the user holds no meaningful shares on that word (< 0.01 threshold, covering truncation dust from selling). On a resolved market, cards with no shares but non-zero P&L remain visible so the user can see their final result. In an open market, clicking a position card selects that word, switches the panel to Sell mode, and sets the side to YES (if the user holds YES shares) or NO otherwise. Cards are not interactive on locked or resolved markets.
 
 ### Mobile
 
