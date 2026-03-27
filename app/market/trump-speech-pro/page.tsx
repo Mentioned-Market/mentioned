@@ -101,11 +101,12 @@ export default function TrumpSpeechPro() {
   const estimatedCost = amount ? (parseFloat(amount) * (orderType === 'MARKET' ? currentPrice : parseFloat(limitPrice || '0'))).toFixed(2) : '0.00'
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <div className="px-4 md:px-10 lg:px-20">
-        <Header />
-        
-        <main className="py-4">
+    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-[#0a0a0a]">
+      <div className="layout-container flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+            <Header />
+            <main className="py-4">
           {/* Top Bar */}
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/10">
             <div>
@@ -422,7 +423,9 @@ export default function TrumpSpeechPro() {
               </div>
             </div>
           )}
-        </main>
+            </main>
+          </div>
+        </div>
       </div>
     </div>
   )

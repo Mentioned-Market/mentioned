@@ -251,11 +251,12 @@ export default function CustomAdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="max-w-7xl mx-auto px-4 md:px-10 lg:px-20">
-        <Header />
-
-        <main className="py-4 md:py-6 animate-fade-in">
+    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+      <div className="layout-container flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+            <Header />
+            <main className="py-4 md:py-6 animate-fade-in">
           <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">Custom Markets Admin</h1>
           <p className="text-neutral-400 text-sm mb-6">Create and manage free prediction markets</p>
 
@@ -602,7 +603,9 @@ export default function CustomAdminPage() {
           </div>
         </main>
 
-        <Footer />
+            <Footer />
+          </div>
+        </div>
       </div>
     </div>
   )
