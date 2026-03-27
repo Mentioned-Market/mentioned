@@ -928,7 +928,7 @@ export async function resolveCustomMarketWords(
   paramIndex++
 
   for (const { wordId, outcome } of resolutions) {
-    cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}`)
+    cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}::boolean`)
     values.push(wordId, outcome)
     ids.push(wordId)
     paramIndex += 2
