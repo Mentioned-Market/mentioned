@@ -47,11 +47,12 @@ export default function TrumpSpeechNormal() {
   const noShares = amount ? parseFloat(amount).toFixed(0) : '0'
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="px-4 md:px-10 lg:px-20">
-        <Header />
-        
-        <main className="py-8 max-w-7xl mx-auto">
+    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+      <div className="layout-container flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+            <Header />
+            <main className="py-8">
           {/* Header with Tabs */}
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
@@ -213,7 +214,9 @@ export default function TrumpSpeechNormal() {
               </div>
             </div>
           )}
-        </main>
+            </main>
+          </div>
+        </div>
       </div>
     </div>
   )

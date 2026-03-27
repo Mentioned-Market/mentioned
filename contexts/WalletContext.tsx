@@ -18,15 +18,18 @@ import {
   mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
+import { usePrivy } from '@privy-io/react-auth'
+import {
+  useWallets as usePrivySolanaWallets,
+  useSignAndSendTransaction,
+} from '@privy-io/react-auth/solana'
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
 
-const PRIVY_ENABLED = !!process.env.NEXT_PUBLIC_PRIVY_APP_ID
-
-const MAINNET_URL = 'https://api.mainnet-beta.solana.com'
+const MAINNET_URL =
+  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const SOLANA_CHAIN = 'solana:mainnet-beta'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
-// Feature name constants
 const FEAT_CONNECT = 'standard:connect'
 const FEAT_DISCONNECT = 'standard:disconnect'
 const FEAT_EVENTS = 'standard:events'
@@ -76,22 +79,6 @@ interface WalletContextType {
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
-
-// ── Privy hook imports (lazy, only when enabled) ──
-
-let _usePrivy: any = null
-let _usePrivySolanaWallets: any = null
-let _usePrivySignAndSend: any = null
-
-if (PRIVY_ENABLED) {
-  try {
-    _usePrivy = require('@privy-io/react-auth').usePrivy
-    _usePrivySolanaWallets = require('@privy-io/react-auth/solana').useWallets
-    _usePrivySignAndSend = require('@privy-io/react-auth/solana').useSignAndSendTransaction
-  } catch {
-    // Privy packages not available
-  }
-}
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -146,42 +133,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
   const disconnectingRef = useRef(false)
 
-  // Privy hooks — wrapped in try/catch so SSR prerender doesn't crash
-  // when the PrivyProvider context is unavailable.
-  let privyLogin: () => void = () => {}
-  let privyLogout: () => Promise<void> = async () => {}
-  let privyAuthenticated = false
-  let privyReady = false
-  let privySolanaWallets: any[] = []
-  let privySolanaReady = false
-  let privySignAndSend: any = async () => {
-    throw new Error('Privy not configured')
-  }
-
-  try {
-    if (_usePrivy) {
-      const h = _usePrivy()
-      privyLogin = h.login
-      privyLogout = h.logout
-      privyAuthenticated = h.authenticated
-      privyReady = h.ready
-    }
-  } catch {}
-
-  try {
-    if (_usePrivySolanaWallets) {
-      const h = _usePrivySolanaWallets()
-      privySolanaWallets = h.wallets ?? []
-      privySolanaReady = h.ready ?? false
-    }
-  } catch {}
-
-  try {
-    if (_usePrivySignAndSend) {
-      const h = _usePrivySignAndSend()
-      privySignAndSend = h.signAndSendTransaction
-    }
-  } catch {}
+  // Privy hooks
+  const {
+    login: privyLogin,
+    logout: privyLogout,
+    authenticated: privyAuthenticated,
+    ready: privyReady,
+  } = usePrivy()
+  const { wallets: privySolanaWallets, ready: privySolanaReady } =
+    usePrivySolanaWallets()
+  const { signAndSendTransaction: privySignAndSend } =
+    useSignAndSendTransaction()
 
   const privySignAndSendRef = useRef(privySignAndSend)
   useEffect(() => {
@@ -212,7 +174,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     privyWalletRef.current = null
   }, [])
 
-  // Detect Phantom wallet on mount (auto-reconnect)
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (walletType === 'privy') return
@@ -269,7 +230,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // ── Privy wallet sync ──────────────────────────────────
 
   useEffect(() => {
-    if (!PRIVY_ENABLED) return
     if (!privyReady || !privySolanaReady) return
     if (!privyAuthenticated) {
       if (walletType === 'privy') clearState()

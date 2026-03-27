@@ -1,12 +1,18 @@
 'use client'
 
 import { useWallet } from '@/contexts/WalletContext'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export default function ConnectModal() {
   const { showConnectModal, setShowConnectModal, connectPhantom, connectPrivy } =
     useWallet()
   const backdropRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (showConnectModal) {
@@ -19,9 +25,9 @@ export default function ConnectModal() {
     }
   }, [showConnectModal])
 
-  if (!showConnectModal) return null
+  if (!showConnectModal || !mounted) return null
 
-  return (
+  return createPortal(
     <div
       ref={backdropRef}
       onClick={(e) => {
@@ -132,6 +138,7 @@ export default function ConnectModal() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
