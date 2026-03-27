@@ -217,8 +217,9 @@ export default function CustomAdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet: publicKey, resolutions: resolveList }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error)
+      let json: any = {}
+      try { json = await res.json() } catch {}
+      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`)
       show(json.message)
       fetchMarkets()
     } catch (err: any) {
