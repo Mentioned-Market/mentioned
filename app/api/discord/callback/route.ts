@@ -13,11 +13,11 @@ export async function GET(req: NextRequest) {
 
   // User denied the OAuth prompt
   if (error) {
-    return NextResponse.redirect(`${BASE_URL}/profile?discord=cancelled`)
+    return NextResponse.redirect(`${BASE_URL}/?discord=cancelled`)
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${BASE_URL}/profile?discord=error`)
+    return NextResponse.redirect(`${BASE_URL}/?discord=error`)
   }
 
   // Decode state to get wallet
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     wallet = parsed.wallet
     if (!wallet) throw new Error('missing wallet')
   } catch {
-    return NextResponse.redirect(`${BASE_URL}/profile?discord=error`)
+    return NextResponse.redirect(`${BASE_URL}/?discord=error`)
   }
 
   try {
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
     if (!tokenRes.ok) {
       console.error('Discord token exchange failed:', await tokenRes.text())
-      return NextResponse.redirect(`${BASE_URL}/profile?discord=error`)
+      return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)
     }
 
     const tokenData = await tokenRes.json()
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 
     if (!userRes.ok) {
       console.error('Discord user fetch failed:', await userRes.text())
-      return NextResponse.redirect(`${BASE_URL}/profile?discord=error`)
+      return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)
     }
 
     const discordUser = await userRes.json()
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
     // Check if this Discord account is already linked to another wallet
     const existingWallet = await getWalletByDiscordId(discordId)
     if (existingWallet && existingWallet !== wallet) {
-      return NextResponse.redirect(`${BASE_URL}/profile?discord=already_linked`)
+      return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=already_linked`)
     }
 
     // Link Discord to wallet
@@ -106,9 +106,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(`${BASE_URL}/profile?discord=linked`)
+    return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=linked`)
   } catch (err) {
     console.error('Discord OAuth error:', err)
-    return NextResponse.redirect(`${BASE_URL}/profile?discord=error`)
+    return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)
   }
 }

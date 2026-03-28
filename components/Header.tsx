@@ -90,21 +90,12 @@ export default function Header() {
 
               {dropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-neutral-900 rounded-xl overflow-hidden z-50 shadow-card-hover animate-scale-in border border-white/10">
-                  {username && (
-                    <Link
-                      href={`/profile/${username}`}
-                      onClick={() => setDropdownOpen(false)}
-                      className="block w-full text-left px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200"
-                    >
-                      {username}
-                    </Link>
-                  )}
                   <Link
-                    href="/profile"
+                    href={username ? `/profile/${username}` : `/profile/${publicKey}`}
                     onClick={() => setDropdownOpen(false)}
                     className="block w-full text-left px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200"
                   >
-                    {username ? 'Edit Profile' : 'Profile'}
+                    My Profile
                   </Link>
                   <div className="border-t border-white/10"></div>
                   <button
@@ -152,7 +143,15 @@ export default function Header() {
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
                 <div className="border-t border-white/10"></div>
-                <Link href="/profile" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200">Profile</Link>
+                {publicKey && (
+                  <Link
+                    href={username ? `/profile/${username}` : `/profile/${publicKey}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="block px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200"
+                  >
+                    My Profile
+                  </Link>
+                )}
               </div>
             )}
           </div>
