@@ -94,6 +94,32 @@ function findPhantomWallet(wallets: readonly Wallet[]): Wallet | null {
   )
 }
 
+async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
+  const base64Tx = btoa(String.fromCharCode(...txBytes))
+  const res = await fetch(MAINNET_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'simulateTransaction',
+      params: [
+        base64Tx,
+        {
+          encoding: 'base64',
+          sigVerify: false,
+          replaceRecentBlockhash: true,
+        },
+      ],
+    }),
+  })
+  const json = await res.json()
+  const err = json?.result?.value?.err
+  if (err) {
+    throw new Error(`Transaction simulation failed: ${JSON.stringify(err)}`)
+  }
+}
+
 function buildPhantomSigner(
   wallet: Wallet,
   account: WalletAccount
@@ -109,6 +135,11 @@ function buildPhantomSigner(
         account,
         chain: SOLANA_CHAIN,
       }))
+
+      // Pre-simulate to avoid Phantom's "malicious dApp" warning
+      for (const input of inputs) {
+        await preSimulateTx(input.transaction)
+      }
 
       const results = await feature.signAndSendTransaction(...inputs)
       return results.map((r) => r.signature) as any

@@ -3,11 +3,44 @@
 import { getWallets } from '@wallet-standard/app'
 
 const SOLANA_CHAIN = 'solana:mainnet-beta'
+const MAINNET_URL =
+  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
 interface SignAndSendFeature {
   signAndSendTransaction(
     ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
   ): Promise<Array<{ signature: Uint8Array }>>
+}
+
+/**
+ * Pre-simulate a transaction via our own RPC with sigVerify disabled.
+ * This catches errors before Phantom sees the tx, avoiding the
+ * "This dApp could be malicious" simulation warning.
+ */
+async function preSimulate(txBytes: Uint8Array): Promise<void> {
+  const base64Tx = btoa(String.fromCharCode(...txBytes))
+  const res = await fetch(MAINNET_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'simulateTransaction',
+      params: [
+        base64Tx,
+        {
+          encoding: 'base64',
+          sigVerify: false,
+          replaceRecentBlockhash: true,
+        },
+      ],
+    }),
+  })
+  const json = await res.json()
+  const err = json?.result?.value?.err
+  if (err) {
+    throw new Error(`Transaction simulation failed: ${JSON.stringify(err)}`)
+  }
 }
 
 /**
@@ -44,6 +77,8 @@ async function signAndSendPhantom(
 
   const chain =
     account.chains.find((c) => c.startsWith('solana:')) || SOLANA_CHAIN
+
+  await preSimulate(txBytes)
 
   const [result] = await signAndSend.signAndSendTransaction({
     transaction: txBytes,

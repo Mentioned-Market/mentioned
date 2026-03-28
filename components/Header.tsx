@@ -9,9 +9,11 @@ import { useState, useRef, useEffect } from 'react'
 export default function Header() {
   const { publicKey, connected, connect, disconnect } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
   const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const mobileMenuRef = useRef<HTMLDivElement>(null)
 
   const formatAddress = (pubKey: string | null) => {
     if (!pubKey) return ''
@@ -31,16 +33,19 @@ export default function Header() {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false)
       }
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setMobileMenuOpen(false)
+      }
     }
 
-    if (dropdownOpen) {
+    if (dropdownOpen || mobileMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside)
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [dropdownOpen])
+  }, [dropdownOpen, mobileMenuOpen])
 
   return (
     <>
@@ -56,24 +61,10 @@ export default function Header() {
               priority
             />
           </Link>
-          <Link
-            href="/markets"
-            className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
-          >
-            Markets
-          </Link>
-          <Link
-            href="/leaderboard"
-            className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
-          >
-            Leaderboard
-          </Link>
-          <Link
-            href="/positions"
-            className="text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200"
-          >
-            Positions
-          </Link>
+          {/* Desktop nav links */}
+          <Link href="/markets" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Markets</Link>
+          <Link href="/leaderboard" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Leaderboard</Link>
+          <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           {connected ? (
@@ -136,6 +127,35 @@ export default function Header() {
               Connect Wallet
             </button>
           )}
+
+          {/* Mobile burger button */}
+          <div className="relative md:hidden" ref={mobileMenuRef}>
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="flex items-center justify-center w-8 h-8 text-white"
+              aria-label="Menu"
+            >
+              {mobileMenuOpen ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M3 12h18M3 6h18M3 18h18" />
+                </svg>
+              )}
+            </button>
+
+            {mobileMenuOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-neutral-900 rounded-xl overflow-hidden z-50 shadow-card-hover animate-scale-in border border-white/10">
+                <Link href="/markets" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Markets</Link>
+                <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
+                <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
+                <div className="border-t border-white/10"></div>
+                <Link href="/profile" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200">Profile</Link>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <ConnectModal />

@@ -304,14 +304,46 @@ export default function ProfilePage() {
   const [pfpPickerOpen, setPfpPickerOpen] = useState(false)
   const pfpPickerRef = useRef<HTMLDivElement>(null)
 
+  // Discord state
+  const [discordUsername, setDiscordUsername] = useState<string | null>(null)
+  const [discordStatus, setDiscordStatus] = useState<string | null>(null)
+  const [unlinkingDiscord, setUnlinkingDiscord] = useState(false)
+
   // ── Load username ───────────────────────────────────────
 
   useEffect(() => {
-    if (!publicKey) { setUsername(null); setPfpEmoji(null); return }
+    if (!publicKey) { setUsername(null); setPfpEmoji(null); setDiscordUsername(null); return }
     fetch(`/api/profile?wallet=${publicKey}`)
       .then(r => r.json())
-      .then(d => { setUsername(d.username); setPfpEmoji(d.pfpEmoji ?? null) })
-      .catch(() => { setUsername(null); setPfpEmoji(null) })
+      .then(d => { setUsername(d.username); setPfpEmoji(d.pfpEmoji ?? null); setDiscordUsername(d.discordUsername ?? null) })
+      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordUsername(null) })
+  }, [publicKey])
+
+  // ── Discord link status from URL params ─────────────────
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const discord = params.get('discord')
+    if (discord === 'linked') {
+      setDiscordStatus('Discord linked successfully!')
+      // Re-fetch profile to get updated discord info
+      if (publicKey) {
+        fetch(`/api/profile?wallet=${publicKey}`)
+          .then(r => r.json())
+          .then(d => setDiscordUsername(d.discordUsername ?? null))
+          .catch(() => {})
+      }
+    } else if (discord === 'already_linked') {
+      setDiscordStatus('This Discord account is already linked to another wallet.')
+    } else if (discord === 'error') {
+      setDiscordStatus('Failed to link Discord. Please try again.')
+    } else if (discord === 'cancelled') {
+      setDiscordStatus('Discord linking was cancelled.')
+    }
+    if (discord) {
+      window.history.replaceState({}, '', '/profile')
+      setTimeout(() => setDiscordStatus(null), 5000)
+    }
   }, [publicKey])
 
   // Close PFP picker on outside click
@@ -750,6 +782,77 @@ export default function ProfilePage() {
                   </p>
                 </div>
               </div>
+
+              {/* Discord link status toast */}
+              {discordStatus && (
+                <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium ${
+                  discordStatus.includes('successfully') ? 'bg-apple-green/10 text-apple-green border border-apple-green/20' : 'bg-apple-red/10 text-apple-red border border-apple-red/20'
+                }`}>
+                  {discordStatus}
+                </div>
+              )}
+
+              {/* Discord link required banner */}
+              {!discordUsername && (
+                <div className="mb-4 px-4 py-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <svg className="w-5 h-5 text-amber-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 00-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 00-4.8 0c-.14-.34-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.02.01.05 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.26.04.03.03.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.32.61.68 1.19 1.07 1.74.02.03.05.03.07.02 1.72-.53 3.45-1.33 5.24-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/>
+                      </svg>
+                      <div>
+                        <p className="text-amber-400 font-semibold text-sm">Link your Discord to earn points</p>
+                        <p className="text-amber-400/70 text-xs mt-0.5">Points and competition rewards require a linked Discord account to prevent sybil attacks.</p>
+                      </div>
+                    </div>
+                    <a
+                      href={`/api/discord/link?wallet=${publicKey}`}
+                      className="flex-shrink-0 px-4 py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 00-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 00-4.8 0c-.14-.34-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.02.01.05 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.26.04.03.03.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.32.61.68 1.19 1.07 1.74.02.03.05.03.07.02 1.72-.53 3.45-1.33 5.24-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/>
+                      </svg>
+                      Link Discord
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Discord linked indicator */}
+              {discordUsername && (
+                <div className="mb-4 px-4 py-3 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-[#5865F2]" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 00-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 00-4.8 0c-.14-.34-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.02.01.05 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.26.04.03.03.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.32.61.68 1.19 1.07 1.74.02.03.05.03.07.02 1.72-.53 3.45-1.33 5.24-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/>
+                      </svg>
+                      <span className="text-[#5865F2] text-sm font-medium">{discordUsername}</span>
+                      <svg className="w-4 h-4 text-apple-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                      </svg>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Unlink your Discord? You will stop earning points until you re-link.')) return
+                        setUnlinkingDiscord(true)
+                        try {
+                          await fetch('/api/discord/unlink', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ wallet: publicKey }),
+                          })
+                          setDiscordUsername(null)
+                        } catch {}
+                        setUnlinkingDiscord(false)
+                      }}
+                      disabled={unlinkingDiscord}
+                      className="text-neutral-500 hover:text-neutral-300 text-xs transition-colors"
+                    >
+                      {unlinkingDiscord ? 'Unlinking...' : 'Unlink'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Summary cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
