@@ -75,30 +75,35 @@ export async function GET(req: NextRequest) {
     // Link Discord to wallet
     await linkDiscord(wallet, discordId, discordUsername)
 
-    // Assign "verified" role in the Discord server (fire-and-forget)
+    // Assign "verified" role in the Discord server
     if (DISCORD_GUILD_ID && process.env.DISCORD_BOT_TOKEN) {
       const botHeaders = {
         Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
         'Content-Type': 'application/json',
       }
+      const roleId = process.env.DISCORD_VERIFIED_ROLE_ID
 
-      // First ensure the user is in the guild (adds them if they authorized guilds.join)
-      fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordId}`, {
-        method: 'PUT',
-        headers: botHeaders,
-        body: JSON.stringify({ access_token: accessToken }),
-      })
-        .then(() => {
-          // Then assign the verified role
-          const roleId = process.env.DISCORD_VERIFIED_ROLE_ID
-          if (roleId) {
-            return fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordId}/roles/${roleId}`, {
-              method: 'PUT',
-              headers: botHeaders,
-            })
-          }
+      try {
+        // Try to add user to the guild (works if they're not already a member)
+        await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordId}`, {
+          method: 'PUT',
+          headers: botHeaders,
+          body: JSON.stringify({ access_token: accessToken }),
         })
-        .catch(() => {})
+
+        // Assign the verified role (works whether they were just added or already a member)
+        if (roleId) {
+          const roleRes = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordId}/roles/${roleId}`, {
+            method: 'PUT',
+            headers: botHeaders,
+          })
+          if (!roleRes.ok) {
+            console.error('Discord role assign failed:', roleRes.status, await roleRes.text())
+          }
+        }
+      } catch (err) {
+        console.error('Discord guild/role error:', err)
+      }
     }
 
     return NextResponse.redirect(`${BASE_URL}/profile?discord=linked`)
