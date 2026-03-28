@@ -702,7 +702,7 @@ export default function ProfilePage() {
               <span className="text-neutral-400 text-sm">Previewing your public profile</span>
               <button
                 onClick={() => setViewAsPublic(false)}
-                className="text-white text-sm font-medium hover:underline"
+                className="text-neutral-400 text-sm font-medium hover:underline"
               >
                 ← Back to my profile
               </button>
@@ -712,7 +712,7 @@ export default function ProfilePage() {
               <span className="text-neutral-400 text-sm">Your profile</span>
               <button
                 onClick={() => setViewAsPublic(true)}
-                className="text-white text-sm font-medium hover:underline"
+                className="text-neutral-400 text-sm font-medium hover:underline"
               >
                 View public profile →
               </button>
