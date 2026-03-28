@@ -234,6 +234,11 @@ CREATE TABLE IF NOT EXISTS custom_market_trades (
 
 CREATE INDEX IF NOT EXISTS idx_cmt_market ON custom_market_trades(market_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cmt_wallet ON custom_market_trades(wallet, created_at DESC);
+
+-- Discord linking for sybil resistance
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_id TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_username TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_discord_id ON user_profiles(discord_id) WHERE discord_id IS NOT NULL;
 `
 
 async function main() {

@@ -537,20 +537,20 @@ export default function Home() {
       <div ref={containerRef} style={{ height: totalHeight }}>
 
         {/* Fixed viewport — always centered on screen */}
-        <div className="fixed inset-0 z-10 flex items-center justify-center pointer-events-none">
-          <div className="w-full max-w-5xl mx-auto px-4 pointer-events-auto">
+        <div className="fixed inset-0 z-10 flex items-center justify-center pointer-events-none px-4 md:px-10 py-16 md:py-20">
+          <div className="w-full max-w-5xl mx-auto pointer-events-auto max-h-full overflow-y-auto overflow-x-hidden scrollbar-hide">
 
             {/* HERO */}
             {heroStyle.opacity > 0 && (
-              <div className="absolute inset-0 flex items-center justify-center" style={{ opacity: heroStyle.opacity, transform: `translateX(${heroStyle.translateX}px)` }}>
+              <div className="absolute inset-0 flex items-center justify-center px-4 md:px-10" style={{ opacity: heroStyle.opacity, transform: `translateX(${heroStyle.translateX}px)` }}>
                 <div>
                   <section className="flex flex-col items-center justify-center text-center">
-                    <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-12 md:h-14 w-auto mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
-                    <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
-                    <p className="mt-6 text-neutral-400 text-lg md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
-                    <div className="mt-10 flex items-center gap-3 hero-cta">
-                      <Link href="/markets" className="h-12 px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
-                      <Link href="/leaderboard" className="h-12 px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
+                    <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
+                    <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
+                    <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
+                    <div className="mt-8 md:mt-10 flex items-center gap-3 hero-cta">
+                      <Link href="/markets" className="h-10 md:h-12 px-6 md:px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
+                      <Link href="/leaderboard" className="h-10 md:h-12 px-6 md:px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
                     </div>
                     <div className="mt-12 flex flex-col items-center gap-2">
                       <p className="text-neutral-600 text-xs tracking-wide">Scroll to see how it works</p>
@@ -568,23 +568,23 @@ export default function Home() {
               const isPlaying = currentSlide === idx || currentSlide > idx
               if (opacity <= 0) return null
               return (
-                <div key={idx} className="absolute inset-0 flex items-center justify-center" style={{ opacity, transform: `translateX(${translateX}px)` }}>
-                  <div className="w-full max-w-5xl mx-auto px-4">
-                    <div className="text-center mb-6">
-                      <div className="inline-flex items-center gap-2 mb-2">
+                <div key={idx} className="absolute inset-0 flex items-center justify-center px-4 md:px-10 py-16 md:py-20" style={{ opacity, transform: `translateX(${translateX}px)` }}>
+                  <div className="w-full max-w-5xl mx-auto max-h-full overflow-y-auto overflow-x-hidden scrollbar-hide">
+                    <div className="text-center mb-4 md:mb-6">
+                      <div className="inline-flex items-center gap-2 mb-1 md:mb-2">
                         <span className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">{slide.label}</span>
                         <span className="text-neutral-700 text-[10px]">{slide.step} / 5</span>
                       </div>
-                      <h2 className="text-2xl md:text-4xl font-bold text-white mb-2">{slide.title}</h2>
-                      <p className="text-neutral-400 text-sm md:text-base max-w-xl mx-auto">{slide.desc}</p>
+                      <h2 className="text-xl md:text-4xl font-bold text-white mb-1.5 md:mb-2">{slide.title}</h2>
+                      <p className="text-neutral-400 text-xs md:text-base max-w-xl mx-auto">{slide.desc}</p>
                     </div>
 
                     {/* Slide content — animations auto-play on enter */}
                     {idx === 1 && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
                         <MockMarketCard play={isPlaying} delay={0.05} selected title="VCT Masters — Grand Final" emoji="🎮" words={[{ word: 'GG', price: 0.42 }, { word: 'nerf', price: 0.35 }, { word: 'clutch', price: 0.61 }, { word: 'ace', price: 0.28 }]} />
-                        <MockMarketCard play={isPlaying} delay={0.15} title="Joe Rogan #2189" emoji="🎙️" words={[{ word: 'simulation', price: 0.55 }, { word: 'DMT', price: 0.72 }, { word: 'aliens', price: 0.38 }]} />
-                        <MockMarketCard play={isPlaying} delay={0.25} title="League Worlds — Semifinals" emoji="⚔️" words={[{ word: 'pentakill', price: 0.15 }, { word: 'baron', price: 0.82 }, { word: 'backdoor', price: 0.22 }]} />
+                        <div className="hidden md:block"><MockMarketCard play={isPlaying} delay={0.15} title="Joe Rogan #2189" emoji="🎙️" words={[{ word: 'simulation', price: 0.55 }, { word: 'DMT', price: 0.72 }, { word: 'aliens', price: 0.38 }]} /></div>
+                        <div className="hidden md:block"><MockMarketCard play={isPlaying} delay={0.25} title="League Worlds — Semifinals" emoji="⚔️" words={[{ word: 'pentakill', price: 0.15 }, { word: 'baron', price: 0.82 }, { word: 'backdoor', price: 0.22 }]} /></div>
                       </div>
                     )}
                     {idx === 2 && <div className="flex justify-center"><MockWordList play={isPlaying} /></div>}
@@ -602,11 +602,11 @@ export default function Home() {
       {/* Normal-flow content after the scroll-driven section */}
       <div ref={revealRef} className="relative z-20 px-4 md:px-10 lg:px-20 flex justify-center">
         <div className="w-full max-w-7xl">
-          <section className="py-24 md:py-32 border-t border-white/10">
-            <div className="flex flex-col items-center text-center gap-16">
+          <section className="py-16 md:py-32 border-t border-white/10">
+            <div className="flex flex-col items-center text-center gap-10 md:gap-16">
               <div className="reveal reveal-up">
                 <p className="text-neutral-500 text-xs font-semibold uppercase tracking-widest mb-4">More than trading</p>
-                <h2 className="text-2xl md:text-4xl font-bold text-white mb-3">Compete. Climb. Flex.</h2>
+                <h2 className="text-xl md:text-4xl font-bold text-white mb-3">Compete. Climb. Flex.</h2>
                 <p className="text-neutral-400 text-base md:text-lg max-w-xl mx-auto">Every trade earns you points. Rack up achievements, climb the weekly leaderboard, and talk trash in market chat.<br />Trading is just the start.</p>
               </div>
               <div className="reveal reveal-up stagger-1 grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-4xl"><MockPointsBreakdown /><MockLeaderboard /></div>

@@ -243,11 +243,13 @@ export interface ProfileRow {
   wallet: string
   username: string
   pfp_emoji: string | null
+  discord_id: string | null
+  discord_username: string | null
 }
 
 export async function getProfile(wallet: string): Promise<ProfileRow | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, discord_id, discord_username FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
@@ -291,6 +293,38 @@ export async function updatePfpEmoji(
     `UPDATE user_profiles SET pfp_emoji = $2, updated_at = NOW() WHERE wallet = $1`,
     [wallet, pfpEmoji],
   )
+}
+
+export async function linkDiscord(
+  wallet: string,
+  discordId: string,
+  discordUsername: string,
+): Promise<void> {
+  // Ensure the wallet row exists (upsert with minimal data), then set discord fields
+  await pool.query(
+    `INSERT INTO user_profiles (wallet, username, discord_id, discord_username, updated_at)
+     VALUES ($1, $1, $2, $3, NOW())
+     ON CONFLICT (wallet) DO UPDATE SET
+       discord_id = EXCLUDED.discord_id,
+       discord_username = EXCLUDED.discord_username,
+       updated_at = NOW()`,
+    [wallet, discordId, discordUsername],
+  )
+}
+
+export async function unlinkDiscord(wallet: string): Promise<void> {
+  await pool.query(
+    `UPDATE user_profiles SET discord_id = NULL, discord_username = NULL, updated_at = NOW() WHERE wallet = $1`,
+    [wallet],
+  )
+}
+
+export async function getWalletByDiscordId(discordId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT wallet FROM user_profiles WHERE discord_id = $1`,
+    [discordId],
+  )
+  return result.rows[0]?.wallet || null
 }
 
 // ── Chat Messages ────────────────────────────────────
@@ -485,7 +519,19 @@ export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl
 // ── Point Events ──────────────────────────────────────
 
 /**
+ * Check if a wallet has a linked Discord account.
+ */
+export async function hasDiscordLinked(wallet: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND discord_id IS NOT NULL`,
+    [wallet],
+  )
+  return result.rows.length > 0
+}
+
+/**
  * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
+ * Points are only awarded to wallets with a linked Discord account.
  */
 export async function insertPointEvent(
   wallet: string,
@@ -494,6 +540,9 @@ export async function insertPointEvent(
   refId?: string,
   metadata?: Record<string, unknown>,
 ): Promise<number | null> {
+  const discordLinked = await hasDiscordLinked(wallet)
+  if (!discordLinked) return null
+
   const result = await pool.query(
     `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
      VALUES ($1, $2, $3, $4, $5)

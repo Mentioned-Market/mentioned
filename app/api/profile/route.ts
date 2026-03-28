@@ -14,6 +14,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     username: profile?.username ?? null,
     pfpEmoji: profile?.pfp_emoji ?? null,
+    discordId: profile?.discord_id ?? null,
+    discordUsername: profile?.discord_username ?? null,
   })
 }
 

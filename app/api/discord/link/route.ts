@@ -1,0 +1,24 @@
+import { NextRequest, NextResponse } from 'next/server'
+
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mentioned.market'
+
+export async function GET(req: NextRequest) {
+  const wallet = req.nextUrl.searchParams.get('wallet')
+  if (!wallet) {
+    return NextResponse.json({ error: 'wallet is required' }, { status: 400 })
+  }
+
+  const state = Buffer.from(JSON.stringify({ wallet })).toString('base64url')
+  const redirectUri = `${BASE_URL}/api/discord/callback`
+
+  const params = new URLSearchParams({
+    client_id: DISCORD_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'identify guilds.join',
+    state,
+  })
+
+  return NextResponse.redirect(`https://discord.com/api/oauth2/authorize?${params}`)
+}
