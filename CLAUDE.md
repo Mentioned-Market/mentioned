@@ -30,7 +30,7 @@ app/
 ├── customadmin/          # Free market admin (create, manage, resolve)
 ├── positions/            # User positions/orders/history tabs
 ├── leaderboard/          # Weekly rankings + points leaderboard
-├── profile/              # User profile + public profile/[username]
+├── profile/              # Unified profile: /profile/[username] handles owner + visitor views; /profile redirects to /profile/{wallet}
 ├── admin/                # On-chain market creation, liquidity, resolution
 └── polyadmin/            # Polymarket admin panel
 
@@ -165,3 +165,4 @@ npm run lint          # ESLint
 - Solana instructions are built in `lib/mentionMarket.ts`.
 - Free market changes reference `specs/custom_free_market_spec.md` for full context.
 - Don't import server-only modules (`lib/db.ts`, `lib/customScoring.ts`) in client components — they pull in `pg`/`fs` which break the webpack build.
+- Profile page is unified: ownership is derived (`profile.wallet === publicKey`), not a separate route. Owner-only UI (editing, Discord, orders tab, history tab, stat cards) is gated on `isOwnProfile`. Visitors see a read-only view. Use `isOwnerView = isOwnProfile && !viewAsPublic` to control which branch renders.
