@@ -7,11 +7,9 @@ import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
-  const { publicKey, connected, connect, disconnect } = useWallet()
+  const { publicKey, connected, connect, disconnect, username, pfpEmoji } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [username, setUsername] = useState<string | null>(null)
-  const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
 
@@ -19,14 +17,6 @@ export default function Header() {
     if (!pubKey) return ''
     return `${pubKey.slice(0, 4)}...${pubKey.slice(-4)}`
   }
-
-  useEffect(() => {
-    if (!publicKey) { setUsername(null); setPfpEmoji(null); return }
-    fetch(`/api/profile?wallet=${publicKey}`)
-      .then(r => r.json())
-      .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null) })
-      .catch(() => { setUsername(null); setPfpEmoji(null) })
-  }, [publicKey])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

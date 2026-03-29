@@ -420,12 +420,12 @@ function MockLeaderboard() {
 }
 function MockAchievements() {
   const achievements = [
-    { icon: '🎯', name: 'First Trade', desc: 'Place your first trade', points: 100, unlocked: true },
-    { icon: '🔥', name: 'Hot Streak', desc: 'Win 5 trades in a row', points: 250, unlocked: true },
-    { icon: '💎', name: 'Diamond Hands', desc: 'Hold a position for 24h', points: 150, unlocked: true },
-    { icon: '🏆', name: 'Top 10', desc: 'Finish in weekly top 10', points: 500, unlocked: false },
-    { icon: '🐋', name: 'Whale', desc: 'Earn 10,000 points total', points: 1000, unlocked: false },
-    { icon: '💬', name: 'Chatterbox', desc: 'Send 100 chat messages', points: 75, unlocked: true },
+    { icon: '🎯', name: 'First Shot', desc: 'Place your first trade', points: 150, unlocked: true },
+    { icon: '🔥', name: 'On Fire', desc: 'Place 50 trades', points: 250, unlocked: true },
+    { icon: '🎰', name: 'Hat Trick', desc: 'Win 3 trades', points: 150, unlocked: true },
+    { icon: '👑', name: 'King of the Hill', desc: 'Win 10 trades', points: 400, unlocked: false },
+    { icon: '💯', name: 'Centurion', desc: 'Place 100 trades', points: 500, unlocked: false },
+    { icon: '💬', name: 'Say Something', desc: 'Send your first message', points: 50, unlocked: true },
   ]
   return (
     <div className="glass rounded-2xl p-5 w-full">

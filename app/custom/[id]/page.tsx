@@ -9,6 +9,7 @@ import EventChat from '@/components/EventChat'
 import EventPriceChart from '@/components/EventPriceChart'
 import FlashValue from '@/components/FlashValue'
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 import { getStatusLabel } from '@/lib/customMarketUtils'
 import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
 // Points multiplier — matches lib/customScoring.ts constant
@@ -162,6 +163,7 @@ export default function CustomMarketPage() {
   const id = params.id as string
   const marketId = parseInt(id, 10)
   const { connected, connect, publicKey } = useWallet()
+  const { showAchievementToast } = useAchievements()
 
   const [market, setMarket] = useState<CustomMarket | null>(null)
   const [words, setWords] = useState<MarketWord[]>([])
@@ -429,6 +431,11 @@ export default function CustomMarketPage() {
         msg: `${tradeMode === 'buy' ? 'Bought' : 'Sold'} ${result.shares.toFixed(1)} ${side} shares of "${selectedWord.word}"`,
         error: false,
       })
+
+      // Achievement toasts
+      if (result.newAchievements?.length) {
+        for (const ach of result.newAchievements) showAchievementToast(ach)
+      }
 
       // Refresh everything
       fetchPrices()

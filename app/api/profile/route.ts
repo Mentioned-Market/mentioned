@@ -79,7 +79,19 @@ export async function PATCH(req: NextRequest) {
 
   try {
     await updatePfpEmoji(wallet, pfpEmoji ?? null)
-    return NextResponse.json({ success: true, pfpEmoji: pfpEmoji ?? null })
+
+    // Achievement for setting PFP
+    const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
+    if (pfpEmoji) {
+      try {
+        const ach = await tryUnlockAchievement(wallet, 'set_pfp')
+        if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+      } catch (err) {
+        console.error('Achievement error (pfp):', err)
+      }
+    }
+
+    return NextResponse.json({ success: true, pfpEmoji: pfpEmoji ?? null, newAchievements })
   } catch (err) {
     console.error('PFP update error:', err)
     return NextResponse.json({ error: 'Failed to update profile picture' }, { status: 500 })

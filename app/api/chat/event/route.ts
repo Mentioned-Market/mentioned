@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRecentEventChatMessages, insertEventChatMessage, getProfile, getChatPointsCountToday } from '@/lib/db'
+import { getRecentEventChatMessages, insertEventChatMessage, getProfile, getChatPointsCountToday, getChatMessageCount } from '@/lib/db'
 import { awardPoints, POINT_CONFIG } from '@/lib/points'
+import { tryUnlockAchievement } from '@/lib/achievements'
 
 const MAX_LENGTH = 200
 const RATE_LIMIT_MS = 500
@@ -62,5 +63,18 @@ export async function POST(req: NextRequest) {
     })
     .catch((err) => console.error('Points award error (event chat):', err))
 
-  return NextResponse.json(row)
+  // Chat achievements
+  const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
+  try {
+    const push = (a: Awaited<ReturnType<typeof tryUnlockAchievement>>) => {
+      if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
+    }
+    push(await tryUnlockAchievement(wallet, 'first_chat'))
+    const msgCount = await getChatMessageCount(wallet)
+    if (msgCount >= 50) push(await tryUnlockAchievement(wallet, '50_chats'))
+  } catch (err) {
+    console.error('Achievement error (event chat):', err)
+  }
+
+  return NextResponse.json({ ...row, newAchievements })
 }

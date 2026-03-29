@@ -308,7 +308,7 @@ function Spinner() {
 
 export default function ProfilePage() {
   const { username: usernameParam } = useParams<{ username: string }>()
-  const { publicKey, walletType } = useWallet()
+  const { publicKey, walletType, refreshProfile } = useWallet()
   const { showAchievementToast } = useAchievements()
 
   // ── Public profile ─────────────────────────────────────
@@ -355,7 +355,16 @@ export default function ProfilePage() {
   // Discord params extracted from URL on mount (before we know ownership)
   const [pendingDiscordStatus, setPendingDiscordStatus] = useState<string | null>(null)
 
-  // ── Load public profile ────────────────────────────────
+  // ── Load achievements (for any viewer) ────────────────
+  const fetchAchievements = useCallback(async (wallet: string) => {
+    try {
+      const res = await fetch(`/api/achievements?wallet=${wallet}`)
+      if (res.ok) setAchievements((await res.json()).achievements || [])
+    } catch { /* ignore */ }
+    setLoadingAchievements(false)
+  }, [])
+
+  // ── Load public profile + achievements in parallel ─────
   useEffect(() => {
     if (!usernameParam) return
     setLoading(true)
@@ -363,11 +372,14 @@ export default function ProfilePage() {
     fetch(`/api/profile/${encodeURIComponent(usernameParam)}`)
       .then(async res => {
         if (res.status === 404) { setNotFound(true); return }
-        setProfile(await res.json())
+        const data = await res.json()
+        setProfile(data)
+        // Start achievements fetch immediately instead of waiting for next render cycle
+        if (data.wallet) fetchAchievements(data.wallet)
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
-  }, [usernameParam])
+  }, [usernameParam, fetchAchievements])
 
   // ── Load owner-private data (discord, etc.) ────────────
   useEffect(() => {
@@ -421,19 +433,6 @@ export default function ProfilePage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [pfpPickerOpen])
 
-  // ── Load achievements (for any viewer) ────────────────
-  const fetchAchievements = useCallback(async (wallet: string) => {
-    try {
-      const res = await fetch(`/api/achievements?wallet=${wallet}`)
-      if (res.ok) setAchievements((await res.json()).achievements || [])
-    } catch { /* ignore */ }
-    setLoadingAchievements(false)
-  }, [])
-
-  useEffect(() => {
-    if (profile?.wallet) fetchAchievements(profile.wallet)
-  }, [profile?.wallet, fetchAchievements])
-
   // ── Owner: fetch live polymarket data ─────────────────
   const fetchOwnerPositions = useCallback(async () => {
     if (!publicKey) return
@@ -462,20 +461,30 @@ export default function ProfilePage() {
     setLoadingOwnerHistory(false)
   }, [publicKey])
 
+  // Always fetch positions (default tab); lazy-fetch orders/history when their tab is active
   useEffect(() => {
     if (!isOwnProfile) return
     setLoadingOwnerPositions(true)
-    setLoadingOrders(true)
-    setLoadingOwnerHistory(true)
     fetchOwnerPositions()
-    fetchOrders()
-    fetchOwnerHistory()
-
     const posInterval = setInterval(fetchOwnerPositions, 30_000)
+    return () => clearInterval(posInterval)
+  }, [isOwnProfile, fetchOwnerPositions])
+
+  useEffect(() => {
+    if (!isOwnProfile || ownerTab !== 'orders') return
+    setLoadingOrders(true)
+    fetchOrders()
     const ordInterval = setInterval(fetchOrders, 15_000)
+    return () => clearInterval(ordInterval)
+  }, [isOwnProfile, ownerTab, fetchOrders])
+
+  useEffect(() => {
+    if (!isOwnProfile || ownerTab !== 'history') return
+    setLoadingOwnerHistory(true)
+    fetchOwnerHistory()
     const histInterval = setInterval(fetchOwnerHistory, 30_000)
-    return () => { clearInterval(posInterval); clearInterval(ordInterval); clearInterval(histInterval) }
-  }, [isOwnProfile, fetchOwnerPositions, fetchOrders, fetchOwnerHistory])
+    return () => clearInterval(histInterval)
+  }, [isOwnProfile, ownerTab, fetchOwnerHistory])
 
   // Reset tabs when toggling public preview
   useEffect(() => {
@@ -583,6 +592,7 @@ export default function ProfilePage() {
       } else {
         setProfile(p => p ? { ...p, username: trimmed } : p)
         setEditingUsername(false)
+        refreshProfile()
         if (data.newAchievements?.length) {
           for (const ach of data.newAchievements) showAchievementToast(ach)
           fetchAchievements(publicKey)
@@ -607,7 +617,15 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet: publicKey, pfpEmoji: emoji }),
       })
-      if (!res.ok) setProfile(p => p ? { ...p, pfpEmoji: prev } : p)
+      if (!res.ok) {
+        setProfile(p => p ? { ...p, pfpEmoji: prev } : p)
+      } else {
+        refreshProfile()
+        const data = await res.json()
+        if (data.newAchievements?.length) {
+          for (const ach of data.newAchievements) showAchievementToast(ach)
+        }
+      }
     } catch {
       setProfile(p => p ? { ...p, pfpEmoji: prev } : p)
     }
@@ -619,11 +637,19 @@ export default function ProfilePage() {
   const activeHistory = isOwnerView ? ownerHistory : (profile?.history ?? [])
   const activePositions = isOwnerView ? ownerPositions : (profile?.positions ?? [])
 
+  // Pre-compute PNL per history event once (avoids calling eventPnl 400+ times per render)
+  const pnlMap = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const h of activeHistory) m.set(h.id, eventPnl(h))
+    return m
+  }, [activeHistory])
+  const getPnl = (h: HistoryEvent) => pnlMap.get(h.id) ?? 0
+
   const periodPnl = useMemo(() => {
     const cutoff = periodCutoff(pnlPeriod)
     const realized = activeHistory
       .filter(h => h.timestamp >= cutoff)
-      .reduce((s, h) => s + eventPnl(h), 0)
+      .reduce((s, h) => s + getPnl(h), 0)
     const unrealized = pnlPeriod === 'ALL'
       ? activePositions.reduce((s, p) => s + (Number(p.pnlUsd) || 0), 0)
       : 0
@@ -631,7 +657,7 @@ export default function ProfilePage() {
   }, [activeHistory, activePositions, pnlPeriod])
 
   const biggestWin = useMemo(() =>
-    activeHistory.reduce((max, h) => { const pnl = eventPnl(h); return pnl > max ? pnl : max }, 0),
+    activeHistory.reduce((max, h) => { const pnl = getPnl(h); return pnl > max ? pnl : max }, 0),
   [activeHistory])
 
   const openOrders = useMemo(() => orders.filter(o => o.status === 'pending'), [orders])
@@ -1091,8 +1117,7 @@ export default function ProfilePage() {
           ════════════════════════════════════════════════ */}
 
       {/* Owner: Positions */}
-      {isOwnerView && ownerTab === 'positions' && (
-        <div>
+      <div style={{ display: isOwnerView && ownerTab === 'positions' ? undefined : 'none' }}>
           {loadingOwnerPositions ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
           ) : ownerPositions.length === 0 ? (
@@ -1217,11 +1242,9 @@ export default function ProfilePage() {
             </>
           )}
         </div>
-      )}
 
       {/* Owner: Open Orders */}
-      {isOwnerView && ownerTab === 'orders' && (
-        <div>
+      <div style={{ display: isOwnerView && ownerTab === 'orders' ? undefined : 'none' }}>
           {loadingOrders ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
           ) : openOrders.length === 0 ? (
@@ -1279,10 +1302,9 @@ export default function ProfilePage() {
             </>
           )}
         </div>
-      )}
 
       {/* Owner: History */}
-      {isOwnerView && ownerTab === 'history' && (
+      <div style={{ display: isOwnerView && ownerTab === 'history' ? undefined : 'none' }}>
         <div>
           {loadingOwnerHistory ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
@@ -1363,14 +1385,14 @@ export default function ProfilePage() {
             </>
           )}
         </div>
-      )}
+      </div>
 
       {/* ════════════════════════════════════════════════
           PUBLIC TAB CONTENT
           ════════════════════════════════════════════════ */}
 
       {/* Public: Positions */}
-      {!isOwnerView && publicTab === 'positions' && (
+      <div style={{ display: !isOwnerView && publicTab === 'positions' ? undefined : 'none' }}>
         <>
           <div className="flex items-center gap-3 mb-4">
             <div className="flex rounded-lg border border-white/10 overflow-hidden">
@@ -1501,11 +1523,11 @@ export default function ProfilePage() {
             )
           )}
         </>
-      )}
+      </div>
 
       {/* Public: Activity */}
-      {!isOwnerView && publicTab === 'activity' && (
-        profile.history.length === 0 ? (
+      <div style={{ display: !isOwnerView && publicTab === 'activity' ? undefined : 'none' }}>
+        {profile.history.length === 0 ? (
           <div className="flex items-center justify-center py-16">
             <span className="text-neutral-500 text-sm">No activity yet</span>
           </div>
@@ -1530,7 +1552,7 @@ export default function ProfilePage() {
               const price = h.avgFillPriceUsd ? microToCents(h.avgFillPriceUsd)
                 : h.maxBuyPriceUsd ? microToCents(h.maxBuyPriceUsd)
                 : h.minSellPriceUsd ? microToCents(h.minSellPriceUsd) : '—'
-              const pnl = eventPnl(h)
+              const pnl = getPnl(h)
               return (
                 <div key={h.id} className="grid grid-cols-1 md:grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3.5 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors">
                   <div className="min-w-0">
@@ -1572,11 +1594,11 @@ export default function ProfilePage() {
               )
             })}
           </div>
-        )
-      )}
+        )}
+      </div>
 
       {/* Achievements (shared — shown to both owner and public viewers) */}
-      {(isOwnerView ? ownerTab === 'achievements' : publicTab === 'achievements') && (
+      <div style={{ display: (isOwnerView ? ownerTab === 'achievements' : publicTab === 'achievements') ? undefined : 'none' }}>
         <div>
           {loadingAchievements ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
@@ -1610,7 +1632,7 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
-      )}
+      </div>
 
     </div>
   )

@@ -76,6 +76,12 @@ interface WalletContextType {
   setShowConnectModal: (show: boolean) => void
   connectPhantom: () => Promise<void>
   connectPrivy: () => void
+  /** Cached profile username (fetched once on connect) */
+  username: string | null
+  /** Cached profile emoji (fetched once on connect) */
+  pfpEmoji: string | null
+  /** Force re-fetch cached profile (e.g. after user edits their profile) */
+  refreshProfile: () => void
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -160,6 +166,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   )
   const [showConnectModal, setShowConnectModal] = useState(false)
 
+  // Cached profile data (fetched once per wallet connection)
+  const [username, setUsername] = useState<string | null>(null)
+  const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
+  const profileFetchedForRef = useRef<string | null>(null)
+
   const walletRef = useRef<Wallet | null>(null)
   const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
   const disconnectingRef = useRef(false)
@@ -202,6 +213,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setConnected(false)
     setSigner(null)
     setWalletType(null)
+    setUsername(null)
+    setPfpEmoji(null)
+    profileFetchedForRef.current = null
     privyWalletRef.current = null
   }, [])
 
@@ -337,6 +351,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [pubkey])
 
+  // ── Profile cache ─────────────────────────────────────
+
+  const fetchProfile = useCallback((wallet: string) => {
+    fetch(`/api/profile?wallet=${wallet}`)
+      .then(r => r.json())
+      .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null) })
+      .catch(() => { setUsername(null); setPfpEmoji(null) })
+    profileFetchedForRef.current = wallet
+  }, [])
+
+  useEffect(() => {
+    if (!pubkey) { setUsername(null); setPfpEmoji(null); profileFetchedForRef.current = null; return }
+    if (profileFetchedForRef.current === pubkey) return
+    fetchProfile(pubkey)
+  }, [pubkey, fetchProfile])
+
+  const refreshProfile = useCallback(() => {
+    if (pubkey) fetchProfile(pubkey)
+  }, [pubkey, fetchProfile])
+
   // ── Connect methods ────────────────────────────────────
 
   const connectPhantom = useCallback(async () => {
@@ -406,6 +440,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setShowConnectModal,
         connectPhantom,
         connectPrivy: connectPrivyFn,
+        username,
+        pfpEmoji,
+        refreshProfile,
       }}
     >
       {children}

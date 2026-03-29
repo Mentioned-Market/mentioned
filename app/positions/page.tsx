@@ -232,23 +232,29 @@ export default function PositionsPage() {
     setLoadingHistory(false)
   }, [publicKey])
 
+  // Always fetch positions (default tab), lazy-fetch orders/history only when tab is active
   useEffect(() => {
     setLoadingPositions(true)
-    setLoadingOrders(true)
-    setLoadingHistory(true)
     fetchPositions()
-    fetchOrders()
-    fetchHistory()
-
     const posInterval = setInterval(fetchPositions, 30_000)
+    return () => clearInterval(posInterval)
+  }, [fetchPositions])
+
+  useEffect(() => {
+    if (tab !== 'orders') return
+    setLoadingOrders(true)
+    fetchOrders()
     const ordInterval = setInterval(fetchOrders, 15_000)
+    return () => clearInterval(ordInterval)
+  }, [tab, fetchOrders])
+
+  useEffect(() => {
+    if (tab !== 'history') return
+    setLoadingHistory(true)
+    fetchHistory()
     const histInterval = setInterval(fetchHistory, 30_000)
-    return () => {
-      clearInterval(posInterval)
-      clearInterval(ordInterval)
-      clearInterval(histInterval)
-    }
-  }, [fetchPositions, fetchOrders, fetchHistory])
+    return () => clearInterval(histInterval)
+  }, [tab, fetchHistory])
 
   // ── Close position ─────────────────────────────────────────
 
@@ -485,8 +491,7 @@ export default function PositionsPage() {
                   </div>
 
                   {/* ── Positions Tab ──────────────────────────────── */}
-                  {tab === 'positions' && (
-                    <div>
+                  <div style={{ display: tab === 'positions' ? undefined : 'none' }}>
                       {loadingPositions ? (
                         <div className="flex items-center justify-center py-16">
                           <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -639,11 +644,9 @@ export default function PositionsPage() {
                         </>
                       )}
                     </div>
-                  )}
 
                   {/* ── Open Orders Tab ────────────────────────────── */}
-                  {tab === 'orders' && (
-                    <div>
+                  <div style={{ display: tab === 'orders' ? undefined : 'none' }}>
                       {loadingOrders ? (
                         <div className="flex items-center justify-center py-16">
                           <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -716,11 +719,9 @@ export default function PositionsPage() {
                         </>
                       )}
                     </div>
-                  )}
 
                   {/* ── History Tab ─────────────────────────────────── */}
-                  {tab === 'history' && (
-                    <div>
+                  <div style={{ display: tab === 'history' ? undefined : 'none' }}>
                       {loadingHistory ? (
                         <div className="flex items-center justify-center py-16">
                           <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -861,7 +862,6 @@ export default function PositionsPage() {
                         </>
                       )}
                     </div>
-                  )}
                 </>
               )}
             </main>
