@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getCustomMarketTradeCount } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
+import { tryUnlockAchievement } from '@/lib/achievements'
 
 const RATE_LIMIT_MS = 500
 const lastTrade = new Map<string, number>()
@@ -81,6 +82,15 @@ export async function POST(
     const result = await executeVirtualTrade(
       marketId, word_id, wallet, action, side as 'YES' | 'NO', amount, amountType,
     )
+    // Free market achievements (fire-and-forget)
+    const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
+    try {
+      const ach = await tryUnlockAchievement(wallet, 'first_free_trade')
+      if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+    } catch (err) {
+      console.error('Achievement error (custom trade):', err)
+    }
+
     return NextResponse.json({
       trade_id: result.tradeId,
       cost: result.cost,
@@ -90,6 +100,7 @@ export async function POST(
       new_balance: result.newBalance,
       new_yes_shares: result.newYesShares,
       new_no_shares: result.newNoShares,
+      newAchievements,
     })
   } catch (err: any) {
     if (err.message === 'Insufficient balance') {

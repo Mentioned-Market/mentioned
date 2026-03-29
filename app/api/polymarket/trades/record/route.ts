@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { insertPolymarketTrade } from '@/lib/db'
+import { insertPolymarketTrade, getPolymarketTradeCount } from '@/lib/db'
 import { awardPoints, checkAndAwardFirstTrade } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 
@@ -30,11 +30,19 @@ export async function POST(req: NextRequest) {
       checkAndAwardFirstTrade(wallet),
     ]).catch((err) => console.error('Points award error (trade):', err))
 
-    // Achievement (collect result for toast)
+    // Achievements (collect results for toast)
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
     try {
-      const ach = await tryUnlockAchievement(wallet, 'first_trade')
-      if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+      const push = (a: Awaited<ReturnType<typeof tryUnlockAchievement>>) => {
+        if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
+      }
+      push(await tryUnlockAchievement(wallet, 'first_trade'))
+
+      // Trade milestones
+      const count = await getPolymarketTradeCount(wallet)
+      if (count >= 10) push(await tryUnlockAchievement(wallet, '10_trades'))
+      if (count >= 50) push(await tryUnlockAchievement(wallet, '50_trades'))
+      if (count >= 100) push(await tryUnlockAchievement(wallet, '100_trades'))
     } catch (err) {
       console.error('Achievement error (trade):', err)
     }

@@ -166,3 +166,57 @@ npm run lint          # ESLint
 - Free market changes reference `specs/custom_free_market_spec.md` for full context.
 - Don't import server-only modules (`lib/db.ts`, `lib/customScoring.ts`) in client components — they pull in `pg`/`fs` which break the webpack build.
 - Profile page is unified: ownership is derived (`profile.wallet === publicKey`), not a separate route. Owner-only UI (editing, Discord, orders tab, history tab, stat cards) is gated on `isOwnProfile`. Visitors see a read-only view. Use `isOwnerView = isOwnProfile && !viewAsPublic` to control which branch renders.
+
+## Homepage (Scroll-Driven Slideshow)
+
+The homepage (`app/page.tsx`) uses a scroll-driven slideshow architecture:
+- **One tall scroll container** (`useGlobalScroll` hook) with a single `fixed inset-0` viewport overlay
+- **Hero slide** (80vh scroll distance) + **5 content slides** (130vh each) defined in `SLIDES` array
+- **Crossfade transitions**: outgoing slide fades out + slides left, incoming fades in + slides from right (last 25% of scroll range)
+- **Auto-play animations**: Components receive `play: boolean` and use `useAutoPlay(play, duration)` hook (requestAnimationFrame-based, returns 0→1 over N ms). Animations play automatically when a slide becomes current, not scroll-driven.
+- **After the slideshow**: normal-flow sections (social/competitive, market types, CTA) use `useScrollReveal` IntersectionObserver for reveal animations
+- **Mobile**: Header uses burger menu (`md:hidden`), hero/slide text scales down, step 1 shows 1 card instead of 3, fixed viewport has safe padding
+- **GlobalChat hidden on homepage** via `usePathname() === '/'` check, also hidden on mobile via CSS `hidden md:block`
+
+## Achievements System
+
+15 achievements defined in `lib/achievements.ts`. Each has `id`, `emoji`, `title`, `description`, `points`.
+
+| ID | Emoji | Title | Points | Trigger Location |
+|---|---|---|---|---|
+| `set_nickname` | 🏷️ | Named & Famed | 75 | `PUT /api/profile` |
+| `set_pfp` | 🎨 | Fresh Fit | 50 | `PATCH /api/profile` |
+| `first_trade` | 🎯 | First Shot | 150 | `POST /api/polymarket/trades/record` |
+| `win_trade` | 🏆 | Winner Winner | 225 | `POST /api/polymarket/positions/claim` |
+| `lose_trade` | 💀 | Battle Scarred | 75 | `DELETE /api/polymarket/positions/close` |
+| `10_trades` | 📊 | Getting Started | 100 | Trade record (count check) |
+| `50_trades` | 🔥 | On Fire | 250 | Trade record (count check) |
+| `100_trades` | 💯 | Centurion | 500 | Trade record (count check) |
+| `3_wins` | 🎰 | Hat Trick | 150 | Claim position (win count check) |
+| `10_wins` | 👑 | King of the Hill | 400 | Claim position (win count check) |
+| `first_chat` | 💬 | Say Something | 50 | `POST /api/chat` and `POST /api/chat/event` |
+| `50_chats` | 📢 | Loud Mouth | 150 | Chat POST (message count check) |
+| `first_free_trade` | 🎮 | Free Player | 75 | `POST /api/custom/[id]/trade` |
+| `free_market_win` | 🏅 | Play Money Pro | 150 | `lib/customScoring.ts` (on profit > 0) |
+
+**Achievement flow**: API endpoint calls `tryUnlockAchievement(wallet, id)` → returns achievement def if newly unlocked → endpoint includes `newAchievements` array in response → frontend calls `showAchievementToast(ach)` from `useAchievements()` context.
+
+**Count helpers in db.ts**: `getPolymarketTradeCount`, `getPolymarketWinCount`, `getChatMessageCount`, `getCustomMarketTradeCount`.
+
+**Toast handling**: All endpoints that unlock achievements return `newAchievements` in the JSON response. Frontend pages/components that make these API calls check for `data.newAchievements?.length` and loop through calling `showAchievementToast()`. This includes: polymarket event page, positions page, profile page, custom market page, GlobalChat, and EventChat.
+
+## Performance Patterns
+
+- **Profile data cached in WalletContext.** `username`, `pfpEmoji`, and `refreshProfile()` live in `contexts/WalletContext.tsx`. Fetched once on wallet connect, shared by Header, GlobalChat, EventChat. Call `refreshProfile()` after any profile edit (username, PFP) so the header updates.
+- **Smart chat polling.** `GlobalChat` and `EventChat` use adaptive `setTimeout` polling (not `setInterval`). Starts at 3s, backs off by 2s per empty response up to 15s max. Pauses when `document.hidden`. Resets to 3s on new messages or when the user sends a message. Constants: `POLL_MIN`, `POLL_MAX`, `POLL_BACKOFF_STEP`.
+- **Lazy tab data loading.** Positions page and profile page only fetch data for the active tab. Orders and history fetch/poll when their tab becomes active; intervals are cleaned up when switching away. Follow the pattern: `useEffect` guarded by `tab !== 'x'` with interval inside.
+- **CSS display:none for tabs.** Tab content on positions and profile pages uses `style={{ display: active ? undefined : 'none' }}` instead of conditional rendering (`{tab === 'x' && (...)}`). DOM stays mounted across tab switches for instant switching and preserved scroll position.
+- **Memoized PNL map.** Profile page pre-computes `pnlMap` via `useMemo` over `activeHistory`, then uses `getPnl(h)` (a `Map.get` lookup) instead of calling `eventPnl(h)` repeatedly. All derived values (`periodPnl`, `biggestWin`, history row rendering) use `getPnl`.
+- **Profile + achievements parallel fetch.** Profile page calls `fetchAchievements(data.wallet)` inline in the profile fetch `.then()` callback, eliminating a render-cycle delay between profile load and achievements load.
+
+## Mobile Patterns
+
+- **Header**: Nav links hidden on mobile (`hidden md:block`), burger menu shown (`md:hidden`) with dropdown for Markets/Leaderboard/Positions/Profile
+- **GlobalChat**: Hidden on mobile via `hidden md:block md:flex` on both collapsed bubble and expanded panel
+- **Market pages**: Use fixed bottom sheet for trading on mobile (`lg:hidden`), desktop sidebar (`hidden lg:block`)
+- **CSS utility**: `.scrollbar-hide` in `globals.css` hides scrollbars cross-browser

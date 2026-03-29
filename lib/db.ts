@@ -659,6 +659,47 @@ export async function getUnlockedAchievements(
   return result.rows
 }
 
+// ── Achievement count helpers ────────────────────────
+
+/** Count polymarket trades for a wallet */
+export async function getPolymarketTradeCount(wallet: string): Promise<number> {
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM polymarket_trades WHERE wallet = $1`,
+    [wallet],
+  )
+  return r.rows[0]?.c ?? 0
+}
+
+/** Count polymarket wins (claims) for a wallet */
+export async function getPolymarketWinCount(wallet: string): Promise<number> {
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM point_events WHERE wallet = $1 AND action = 'claim_won'`,
+    [wallet],
+  )
+  return r.rows[0]?.c ?? 0
+}
+
+/** Count chat messages for a wallet (global + event) */
+export async function getChatMessageCount(wallet: string): Promise<number> {
+  const r = await pool.query(
+    `SELECT (
+       (SELECT COUNT(*) FROM chat_messages WHERE wallet = $1) +
+       (SELECT COUNT(*) FROM event_chat_messages WHERE wallet = $1)
+     )::int AS c`,
+    [wallet],
+  )
+  return r.rows[0]?.c ?? 0
+}
+
+/** Count custom (free) market trades for a wallet */
+export async function getCustomMarketTradeCount(wallet: string): Promise<number> {
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM custom_market_trades WHERE wallet = $1`,
+    [wallet],
+  )
+  return r.rows[0]?.c ?? 0
+}
+
 // ── Custom Markets ───────────────────────────────────
 
 export interface CustomMarketRow {

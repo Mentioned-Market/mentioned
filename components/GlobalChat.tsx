@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 
 interface ChatMessage {
   id: number
@@ -13,18 +14,20 @@ interface ChatMessage {
   created_at: string
 }
 
-const POLL_INTERVAL = 3000
+const POLL_MIN = 3000
+const POLL_MAX = 15000
+const POLL_BACKOFF_STEP = 2000
 const MAX_LENGTH = 200
 const SEND_COOLDOWN = 500
 
 export default function GlobalChat() {
   const pathname = usePathname()
-  const { connected, publicKey } = useWallet()
+  const { connected, publicKey, username } = useWallet()
+  const { showAchievementToast } = useAchievements()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [unread, setUnread] = useState(0)
-  const [username, setUsername] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const openRef = useRef(open)
   const lastIdRef = useRef(0)
@@ -34,15 +37,6 @@ export default function GlobalChat() {
     openRef.current = open
     if (open) setUnread(0)
   }, [open])
-
-  // Fetch username for optimistic messages
-  useEffect(() => {
-    if (!publicKey) { setUsername(null); return }
-    fetch(`/api/profile?wallet=${publicKey}`)
-      .then((r) => r.json())
-      .then((d) => setUsername(d.username ?? null))
-      .catch(() => {})
-  }, [publicKey])
 
   // Fetch messages (initial load + polling for new)
   const fetchMessages = useCallback(async () => {
@@ -74,11 +68,40 @@ export default function GlobalChat() {
     } catch {}
   }, [])
 
-  // Initial load + polling
+  // Initial load + smart polling (backoff when idle, pause when tab hidden)
+  const pollIntervalRef = useRef(POLL_MIN)
   useEffect(() => {
-    fetchMessages()
-    const interval = setInterval(fetchMessages, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    let timer: ReturnType<typeof setTimeout>
+    let stopped = false
+
+    const poll = async () => {
+      if (stopped) return
+      if (document.hidden) {
+        timer = setTimeout(poll, pollIntervalRef.current)
+        return
+      }
+      const prevCount = lastIdRef.current
+      await fetchMessages()
+      // If new messages arrived, reset to fast polling; otherwise back off
+      if (lastIdRef.current > prevCount) {
+        pollIntervalRef.current = POLL_MIN
+      } else {
+        pollIntervalRef.current = Math.min(pollIntervalRef.current + POLL_BACKOFF_STEP, POLL_MAX)
+      }
+      if (!stopped) timer = setTimeout(poll, pollIntervalRef.current)
+    }
+
+    fetchMessages().then(() => { if (!stopped) timer = setTimeout(poll, pollIntervalRef.current) })
+
+    // Resume fast polling when tab becomes visible
+    const onVisibility = () => {
+      if (!document.hidden) {
+        pollIntervalRef.current = POLL_MIN
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
   }, [fetchMessages])
 
   // Auto-scroll on new messages when open
@@ -107,11 +130,18 @@ export default function GlobalChat() {
     }
     setMessages((prev) => [...prev, optimistic])
 
-    // Fire-and-forget POST — next poll will bring the real row
+    // Reset to fast polling so the real row comes quickly
+    pollIntervalRef.current = POLL_MIN
+
+    // POST — next poll will bring the real row
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ wallet: publicKey, message: text }),
+    }).then(r => r.json()).then(data => {
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
+      }
     }).catch(() => {})
   }, [publicKey, input, username])
 

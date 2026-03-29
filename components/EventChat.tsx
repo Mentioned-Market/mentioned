@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 
 interface ChatMessage {
   id: number
@@ -38,7 +39,9 @@ interface EventChatProps {
   marketIds: string[]
 }
 
-const POLL_INTERVAL = 3000
+const POLL_MIN = 3000
+const POLL_MAX = 15000
+const POLL_BACKOFF_STEP = 2000
 const MAX_LENGTH = 200
 const SEND_COOLDOWN = 500
 
@@ -47,11 +50,10 @@ function microToUsd(n: number) {
 }
 
 export default function EventChat({ eventId, marketIds }: EventChatProps) {
-  const { connected, publicKey } = useWallet()
+  const { connected, publicKey, username, pfpEmoji } = useWallet()
+  const { showAchievementToast } = useAchievements()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
-  const [username, setUsername] = useState<string | null>(null)
-  const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastIdRef = useRef(0)
@@ -69,15 +71,6 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const positionCache = useRef<Map<string, UserPosition[]>>(new Map())
   const customPositionCache = useRef<Map<string, CustomPosition[]>>(new Map())
-
-  // Fetch username + pfp
-  useEffect(() => {
-    if (!publicKey) { setUsername(null); setPfpEmoji(null); return }
-    fetch(`/api/profile?wallet=${publicKey}`)
-      .then((r) => r.json())
-      .then((d) => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null) })
-      .catch(() => {})
-  }, [publicKey])
 
   // Fetch messages
   const fetchMessages = useCallback(async () => {
@@ -105,10 +98,36 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     } catch {}
   }, [eventId])
 
+  // Smart polling: backoff when idle, pause when tab hidden
+  const pollIntervalRef = useRef(POLL_MIN)
   useEffect(() => {
-    fetchMessages()
-    const interval = setInterval(fetchMessages, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    let timer: ReturnType<typeof setTimeout>
+    let stopped = false
+
+    const poll = async () => {
+      if (stopped) return
+      if (document.hidden) {
+        timer = setTimeout(poll, pollIntervalRef.current)
+        return
+      }
+      const prevCount = lastIdRef.current
+      await fetchMessages()
+      if (lastIdRef.current > prevCount) {
+        pollIntervalRef.current = POLL_MIN
+      } else {
+        pollIntervalRef.current = Math.min(pollIntervalRef.current + POLL_BACKOFF_STEP, POLL_MAX)
+      }
+      if (!stopped) timer = setTimeout(poll, pollIntervalRef.current)
+    }
+
+    fetchMessages().then(() => { if (!stopped) timer = setTimeout(poll, pollIntervalRef.current) })
+
+    const onVisibility = () => {
+      if (!document.hidden) pollIntervalRef.current = POLL_MIN
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
   }, [fetchMessages])
 
   // Auto-scroll within chat container only
@@ -139,12 +158,18 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     }
     setMessages((prev) => [...prev, optimistic])
 
+    pollIntervalRef.current = POLL_MIN
+
     fetch('/api/chat/event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ wallet: publicKey, message: text, eventId }),
+    }).then(r => r.json()).then(data => {
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
+      }
     }).catch(() => {})
-  }, [publicKey, input, username, pfpEmoji, eventId])
+  }, [publicKey, input, username, pfpEmoji, eventId, showAchievementToast])
 
   // Fetch positions for hovered user
   const fetchUserPositions = useCallback(async (wallet: string) => {
