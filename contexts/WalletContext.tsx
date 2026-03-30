@@ -80,6 +80,8 @@ interface WalletContextType {
   username: string | null
   /** Cached profile emoji (fetched once on connect) */
   pfpEmoji: string | null
+  /** Whether the user has linked their Discord account */
+  discordLinked: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
   refreshProfile: () => void
 }
@@ -169,6 +171,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Cached profile data (fetched once per wallet connection)
   const [username, setUsername] = useState<string | null>(null)
   const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
+  const [discordLinked, setDiscordLinked] = useState(false)
   const profileFetchedForRef = useRef<string | null>(null)
 
   const walletRef = useRef<Wallet | null>(null)
@@ -215,6 +218,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWalletType(null)
     setUsername(null)
     setPfpEmoji(null)
+    setDiscordLinked(false)
     profileFetchedForRef.current = null
     privyWalletRef.current = null
   }, [])
@@ -356,13 +360,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const fetchProfile = useCallback((wallet: string) => {
     fetch(`/api/profile?wallet=${wallet}`)
       .then(r => r.json())
-      .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null) })
-      .catch(() => { setUsername(null); setPfpEmoji(null) })
+      .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null); setDiscordLinked(!!d.discordId) })
+      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(false) })
     profileFetchedForRef.current = wallet
   }, [])
 
   useEffect(() => {
-    if (!pubkey) { setUsername(null); setPfpEmoji(null); profileFetchedForRef.current = null; return }
+    if (!pubkey) { setUsername(null); setPfpEmoji(null); setDiscordLinked(false); profileFetchedForRef.current = null; return }
     if (profileFetchedForRef.current === pubkey) return
     fetchProfile(pubkey)
   }, [pubkey, fetchProfile])
@@ -442,6 +446,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         connectPrivy: connectPrivyFn,
         username,
         pfpEmoji,
+        discordLinked,
         refreshProfile,
       }}
     >

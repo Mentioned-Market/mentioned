@@ -17,51 +17,8 @@ function sub(progress: number, start: number, end: number) {
 function ease(t: number) { return 1 - Math.pow(1 - t, 3) }
 
 /* ───────────────────────────────────────────────
-   Single global scroll hook
-   One tall div drives everything. Returns 0→1.
+   Scroll reveal for post-slideshow sections
    ─────────────────────────────────────────────── */
-function useGlobalScroll(heroVh: number, contentVh: number, contentSlideCount: number) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [scrollY, setScrollY] = useState(0)
-  const [vh, setVh] = useState(800)
-
-  useEffect(() => {
-    setVh(window.innerHeight)
-    const onResize = () => setVh(window.innerHeight)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
-  useEffect(() => {
-    const onScroll = () => {
-      const el = containerRef.current
-      if (!el) return
-      setScrollY(Math.max(0, -el.getBoundingClientRect().top))
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
-  const heroH = (heroVh / 100) * vh
-  const slideH = (contentVh / 100) * vh
-  const totalHeight = heroH + contentSlideCount * slideH + vh
-
-  let currentSlide: number
-  let slideProgress: number
-
-  if (scrollY < heroH) {
-    currentSlide = 0
-    slideProgress = scrollY / heroH
-  } else {
-    const afterHero = scrollY - heroH
-    currentSlide = 1 + Math.floor(afterHero / slideH)
-    slideProgress = (afterHero / slideH) - Math.floor(afterHero / slideH)
-  }
-
-  return { containerRef, totalHeight, currentSlide, slideProgress }
-}
-
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -78,15 +35,17 @@ function useScrollReveal() {
 }
 
 /* ───────────────────────────────────────────────
-   Hook: auto-play animation when `play` becomes true.
-   Returns 0→1 over `duration` ms, stays at 1 after.
+   Hook: auto-play animation when `play` is true.
+   Returns 0→1 over `duration` ms.
+   Keeps final value when play goes false (for crossfade).
    ─────────────────────────────────────────────── */
 function useAutoPlay(play: boolean, duration: number) {
   const [progress, setProgress] = useState(0)
   const rafRef = useRef<number>()
 
   useEffect(() => {
-    if (!play) { setProgress(0); return }
+    if (!play) return // stop animating but keep current progress
+    setProgress(0)
     const start = performance.now()
     const tick = (now: number) => {
       const t = Math.min((now - start) / duration, 1)
@@ -101,11 +60,32 @@ function useAutoPlay(play: boolean, duration: number) {
 }
 
 /* ───────────────────────────────────────────────
+   Hook: auto-cycle through slides when visible
+   ─────────────────────────────────────────────── */
+const SLIDE_DURATIONS = [2600, 3000, 3400, 3000, 3400]
+const CROSSFADE_MS = 250
+
+function useSlideLoop(durations: number[], visible: boolean) {
+  const [active, setActive] = useState(0)
+
+  useEffect(() => {
+    if (!visible) return
+    const timer = setTimeout(() => {
+      setActive(prev => (prev + 1) % durations.length)
+    }, durations[active])
+    return () => clearTimeout(timer)
+  }, [active, visible, durations])
+
+  return active
+}
+
+/* ───────────────────────────────────────────────
    Animated mini chart (canvas) — timer-driven
+   All durations at 1.25x speed (÷1.25)
    ─────────────────────────────────────────────── */
 function AnimatedChart({ play }: { play: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const progress = useAutoPlay(play, 3000)
+  const progress = useAutoPlay(play, 2400)
   const prices = [0.32, 0.34, 0.37, 0.35, 0.40, 0.43, 0.41, 0.46, 0.50, 0.48, 0.53, 0.57, 0.55, 0.60, 0.64, 0.68, 0.72, 0.76, 0.80, 0.85]
 
   useEffect(() => {
@@ -125,17 +105,15 @@ function AnimatedChart({ play }: { play: boolean }) {
     if (progress <= 0) return
 
     const count = prices.length
-    const drawTo = progress * (count - 1) // fractional index to draw to
+    const drawTo = progress * (count - 1)
     const stepX = w / (count - 1)
     const minP = 0.25, maxP = 0.95
     const toY = (p: number) => h - ((p - minP) / (maxP - minP)) * h
 
-    // Build path up to fractional point
     const points: [number, number][] = [[0, toY(prices[0])]]
     for (let i = 1; i <= Math.min(Math.floor(drawTo), count - 1); i++) {
       points.push([i * stepX, toY(prices[i])])
     }
-    // Fractional last point
     const floorIdx = Math.floor(drawTo)
     const frac = drawTo - floorIdx
     if (frac > 0 && floorIdx < count - 1) {
@@ -146,7 +124,6 @@ function AnimatedChart({ play }: { play: boolean }) {
     if (points.length < 2) return
     const lastPt = points[points.length - 1]
 
-    // Gradient fill
     const grad = ctx.createLinearGradient(0, 0, 0, h)
     grad.addColorStop(0, 'rgba(52,199,89,0.15)'); grad.addColorStop(1, 'rgba(52,199,89,0)')
     ctx.beginPath()
@@ -154,12 +131,10 @@ function AnimatedChart({ play }: { play: boolean }) {
     ctx.lineTo(lastPt[0], h); ctx.lineTo(0, h); ctx.closePath()
     ctx.fillStyle = grad; ctx.fill()
 
-    // Line
     ctx.beginPath()
     points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y))
     ctx.strokeStyle = '#34C759'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
 
-    // Dot
     ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 4, 0, Math.PI * 2); ctx.fillStyle = '#34C759'; ctx.fill()
     ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(52,199,89,0.25)'; ctx.fill()
   }, [progress, prices])
@@ -174,7 +149,7 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
   play: boolean; delay: number; title: string; emoji: string;
   words: { word: string; price: number }[]; selected?: boolean
 }) {
-  const p = useAutoPlay(play, 3000)
+  const p = useAutoPlay(play, 2400)
   const enterP = ease(sub(p, delay, delay + 0.4))
   const selectP = ease(sub(p, delay + 0.5, delay + 0.8))
   const isSelected = selected && selectP > 0
@@ -215,7 +190,7 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
    Mock Word List
    ─────────────────────────────────────────────── */
 function MockWordList({ play }: { play: boolean }) {
-  const progress = useAutoPlay(play, 3500)
+  const progress = useAutoPlay(play, 2800)
   const words = [
     { word: 'GG', yes: 0.42, no: 0.58, vol: '2.1k' },
     { word: 'nerf', yes: 0.35, no: 0.65, vol: '1.8k' },
@@ -269,7 +244,7 @@ function MockWordList({ play }: { play: boolean }) {
    Mock Trading Panel
    ─────────────────────────────────────────────── */
 function MockTradingPanel({ play }: { play: boolean }) {
-  const progress = useAutoPlay(play, 4000)
+  const progress = useAutoPlay(play, 3200)
   const yesT = ease(sub(progress, 0.05, 0.2))
   const amountT = ease(sub(progress, 0.2, 0.5))
   const amount = amountT > 0 ? Math.round(lerp(0, 50, amountT)) : 0
@@ -323,7 +298,7 @@ function MockTradingPanel({ play }: { play: boolean }) {
    Mock Claim Panel
    ─────────────────────────────────────────────── */
 function MockClaimPanel({ play }: { play: boolean }) {
-  const progress = useAutoPlay(play, 4000)
+  const progress = useAutoPlay(play, 3200)
   const resolveT = ease(sub(progress, 0.05, 0.3))
   const resolved = resolveT > 0.5
   const payoutT = ease(sub(progress, 0.25, 0.5))
@@ -368,8 +343,8 @@ function MockClaimPanel({ play }: { play: boolean }) {
    Mock Chart Section — self-contained auto-play
    ─────────────────────────────────────────────── */
 function MockChartSection({ play }: { play: boolean }) {
-  const p = useAutoPlay(play, 3500)
-  const tipOpacity = ease(sub(p, 0.75, 0.95))
+  const p = useAutoPlay(play, 2800)
+  const tipOpacity = ease(sub(p, 0.0, 0.15))
   return (
     <div className="w-full max-w-2xl mx-auto">
       <div className="glass rounded-2xl p-5">
@@ -392,7 +367,7 @@ function MockChartSection({ play }: { play: boolean }) {
 }
 
 /* ───────────────────────────────────────────────
-   Social section mocks (unchanged)
+   Social section mocks
    ─────────────────────────────────────────────── */
 function MockLeaderboard() {
   const rows = [
@@ -498,108 +473,102 @@ const SLIDES = [
   { step: 5, label: 'The trade flow', title: 'Collect your winnings', desc: 'Event ends, transcript is checked. If your word was said and you held YES — you win. One click to claim.' },
 ]
 
-const TOTAL_SLIDES = SLIDES.length + 1 // +1 for hero
-const VH_PER_SLIDE = 130 // scroll distance per content slide
-const HERO_VH = 60 // hero scrolls away faster
-
 
 /* ═══════════════════════════════════════════════
    HOMEPAGE
    ═══════════════════════════════════════════════ */
 export default function Home() {
   const revealRef = useScrollReveal()
-  const { containerRef, totalHeight, currentSlide, slideProgress } = useGlobalScroll(HERO_VH, VH_PER_SLIDE, SLIDES.length)
+  const slideshowRef = useRef<HTMLDivElement>(null)
+  const [slideshowVisible, setSlideshowVisible] = useState(false)
 
-  // Slide transition: snappy crossfade in last 10% of scroll
-  function slideStyle(slideIdx: number): { opacity: number; translateX: number } {
-    if (slideIdx === currentSlide) {
-      const exitT = ease(sub(slideProgress, 0.9, 1.0))
-      return { opacity: 1 - exitT, translateX: lerp(0, -40, exitT) }
-    }
-    if (slideIdx === currentSlide + 1) {
-      const enterT = ease(sub(slideProgress, 0.9, 1.0))
-      return { opacity: enterT, translateX: lerp(40, 0, enterT) }
-    }
-    return { opacity: 0, translateX: 0 }
-  }
+  useEffect(() => {
+    const el = slideshowRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setSlideshowVisible(entry.isIntersecting),
+      { threshold: 0.2 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
 
-  const heroStyle = slideStyle(0)
+  const activeSlide = useSlideLoop(SLIDE_DURATIONS, slideshowVisible)
 
   return (
     <div className="relative min-h-screen w-full bg-black" style={{ overflowX: 'clip' }}>
-      {/* Header — normal flow, same as every other page */}
+      {/* Header */}
       <div className="relative z-50 px-4 md:px-10 lg:px-20 flex justify-center">
         <div className="w-full max-w-7xl"><Header /></div>
       </div>
 
-      {/* Scroll runway — this is the only thing that has height */}
-      <div ref={containerRef} style={{ height: totalHeight }}>
-
-        {/* Fixed viewport — always centered on screen */}
-        <div className="fixed inset-0 z-10 flex items-center justify-center pointer-events-none px-4 md:px-10 py-16 md:py-20">
-          <div className="w-full max-w-5xl mx-auto pointer-events-auto max-h-full overflow-y-auto overflow-x-hidden scrollbar-hide">
-
-            {/* HERO */}
-            {heroStyle.opacity > 0 && (
-              <div className="absolute inset-0 flex items-center justify-center px-4 md:px-10" style={{ opacity: heroStyle.opacity, transform: `translateX(${heroStyle.translateX}px)` }}>
-                <div>
-                  <section className="flex flex-col items-center justify-center text-center">
-                    <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
-                    <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
-                    <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
-                    <div className="mt-8 md:mt-10 flex items-center gap-3 hero-cta">
-                      <Link href="/markets" className="h-10 md:h-12 px-6 md:px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
-                      <Link href="/leaderboard" className="h-10 md:h-12 px-6 md:px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
-                    </div>
-                    <div className="mt-12 flex flex-col items-center gap-2">
-                      <p className="text-neutral-600 text-xs tracking-wide">Scroll to see how it works</p>
-                      <div className="scroll-bounce"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-neutral-600"><path d="M12 5v14M5 12l7 7 7-7" /></svg></div>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            )}
-
-            {/* SLIDES 1-5 */}
-            {SLIDES.map((slide, i) => {
-              const idx = i + 1 // slide 0 is hero
-              const { opacity, translateX } = slideStyle(idx)
-              // Start playing as soon as slide begins entering (during crossfade)
-              const isPlaying = currentSlide === idx || currentSlide > idx || (currentSlide === idx - 1 && slideProgress > 0.9)
-              if (opacity <= 0) return null
-              return (
-                <div key={idx} className="absolute inset-0 flex items-center justify-center px-4 md:px-10 py-16 md:py-20" style={{ opacity, transform: `translateX(${translateX}px)` }}>
-                  <div className="w-full max-w-5xl mx-auto max-h-full overflow-y-auto overflow-x-hidden scrollbar-hide">
-                    <div className="text-center mb-4 md:mb-6">
-                      <div className="inline-flex items-center gap-2 mb-1 md:mb-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">{slide.label}</span>
-                        <span className="text-neutral-700 text-[10px]">{slide.step} / 5</span>
-                      </div>
-                      <h2 className="text-xl md:text-4xl font-bold text-white mb-1.5 md:mb-2">{slide.title}</h2>
-                      <p className="text-neutral-400 text-xs md:text-base max-w-xl mx-auto">{slide.desc}</p>
-                    </div>
-
-                    {/* Slide content — animations auto-play on enter */}
-                    {idx === 1 && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
-                        <MockMarketCard play={isPlaying} delay={0.05} selected title="VCT Masters — Grand Final" emoji="🎮" words={[{ word: 'GG', price: 0.42 }, { word: 'nerf', price: 0.35 }, { word: 'clutch', price: 0.61 }, { word: 'ace', price: 0.28 }]} />
-                        <div className="hidden md:block"><MockMarketCard play={isPlaying} delay={0.15} title="Joe Rogan #2189" emoji="🎙️" words={[{ word: 'simulation', price: 0.55 }, { word: 'DMT', price: 0.72 }, { word: 'aliens', price: 0.38 }]} /></div>
-                        <div className="hidden md:block"><MockMarketCard play={isPlaying} delay={0.25} title="League Worlds — Semifinals" emoji="⚔️" words={[{ word: 'pentakill', price: 0.15 }, { word: 'baron', price: 0.82 }, { word: 'backdoor', price: 0.22 }]} /></div>
-                      </div>
-                    )}
-                    {idx === 2 && <div className="flex justify-center"><MockWordList play={isPlaying} /></div>}
-                    {idx === 3 && <div className="flex justify-center"><MockTradingPanel play={isPlaying} /></div>}
-                    {idx === 4 && <MockChartSection play={isPlaying} />}
-                    {idx === 5 && <div className="flex justify-center"><MockClaimPanel play={isPlaying} /></div>}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+      {/* Hero — normal flow */}
+      <section className="min-h-[85vh] flex flex-col items-center justify-center text-center px-4 md:px-10">
+        <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
+        <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
+        <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
+        <div className="mt-8 md:mt-10 flex items-center gap-3 hero-cta">
+          <Link href="/markets" className="h-10 md:h-12 px-6 md:px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
+          <Link href="/leaderboard" className="h-10 md:h-12 px-6 md:px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
         </div>
-      </div>
+        <div className="mt-12 flex flex-col items-center gap-2">
+          <p className="text-neutral-600 text-xs tracking-wide">Scroll to see how it works</p>
+          <div className="scroll-bounce"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-neutral-600"><path d="M12 5v14M5 12l7 7 7-7" /></svg></div>
+        </div>
+      </section>
 
-      {/* Normal-flow content after the scroll-driven section */}
+      {/* Auto-playing slideshow — loops through all 5 steps */}
+      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '100vh' }}>
+        {SLIDES.map((slide, i) => {
+          const isActive = activeSlide === i
+          return (
+            <div
+              key={i}
+              className="absolute inset-0 flex flex-col items-center justify-center px-4 md:px-10 py-16 md:py-20"
+              style={{
+                opacity: isActive ? 1 : 0,
+                transition: `opacity ${CROSSFADE_MS}ms ease-in-out`,
+                pointerEvents: isActive ? 'auto' : 'none',
+              }}
+            >
+              <div className="w-full max-w-5xl mx-auto">
+                <div className="text-center mb-4 md:mb-6">
+                  <div className="inline-flex items-center gap-2 mb-1 md:mb-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">{slide.label}</span>
+                    <span className="text-neutral-700 text-[10px]">{slide.step} / 5</span>
+                  </div>
+                  <h2 className="text-xl md:text-4xl font-bold text-white mb-1.5 md:mb-2">{slide.title}</h2>
+                  <p className="text-neutral-400 text-xs md:text-base max-w-xl mx-auto">{slide.desc}</p>
+                </div>
+
+                {i === 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
+                    <MockMarketCard play={isActive} delay={0.05} selected title="VCT Masters — Grand Final" emoji="🎮" words={[{ word: 'GG', price: 0.42 }, { word: 'nerf', price: 0.35 }, { word: 'clutch', price: 0.61 }, { word: 'ace', price: 0.28 }]} />
+                    <div className="hidden md:block"><MockMarketCard play={isActive} delay={0.15} title="Joe Rogan #2189" emoji="🎙️" words={[{ word: 'simulation', price: 0.55 }, { word: 'DMT', price: 0.72 }, { word: 'aliens', price: 0.38 }]} /></div>
+                    <div className="hidden md:block"><MockMarketCard play={isActive} delay={0.25} title="League Worlds — Semifinals" emoji="⚔️" words={[{ word: 'pentakill', price: 0.15 }, { word: 'baron', price: 0.82 }, { word: 'backdoor', price: 0.22 }]} /></div>
+                  </div>
+                )}
+                {i === 1 && <div className="flex justify-center"><MockWordList play={isActive} /></div>}
+                {i === 2 && <div className="flex justify-center"><MockTradingPanel play={isActive} /></div>}
+                {i === 3 && <MockChartSection play={isActive} />}
+                {i === 4 && <div className="flex justify-center"><MockClaimPanel play={isActive} /></div>}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* Step indicator dots */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 z-10">
+          {SLIDES.map((_, i) => (
+            <div key={i} className="w-2 h-2 rounded-full transition-all duration-300" style={{
+              background: activeSlide === i ? 'white' : 'rgba(255,255,255,0.2)',
+              transform: activeSlide === i ? 'scale(1.3)' : 'scale(1)',
+            }} />
+          ))}
+        </div>
+      </section>
+
+      {/* Normal-flow content after the slideshow */}
       <div ref={revealRef} className="relative z-20 px-4 md:px-10 lg:px-20 flex justify-center">
         <div className="w-full max-w-7xl">
           <section className="py-16 md:py-32 border-t border-white/10">
