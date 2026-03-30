@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import Header from '@/components/Header'
@@ -62,21 +62,60 @@ function useAutoPlay(play: boolean, duration: number) {
 /* ───────────────────────────────────────────────
    Hook: auto-cycle through slides when visible
    ─────────────────────────────────────────────── */
-const SLIDE_DURATIONS = [2600, 3000, 3400, 3000, 3400]
+const SLIDE_DURATIONS = [3900, 4500, 5100, 4500, 5100]
 const CROSSFADE_MS = 250
 
 function useSlideLoop(durations: number[], visible: boolean) {
   const [active, setActive] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const rafRef = useRef<number>()
 
+  const playing = visible && !paused
+
+  // rAF progress tracker + auto-advance
   useEffect(() => {
-    if (!visible) return
-    const timer = setTimeout(() => {
-      setActive(prev => (prev + 1) % durations.length)
-    }, durations[active])
-    return () => clearTimeout(timer)
-  }, [active, visible, durations])
+    if (!playing) return
+    setProgress(0)
+    const start = performance.now()
+    const dur = durations[active]
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / dur, 1)
+      setProgress(t)
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        setActive(prev => (prev + 1) % durations.length)
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [active, playing, durations])
 
-  return active
+  const goTo = useCallback((index: number) => {
+    setPaused(true)
+    setActive(index)
+    setProgress(0)
+  }, [])
+
+  const prev = useCallback(() => {
+    setPaused(true)
+    setActive(a => (a - 1 + durations.length) % durations.length)
+    setProgress(0)
+  }, [durations.length])
+
+  const next = useCallback(() => {
+    setPaused(true)
+    setActive(a => (a + 1) % durations.length)
+    setProgress(0)
+  }, [durations.length])
+
+  // Resume auto-play when visibility changes (scroll away & back)
+  useEffect(() => {
+    if (visible) setPaused(false)
+  }, [visible])
+
+  return { active, progress, paused, goTo, prev, next }
 }
 
 /* ───────────────────────────────────────────────
@@ -85,7 +124,7 @@ function useSlideLoop(durations: number[], visible: boolean) {
    ─────────────────────────────────────────────── */
 function AnimatedChart({ play }: { play: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const progress = useAutoPlay(play, 2400)
+  const progress = useAutoPlay(play, 3600)
   const prices = [0.32, 0.34, 0.37, 0.35, 0.40, 0.43, 0.41, 0.46, 0.50, 0.48, 0.53, 0.57, 0.55, 0.60, 0.64, 0.68, 0.72, 0.76, 0.80, 0.85]
 
   useEffect(() => {
@@ -149,7 +188,7 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
   play: boolean; delay: number; title: string; emoji: string;
   words: { word: string; price: number }[]; selected?: boolean
 }) {
-  const p = useAutoPlay(play, 2400)
+  const p = useAutoPlay(play, 3600)
   const enterP = ease(sub(p, delay, delay + 0.4))
   const selectP = ease(sub(p, delay + 0.5, delay + 0.8))
   const isSelected = selected && selectP > 0
@@ -190,7 +229,7 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
    Mock Word List
    ─────────────────────────────────────────────── */
 function MockWordList({ play }: { play: boolean }) {
-  const progress = useAutoPlay(play, 2800)
+  const progress = useAutoPlay(play, 4200)
   const words = [
     { word: 'GG', yes: 0.42, no: 0.58, vol: '2.1k' },
     { word: 'nerf', yes: 0.35, no: 0.65, vol: '1.8k' },
@@ -244,7 +283,7 @@ function MockWordList({ play }: { play: boolean }) {
    Mock Trading Panel
    ─────────────────────────────────────────────── */
 function MockTradingPanel({ play }: { play: boolean }) {
-  const progress = useAutoPlay(play, 3200)
+  const progress = useAutoPlay(play, 4800)
   const yesT = ease(sub(progress, 0.05, 0.2))
   const amountT = ease(sub(progress, 0.2, 0.5))
   const amount = amountT > 0 ? Math.round(lerp(0, 50, amountT)) : 0
@@ -298,7 +337,7 @@ function MockTradingPanel({ play }: { play: boolean }) {
    Mock Claim Panel
    ─────────────────────────────────────────────── */
 function MockClaimPanel({ play }: { play: boolean }) {
-  const progress = useAutoPlay(play, 3200)
+  const progress = useAutoPlay(play, 4800)
   const resolveT = ease(sub(progress, 0.05, 0.3))
   const resolved = resolveT > 0.5
   const payoutT = ease(sub(progress, 0.25, 0.5))
@@ -343,7 +382,7 @@ function MockClaimPanel({ play }: { play: boolean }) {
    Mock Chart Section — self-contained auto-play
    ─────────────────────────────────────────────── */
 function MockChartSection({ play }: { play: boolean }) {
-  const p = useAutoPlay(play, 2800)
+  const p = useAutoPlay(play, 4200)
   const tipOpacity = ease(sub(p, 0.0, 0.15))
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -493,7 +532,12 @@ export default function Home() {
     return () => obs.disconnect()
   }, [])
 
-  const activeSlide = useSlideLoop(SLIDE_DURATIONS, slideshowVisible)
+  const { active: activeSlide, progress: slideProgress, goTo, prev, next } = useSlideLoop(SLIDE_DURATIONS, slideshowVisible)
+  const [showScrollHint, setShowScrollHint] = useState(false)
+
+  useEffect(() => {
+    if (activeSlide === SLIDES.length - 1 && slideProgress > 0.8) setShowScrollHint(true)
+  }, [activeSlide, slideProgress])
 
   return (
     <div className="relative min-h-screen w-full bg-black" style={{ overflowX: 'clip' }}>
@@ -533,9 +577,18 @@ export default function Home() {
             >
               <div className="w-full max-w-5xl mx-auto">
                 <div className="text-center mb-4 md:mb-6">
-                  <div className="inline-flex items-center gap-2 mb-1 md:mb-2">
+                  <div className="relative inline-flex items-center gap-2 mb-1 md:mb-2">
                     <span className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">{slide.label}</span>
                     <span className="text-neutral-700 text-[10px]">{slide.step} / 5</span>
+                    <svg width="16" height="16" viewBox="0 0 28 28" className="rotate-[-90deg] absolute -right-7 top-1/2 -translate-y-1/2">
+                      <circle cx="14" cy="14" r="12" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2.5" />
+                      <circle
+                        cx="14" cy="14" r="12" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2.5"
+                        strokeDasharray={2 * Math.PI * 12}
+                        strokeDashoffset={2 * Math.PI * 12 * (1 - slideProgress)}
+                        strokeLinecap="round"
+                      />
+                    </svg>
                   </div>
                   <h2 className="text-xl md:text-4xl font-bold text-white mb-1.5 md:mb-2">{slide.title}</h2>
                   <p className="text-neutral-400 text-xs md:text-base max-w-xl mx-auto">{slide.desc}</p>
@@ -557,14 +610,36 @@ export default function Home() {
           )
         })}
 
-        {/* Step indicator dots */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 z-10">
+        {/* Step navigation — arrows + clickable dots */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 z-10">
+          <button onClick={prev} className="p-1.5 rounded-full hover:bg-white/10 transition-colors" aria-label="Previous slide">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-400"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
           {SLIDES.map((_, i) => (
-            <div key={i} className="w-2 h-2 rounded-full transition-all duration-300" style={{
-              background: activeSlide === i ? 'white' : 'rgba(255,255,255,0.2)',
-              transform: activeSlide === i ? 'scale(1.3)' : 'scale(1)',
-            }} />
+            <button
+              key={i}
+              onClick={() => goTo(i)}
+              className="w-2.5 h-2.5 rounded-full transition-all duration-300 hover:scale-150"
+              aria-label={`Go to slide ${i + 1}`}
+              style={{
+                background: activeSlide === i ? 'white' : 'rgba(255,255,255,0.2)',
+                transform: activeSlide === i ? 'scale(1.3)' : 'scale(1)',
+              }}
+            />
           ))}
+          <button onClick={next} className="p-1.5 rounded-full hover:bg-white/10 transition-colors" aria-label="Next slide">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-400"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        </div>
+
+        {/* Scroll-down hint — appears once after final slide, stays visible */}
+        <div
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-500"
+          style={{ opacity: showScrollHint ? 1 : 0 }}
+        >
+          <div className="scroll-bounce">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-500"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+          </div>
         </div>
       </section>
 
