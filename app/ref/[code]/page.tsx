@@ -1,6 +1,7 @@
 import { Metadata } from 'next'
 import { getWalletByReferralCode, getProfile } from '@/lib/db'
-import ReferralRedirect from './ReferralRedirect'
+import ReferralLanding from './ReferralLanding'
+import { redirect } from 'next/navigation'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mentioned.market'
 
@@ -42,7 +43,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ReferralPage({ params }: Props) {
   const { code } = params
-  const valid = !!(await getWalletByReferralCode(code))
 
-  return <ReferralRedirect code={code} valid={valid} />
+  const wallet = await getWalletByReferralCode(code)
+  if (!wallet) redirect('/')
+
+  const profile = await getProfile(wallet)
+  const referrerUsername = profile?.username && profile.username !== wallet
+    ? profile.username
+    : `${wallet.slice(0, 6)}...${wallet.slice(-4)}`
+
+  return <ReferralLanding code={code} referrerUsername={referrerUsername} />
 }
