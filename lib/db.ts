@@ -802,6 +802,22 @@ export async function getWalletPointTotal(wallet: string): Promise<number> {
   return result.rows[0]?.total ?? 0
 }
 
+export async function getWalletWeeklyPoints(wallet: string, weekStart: Date): Promise<number> {
+  const result = await pool.query(
+    `SELECT COALESCE(SUM(points), 0)::int AS total FROM point_events WHERE wallet = $1 AND created_at >= $2`,
+    [wallet, weekStart.toISOString()],
+  )
+  return result.rows[0]?.total ?? 0
+}
+
+export async function getWalletPointHistory(wallet: string): Promise<{ points: number; created_at: string }[]> {
+  const result = await pool.query(
+    `SELECT points, created_at FROM point_events WHERE wallet = $1 ORDER BY created_at ASC`,
+    [wallet],
+  )
+  return result.rows
+}
+
 export async function getBulkPointTotals(
   wallets: string[],
   weekStart: Date,
@@ -896,6 +912,68 @@ export async function getCustomMarketTradeCount(wallet: string): Promise<number>
     [wallet],
   )
   return r.rows[0]?.c ?? 0
+}
+
+// -- Wallet-level free market aggregates --
+
+export async function getWalletFreeMarketPositions(wallet: string): Promise<
+  (CustomMarketPositionRow & { word: string; market_title: string; market_status: string })[]
+> {
+  const result = await pool.query(
+    `SELECT p.*, w.word, m.title AS market_title, m.status AS market_status
+     FROM custom_market_positions p
+     JOIN custom_market_words w ON w.id = p.word_id
+     JOIN custom_markets m ON m.id = p.market_id
+     WHERE p.wallet = $1
+       AND (p.yes_shares::numeric > 0 OR p.no_shares::numeric > 0)
+     ORDER BY p.updated_at DESC`,
+    [wallet],
+  )
+  return result.rows
+}
+
+export async function getWalletFreeMarketTrades(wallet: string, limit: number = 50): Promise<
+  (CustomMarketTradeRow & { word: string; market_title: string })[]
+> {
+  const result = await pool.query(
+    `SELECT t.*, w.word, m.title AS market_title
+     FROM custom_market_trades t
+     JOIN custom_market_words w ON w.id = t.word_id
+     JOIN custom_markets m ON m.id = t.market_id
+     WHERE t.wallet = $1
+     ORDER BY t.created_at DESC
+     LIMIT $2`,
+    [wallet, limit],
+  )
+  return result.rows
+}
+
+export async function getWalletFreeMarketStats(wallet: string): Promise<{
+  totalMarkets: number
+  totalTrades: number
+  totalTokensSpent: number
+  totalTokensReceived: number
+  activePositions: number
+}> {
+  const result = await pool.query(
+    `SELECT
+       COUNT(DISTINCT p.market_id)::int AS total_markets,
+       (SELECT COUNT(*)::int FROM custom_market_trades WHERE wallet = $1) AS total_trades,
+       COALESCE(SUM(p.tokens_spent::numeric), 0)::float AS total_tokens_spent,
+       COALESCE(SUM(p.tokens_received::numeric), 0)::float AS total_tokens_received,
+       COALESCE(SUM(CASE WHEN p.yes_shares::numeric > 0 OR p.no_shares::numeric > 0 THEN 1 ELSE 0 END), 0)::int AS active_positions
+     FROM custom_market_positions p
+     WHERE p.wallet = $1`,
+    [wallet],
+  )
+  const r = result.rows[0]
+  return {
+    totalMarkets: r?.total_markets ?? 0,
+    totalTrades: r?.total_trades ?? 0,
+    totalTokensSpent: r?.total_tokens_spent ?? 0,
+    totalTokensReceived: r?.total_tokens_received ?? 0,
+    activePositions: r?.active_positions ?? 0,
+  }
 }
 
 // ── Custom Markets ───────────────────────────────────

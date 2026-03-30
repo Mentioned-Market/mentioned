@@ -176,6 +176,60 @@ async function seed() {
       )
     }
 
+    // ── User achievements ────────────────────────────────────────────────────
+    console.log('  Seeding achievements...')
+    const achievements = [
+      // cryptowizard: active user, many achievements
+      { wallet: USERS[0].wallet, id: 'set_nickname',    pts: 75,  hoursAgo: 200 },
+      { wallet: USERS[0].wallet, id: 'first_trade',     pts: 150, hoursAgo: 180 },
+      { wallet: USERS[0].wallet, id: 'first_chat',      pts: 50,  hoursAgo: 170 },
+      { wallet: USERS[0].wallet, id: '10_trades',       pts: 100, hoursAgo: 100 },
+      { wallet: USERS[0].wallet, id: 'win_trade',       pts: 225, hoursAgo: 80  },
+      { wallet: USERS[0].wallet, id: 'first_free_trade', pts: 75, hoursAgo: 50  },
+      // moonbetter: some achievements
+      { wallet: USERS[1].wallet, id: 'set_nickname',    pts: 75,  hoursAgo: 150 },
+      { wallet: USERS[1].wallet, id: 'first_trade',     pts: 150, hoursAgo: 140 },
+      { wallet: USERS[1].wallet, id: 'win_trade',       pts: 225, hoursAgo: 60  },
+      { wallet: USERS[1].wallet, id: '3_wins',          pts: 150, hoursAgo: 40  },
+      { wallet: USERS[1].wallet, id: 'first_free_trade', pts: 75, hoursAgo: 30  },
+      // tradingpete: new, few achievements
+      { wallet: USERS[2].wallet, id: 'set_nickname',    pts: 75,  hoursAgo: 80  },
+      { wallet: USERS[2].wallet, id: 'first_trade',     pts: 150, hoursAgo: 70  },
+      // mentioned_fan: just started
+      { wallet: USERS[3].wallet, id: 'first_trade',     pts: 150, hoursAgo: 20  },
+      { wallet: USERS[3].wallet, id: 'first_free_trade', pts: 75, hoursAgo: 15  },
+      { wallet: USERS[3].wallet, id: 'free_market_win', pts: 150, hoursAgo: 10  },
+    ]
+
+    for (const a of achievements) {
+      const ts = hoursAgo(a.hoursAgo)
+      await client.query(
+        `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, unlocked_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (wallet, achievement_id) DO NOTHING`,
+        [a.wallet, a.id, a.pts, ts],
+      )
+    }
+
+    // ── Free market point events (custom_market_win) ──────────────────────────
+    console.log('  Seeding free market point events...')
+    const freePoints = [
+      { wallet: USERS[0].wallet, action: 'custom_market_win', pts: 25, refId: 'seed_freewin_w0_1', hoursAgo: 50 },
+      { wallet: USERS[0].wallet, action: 'custom_market_win', pts: 40, refId: 'seed_freewin_w0_2', hoursAgo: 30 },
+      { wallet: USERS[1].wallet, action: 'custom_market_win', pts: 15, refId: 'seed_freewin_w1_1', hoursAgo: 25 },
+      { wallet: USERS[3].wallet, action: 'custom_market_win', pts: 50, refId: 'seed_freewin_w3_1', hoursAgo: 10 },
+    ]
+
+    for (const p of freePoints) {
+      const ts = hoursAgo(p.hoursAgo)
+      await client.query(
+        `INSERT INTO point_events (wallet, action, points, ref_id, created_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
+        [p.wallet, p.action, p.pts, p.refId, ts],
+      )
+    }
+
     // ── Free markets (custom markets with virtual LMSR) ──────────────────────
     console.log('  Seeding free markets...')
 
@@ -406,7 +460,7 @@ async function seed() {
     const freeMarketCount = [fm1, fm2, fm3].filter(Boolean).length
 
     await client.query('COMMIT')
-    console.log(`  Done. Seeded ${USERS.length} users, ${trades.length} trades, ${points.length} point events, ${chats.length} chat messages, ${freeMarketCount} free markets.`)
+    console.log(`  Done. Seeded ${USERS.length} users, ${trades.length} trades, ${points.length + freePoints.length} point events, ${achievements.length} achievements, ${chats.length} chat messages, ${freeMarketCount} free markets.`)
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
