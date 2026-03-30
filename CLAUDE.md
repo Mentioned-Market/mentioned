@@ -22,6 +22,7 @@ app/
 │   ├── chat/             # Global chat (GET polling, POST with rate limit)
 │   ├── profile/          # Username + PFP management
 │   ├── achievements/     # Achievement unlock
+│   ├── bug-report/       # Discord webhook bug reports (rate-limited, sanitized)
 │   └── ...
 ├── polymarkets/          # Polymarket pages (event listing + event detail trading)
 ├── markets/              # Market listing (paid on-chain + free markets with filter tabs)
