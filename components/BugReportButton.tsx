@@ -4,11 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
 import { usePathname } from 'next/navigation'
 
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length
-}
-
-const MAX_WORDS = 200
+const MAX_CHARS = 300
 
 export default function BugReportButton() {
   const [isOpen, setIsOpen] = useState(false)
@@ -23,7 +19,7 @@ export default function BugReportButton() {
   // Hide on homepage (scroll-driven slideshow conflicts)
   const isHomepage = pathname === '/'
 
-  const wordCount = countWords(message)
+  const charCount = message.length
 
   const getDebugInfo = useCallback((): Record<string, string> => {
     const info: Record<string, string> = {
@@ -41,7 +37,7 @@ export default function BugReportButton() {
   }, [publicKey])
 
   const handleSubmit = async () => {
-    if (!message.trim() || wordCount > MAX_WORDS) return
+    if (!message.trim() || charCount > MAX_CHARS) return
 
     setStatus('sending')
     setErrorMsg('')
@@ -186,6 +182,7 @@ export default function BugReportButton() {
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Describe the bug you encountered..."
+                  maxLength={MAX_CHARS}
                   rows={5}
                   className="w-full bg-neutral-800 border border-white/10 rounded-lg p-3
                     text-white placeholder-neutral-500 text-sm resize-none
@@ -196,10 +193,10 @@ export default function BugReportButton() {
                 <div className="flex items-center justify-between mt-2 mb-4">
                   <span
                     className={`text-xs ${
-                      wordCount > MAX_WORDS ? 'text-red-400' : 'text-neutral-500'
+                      charCount > MAX_CHARS ? 'text-red-400' : 'text-neutral-500'
                     }`}
                   >
-                    {wordCount}/{MAX_WORDS} words
+                    {charCount}/{MAX_CHARS}
                   </span>
                   <span className="text-xs text-neutral-600">
                     Debug info will be included automatically
@@ -215,7 +212,7 @@ export default function BugReportButton() {
                   disabled={
                     status === 'sending' ||
                     !message.trim() ||
-                    wordCount > MAX_WORDS
+                    charCount > MAX_CHARS
                   }
                   className="w-full py-2.5 rounded-lg font-medium text-sm transition-colors
                     bg-red-600 hover:bg-red-500 text-white
