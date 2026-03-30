@@ -239,6 +239,9 @@ CREATE TABLE IF NOT EXISTS custom_market_trades (
 CREATE INDEX IF NOT EXISTS idx_cmt_market ON custom_market_trades(market_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cmt_wallet ON custom_market_trades(wallet, created_at DESC);
 
+-- Profile picture emoji (from unlocked achievements)
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS pfp_emoji TEXT;
+
 -- Discord linking for sybil resistance
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_id TEXT;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_username TEXT;
@@ -249,6 +252,18 @@ ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referred_by TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_referral_code ON user_profiles(referral_code) WHERE referral_code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_profile_referred_by ON user_profiles(referred_by) WHERE referred_by IS NOT NULL;
+
+-- User achievements
+CREATE TABLE IF NOT EXISTS user_achievements (
+  id             SERIAL PRIMARY KEY,
+  wallet         TEXT NOT NULL,
+  achievement_id TEXT NOT NULL,
+  points_awarded INTEGER NOT NULL DEFAULT 0,
+  unlocked_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (wallet, achievement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_achievements_wallet ON user_achievements(wallet);
 `
 
 async function main() {

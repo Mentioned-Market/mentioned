@@ -95,6 +95,55 @@ interface Stats {
   tradesCount: number
   biggestWin: number
   allTimePoints: number
+  weeklyPoints: number
+}
+
+interface FreePosition {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  word: string
+  market_title: string
+  market_status: string
+  yes_shares: string
+  no_shares: string
+  tokens_spent: string
+  tokens_received: string
+  updated_at: string
+}
+
+interface FreeTrade {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  word: string
+  market_title: string
+  action: string
+  side: string
+  shares: string
+  cost: string
+  yes_price: string
+  no_price: string
+  created_at: string
+}
+
+interface FreeMarketData {
+  positions: FreePosition[]
+  trades: FreeTrade[]
+  stats: {
+    totalMarkets: number
+    totalTrades: number
+    totalTokensSpent: number
+    totalTokensReceived: number
+    activePositions: number
+  }
+}
+
+interface PointHistoryEntry {
+  points: number
+  created_at: string
 }
 
 interface PublicProfile {
@@ -105,12 +154,17 @@ interface PublicProfile {
   positions: PublicPosition[]
   history: HistoryEvent[]
   stats: Stats
+  freeMarket: FreeMarketData
+  pointHistory: PointHistoryEntry[]
 }
 
 type OwnerTab = 'positions' | 'orders' | 'history' | 'achievements'
 type PublicTab = 'positions' | 'activity' | 'achievements'
+type FreeOwnerTab = 'positions' | 'history' | 'achievements'
+type FreePublicTab = 'positions' | 'activity' | 'achievements'
 type PositionFilter = 'active' | 'closed'
 type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
+type ProfileMode = 'paid' | 'free'
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -288,6 +342,74 @@ function Sparkline({ history, period, pnlValue }: {
   )
 }
 
+// ── Points Sparkline (for free market view) ────────────────
+
+function PointsSparkline({ pointHistory, period }: {
+  pointHistory: PointHistoryEntry[]
+  period: PnlPeriod
+}) {
+  const data = useMemo(() => {
+    const cutoff = periodCutoff(period)
+    const cutoffMs = cutoff * 1000
+    const filtered = pointHistory
+      .filter(p => new Date(p.created_at).getTime() >= cutoffMs)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    if (filtered.length === 0) return []
+    let cum = 0
+    const result: { ts: number; value: number }[] = [{ ts: new Date(filtered[0].created_at).getTime() / 1000, value: 0 }]
+    for (const p of filtered) {
+      cum += p.points
+      result.push({ ts: new Date(p.created_at).getTime() / 1000, value: cum })
+    }
+    return result
+  }, [pointHistory, period])
+
+  if (data.length < 2) {
+    return <div className="h-20 flex items-end"><div className="w-full h-0.5 bg-white/5 rounded-full" /></div>
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={80}>
+      <AreaChart data={data} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id="ptsFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FBBF24" stopOpacity={0.2} />
+            <stop offset="100%" stopColor="#FBBF24" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis dataKey="ts" hide />
+        <YAxis hide domain={['auto', 'auto']} />
+        <Tooltip
+          cursor={{ stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1 }}
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return null
+            const point = payload[0].payload as { ts: number; value: number }
+            return (
+              <div className="bg-neutral-900/95 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
+                <div className="text-neutral-400 mb-0.5">
+                  {new Date(point.ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </div>
+                <div className="text-yellow-400 font-semibold">+{point.value} pts</div>
+              </div>
+            )
+          }}
+        />
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke="#FBBF24"
+          strokeWidth={1.5}
+          fill="url(#ptsFill)"
+          dot={false}
+          activeDot={{ r: 3, fill: '#FBBF24', strokeWidth: 0 }}
+          animationDuration={500}
+          animationEasing="ease-out"
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
 // ── Discord SVG icon (reused in multiple places) ───────────
 
 function DiscordIcon({ className }: { className?: string }) {
@@ -342,6 +464,11 @@ export default function ProfilePage() {
   const [loadingOwnerHistory, setLoadingOwnerHistory] = useState(false)
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
+  // ── Profile mode (paid vs free) ────────────────────────
+  const [profileMode, setProfileMode] = useState<ProfileMode>('paid')
+  const [freeOwnerTab, setFreeOwnerTab] = useState<FreeOwnerTab>('positions')
+  const [freePublicTab, setFreePublicTab] = useState<FreePublicTab>('positions')
 
   // ── Shared state ───────────────────────────────────────
   const [ownerTab, setOwnerTab] = useState<OwnerTab>('positions')
@@ -532,13 +659,15 @@ export default function ProfilePage() {
     return () => clearInterval(histInterval)
   }, [isOwnProfile, ownerTab, fetchOwnerHistory])
 
-  // Reset tabs when toggling public preview
+  // Reset tabs when toggling public preview or profile mode
   useEffect(() => {
     setOwnerTab('positions')
     setPublicTab('positions')
+    setFreeOwnerTab('positions')
+    setFreePublicTab('positions')
     setPosFilter('active')
     setSearch('')
-  }, [viewAsPublic])
+  }, [viewAsPublic, profileMode])
 
   // ── Owner: close position ──────────────────────────────
   const handleClosePosition = useCallback(async (pos: OwnerPosition) => {
@@ -766,32 +895,36 @@ export default function ProfilePage() {
   return shell(
     <div className="animate-fade-in">
 
-      {/* ── Owner view mode banner ─────────────────────── */}
-      {isOwnProfile && (
-        <div className="mb-4 flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/5 border border-white/10">
-          {viewAsPublic ? (
-            <>
-              <span className="text-neutral-400 text-sm">Previewing your public profile</span>
-              <button
-                onClick={() => setViewAsPublic(false)}
-                className="text-neutral-400 text-sm font-medium hover:underline"
-              >
-                ← Back to my profile
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="text-neutral-400 text-sm">Your profile</span>
-              <button
-                onClick={() => setViewAsPublic(true)}
-                className="text-neutral-400 text-sm font-medium hover:underline"
-              >
-                View public profile →
-              </button>
-            </>
-          )}
+      {/* ── Profile mode toggle + weekly points ────────── */}
+      <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+        {/* Paid / Free toggle */}
+        <div className="flex items-center rounded-lg border border-white/10 overflow-hidden">
+          <button
+            onClick={() => setProfileMode('paid')}
+            className={`px-4 py-2 text-xs font-semibold transition-colors ${
+              profileMode === 'paid' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            Paid Markets
+          </button>
+          <button
+            onClick={() => setProfileMode('free')}
+            className={`px-4 py-2 text-xs font-semibold transition-colors border-l border-white/10 ${
+              profileMode === 'free' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            Free Markets
+          </button>
         </div>
-      )}
+
+        {/* Weekly points — always visible */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400/10 border border-yellow-400/20">
+          <svg className="w-3.5 h-3.5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+          </svg>
+          <span className="text-yellow-400 text-xs font-semibold">{stats.weeklyPoints ?? 0} pts this week</span>
+        </div>
+      </div>
 
       {/* ── Header panels ─────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -919,9 +1052,38 @@ export default function ProfilePage() {
                     </div>
                   )}
                   {usernameError && <p className="text-apple-red text-xs mb-1">{usernameError}</p>}
-                  <p className="text-neutral-500 text-sm font-mono">
-                    {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-neutral-500 text-sm font-mono">
+                      {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
+                    </p>
+                    <span className="text-neutral-700">·</span>
+                    <span className="text-neutral-600 text-[11px]">Your profile</span>
+                    <button
+                      onClick={() => setViewAsPublic(true)}
+                      className="text-neutral-500 text-[11px] hover:text-neutral-300 transition-colors"
+                    >
+                      View public &rarr;
+                    </button>
+                  </div>
+                </>
+              ) : isOwnProfile && viewAsPublic ? (
+                <>
+                  <h1 className="text-2xl font-bold text-white leading-tight">
+                    {displayName(profile.username, profile.wallet)}
+                  </h1>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {profile.createdAt && (
+                      <span className="text-neutral-500 text-sm">Joined {formatJoined(profile.createdAt)}</span>
+                    )}
+                    <span className="text-neutral-700">·</span>
+                    <span className="text-neutral-600 text-[11px]">Public preview</span>
+                    <button
+                      onClick={() => setViewAsPublic(false)}
+                      className="text-neutral-500 text-[11px] hover:text-neutral-300 transition-colors"
+                    >
+                      &larr; Back to my profile
+                    </button>
+                  </div>
                 </>
               ) : (
                 <>
@@ -947,22 +1109,39 @@ export default function ProfilePage() {
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-3 gap-4 pt-5 mt-5 border-t border-white/5">
-            <div>
-              <div className="text-white text-lg font-bold">{microToUsd(stats.totalValue)}</div>
-              <div className="text-neutral-500 text-xs mt-0.5">Positions Value</div>
-            </div>
-            <div>
-              <div className={`text-lg font-bold ${biggestWin > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
-                {biggestWin > 0 ? microToUsd(biggestWin, true) : '—'}
+          {profileMode === 'paid' ? (
+            <div className="grid grid-cols-3 gap-4 pt-5 mt-5 border-t border-white/5">
+              <div>
+                <div className="text-white text-lg font-bold">{microToUsd(stats.totalValue)}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Positions Value</div>
               </div>
-              <div className="text-neutral-500 text-xs mt-0.5">Biggest Win</div>
+              <div>
+                <div className={`text-lg font-bold ${biggestWin > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
+                  {biggestWin > 0 ? microToUsd(biggestWin, true) : '—'}
+                </div>
+                <div className="text-neutral-500 text-xs mt-0.5">Biggest Win</div>
+              </div>
+              <div>
+                <div className="text-white text-lg font-bold">{stats.tradesCount}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Predictions</div>
+              </div>
             </div>
-            <div>
-              <div className="text-white text-lg font-bold">{stats.tradesCount}</div>
-              <div className="text-neutral-500 text-xs mt-0.5">Predictions</div>
+          ) : (
+            <div className="grid grid-cols-3 gap-4 pt-5 mt-5 border-t border-white/5">
+              <div>
+                <div className="text-white text-lg font-bold">{profile.freeMarket.stats.activePositions}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Active Positions</div>
+              </div>
+              <div>
+                <div className="text-white text-lg font-bold">{profile.freeMarket.stats.totalMarkets}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Markets Played</div>
+              </div>
+              <div>
+                <div className="text-white text-lg font-bold">{profile.freeMarket.stats.totalTrades}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Total Trades</div>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Achievement badges */}
           <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/5 flex-wrap">
@@ -972,7 +1151,7 @@ export default function ProfilePage() {
               </svg>
               <span className="text-yellow-400 text-xs font-semibold">{stats.allTimePoints.toLocaleString()} pts all-time</span>
             </div>
-            {biggestWin > 0 && (
+            {profileMode === 'paid' && biggestWin > 0 && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-apple-green/5 border border-apple-green/10">
                 <svg className="w-3.5 h-3.5 text-apple-green" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
@@ -980,38 +1159,83 @@ export default function ProfilePage() {
                 <span className="text-apple-green text-xs font-semibold">Best P&L {microToUsd(biggestWin, true)}</span>
               </div>
             )}
+            {profileMode === 'free' && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/5 border border-purple-500/10">
+                <span className="text-purple-400 text-xs font-semibold">
+                  {profile.freeMarket.stats.totalTokensReceived > profile.freeMarket.stats.totalTokensSpent ? '+' : ''}
+                  {(profile.freeMarket.stats.totalTokensReceived - profile.freeMarket.stats.totalTokensSpent).toFixed(1)} token P&L
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* P&L card */}
-        <div className="glass rounded-2xl p-6 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${pnlPositive ? 'bg-apple-green' : 'bg-apple-red'}`} />
-              <span className="text-neutral-400 text-sm font-medium">Profit / Loss</span>
+        {/* P&L card (paid) / Points card (free) */}
+        {profileMode === 'paid' ? (
+          <div className="glass rounded-2xl p-6 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${pnlPositive ? 'bg-apple-green' : 'bg-apple-red'}`} />
+                <span className="text-neutral-400 text-sm font-medium">Profit / Loss</span>
+              </div>
+              <div className="flex items-center gap-0.5">
+                {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPnlPeriod(p)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all duration-150 ${
+                      pnlPeriod === p ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-0.5">
-              {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPnlPeriod(p)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all duration-150 ${
-                    pnlPeriod === p ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-neutral-300'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
+            <div className={`text-3xl font-bold mb-0.5 ${pnlPositive ? 'text-apple-green' : 'text-apple-red'}`}>
+              {microToUsd(periodPnl, true)}
+            </div>
+            <div className="text-neutral-500 text-xs mb-4">{periodLabel(pnlPeriod)}</div>
+            <div className="flex-1">
+              <Sparkline history={activeHistory} period={pnlPeriod} pnlValue={periodPnl} />
             </div>
           </div>
-          <div className={`text-3xl font-bold mb-0.5 ${pnlPositive ? 'text-apple-green' : 'text-apple-red'}`}>
-            {microToUsd(periodPnl, true)}
+        ) : (
+          <div className="glass rounded-2xl p-6 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                <span className="text-neutral-400 text-sm font-medium">Points Earned</span>
+              </div>
+              <div className="flex items-center gap-0.5">
+                {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPnlPeriod(p)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all duration-150 ${
+                      pnlPeriod === p ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-3xl font-bold mb-0.5 text-yellow-400">
+              +{(() => {
+                const cutoff = periodCutoff(pnlPeriod)
+                const cutoffMs = cutoff * 1000
+                return (profile.pointHistory ?? [])
+                  .filter(p => new Date(p.created_at).getTime() >= cutoffMs)
+                  .reduce((s, p) => s + p.points, 0)
+              })()} pts
+            </div>
+            <div className="text-neutral-500 text-xs mb-4">{periodLabel(pnlPeriod)}</div>
+            <div className="flex-1">
+              <PointsSparkline pointHistory={profile.pointHistory ?? []} period={pnlPeriod} />
+            </div>
           </div>
-          <div className="text-neutral-500 text-xs mb-4">{periodLabel(pnlPeriod)}</div>
-          <div className="flex-1">
-            <Sparkline history={activeHistory} period={pnlPeriod} pnlValue={periodPnl} />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* ── Owner-only sections ────────────────────────── */}
@@ -1254,83 +1478,156 @@ export default function ProfilePage() {
           )}
 
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <div className="glass rounded-xl p-4">
-              <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
-              <div className="text-white text-xl font-bold">{ownerPositions.length}</div>
-            </div>
-            <div className="glass rounded-xl p-4">
-              <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
-              <div className="text-white text-xl font-bold">{microToUsd(ownerTotalValue)}</div>
-            </div>
-            <div className="glass rounded-xl p-4">
-              <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">All-time P&L</div>
-              <div className={`text-xl font-bold ${ownerTotalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                {microToUsd(ownerTotalPnl, true)}
+          {profileMode === 'paid' ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
+                <div className="text-white text-xl font-bold">{ownerPositions.length}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
+                <div className="text-white text-xl font-bold">{microToUsd(ownerTotalValue)}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">All-time P&L</div>
+                <div className={`text-xl font-bold ${ownerTotalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                  {microToUsd(ownerTotalPnl, true)}
+                </div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
+                <div className="text-white text-xl font-bold">{openOrders.length}</div>
               </div>
             </div>
-            <div className="glass rounded-xl p-4">
-              <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
-              <div className="text-white text-xl font-bold">{openOrders.length}</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Active Positions</div>
+                <div className="text-white text-xl font-bold">{profile.freeMarket.stats.activePositions}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Markets Played</div>
+                <div className="text-white text-xl font-bold">{profile.freeMarket.stats.totalMarkets}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Token P&L</div>
+                <div className={`text-xl font-bold ${
+                  profile.freeMarket.stats.totalTokensReceived >= profile.freeMarket.stats.totalTokensSpent
+                    ? 'text-apple-green' : 'text-apple-red'
+                }`}>
+                  {(profile.freeMarket.stats.totalTokensReceived - profile.freeMarket.stats.totalTokensSpent) >= 0 ? '+' : ''}
+                  {(profile.freeMarket.stats.totalTokensReceived - profile.freeMarket.stats.totalTokensSpent).toFixed(1)}
+                </div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Trades</div>
+                <div className="text-white text-xl font-bold">{profile.freeMarket.stats.totalTrades}</div>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
       {/* ── Tabs ──────────────────────────────────────── */}
       <div className="flex items-center gap-1 mb-4 border-b border-white/10">
-        {isOwnerView ? (
-          ([
-            ['positions', 'Positions', ownerPositions.length],
-            ['orders', 'Open Orders', openOrders.length],
-            ['history', 'History', ownerHistory.length],
-            ['achievements', 'Achievements', unlockedCount],
-          ] as [OwnerTab, string, number][]).map(([key, label, count]) => (
-            <button
-              key={key}
-              onClick={() => setOwnerTab(key)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
-                ownerTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
-              }`}
-            >
-              {label}
-              {count > 0 && (
-                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  ownerTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
-                }`}>{count}</span>
-              )}
-            </button>
-          ))
+        {profileMode === 'paid' ? (
+          isOwnerView ? (
+            ([
+              ['positions', 'Positions', ownerPositions.length],
+              ['orders', 'Open Orders', openOrders.length],
+              ['history', 'History', ownerHistory.length],
+              ['achievements', 'Achievements', unlockedCount],
+            ] as [OwnerTab, string, number][]).map(([key, label, count]) => (
+              <button
+                key={key}
+                onClick={() => setOwnerTab(key)}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
+                  ownerTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                }`}
+              >
+                {label}
+                {count > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    ownerTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                  }`}>{count}</span>
+                )}
+              </button>
+            ))
+          ) : (
+            ([
+              ['positions', 'Positions'],
+              ['activity', 'Activity'],
+              ['achievements', 'Achievements'],
+            ] as [PublicTab, string][]).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setPublicTab(key)}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
+                  publicTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                }`}
+              >
+                {label}
+                {key === 'achievements' && unlockedCount > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    publicTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                  }`}>{unlockedCount}</span>
+                )}
+              </button>
+            ))
+          )
         ) : (
-          ([
-            ['positions', 'Positions'],
-            ['activity', 'Activity'],
-            ['achievements', 'Achievements'],
-          ] as [PublicTab, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setPublicTab(key)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
-                publicTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
-              }`}
-            >
-              {label}
-              {key === 'achievements' && unlockedCount > 0 && (
-                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  publicTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
-                }`}>{unlockedCount}</span>
-              )}
-            </button>
-          ))
+          isOwnerView ? (
+            ([
+              ['positions', 'Positions', profile.freeMarket.positions.length],
+              ['history', 'History', profile.freeMarket.trades.length],
+              ['achievements', 'Achievements', unlockedCount],
+            ] as [FreeOwnerTab, string, number][]).map(([key, label, count]) => (
+              <button
+                key={key}
+                onClick={() => setFreeOwnerTab(key)}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
+                  freeOwnerTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                }`}
+              >
+                {label}
+                {count > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    freeOwnerTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                  }`}>{count}</span>
+                )}
+              </button>
+            ))
+          ) : (
+            ([
+              ['positions', 'Positions'],
+              ['activity', 'Activity'],
+              ['achievements', 'Achievements'],
+            ] as [FreePublicTab, string][]).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFreePublicTab(key)}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
+                  freePublicTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                }`}
+              >
+                {label}
+                {key === 'achievements' && unlockedCount > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    freePublicTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                  }`}>{unlockedCount}</span>
+                )}
+              </button>
+            ))
+          )
         )}
       </div>
 
       {/* ════════════════════════════════════════════════
-          OWNER TAB CONTENT
+          PAID OWNER TAB CONTENT
           ════════════════════════════════════════════════ */}
 
-      {/* Owner: Positions */}
-      <div style={{ display: isOwnerView && ownerTab === 'positions' ? undefined : 'none' }}>
+      {/* Owner: Positions (paid) */}
+      <div style={{ display: profileMode === 'paid' && isOwnerView && ownerTab === 'positions' ? undefined : 'none' }}>
           {loadingOwnerPositions ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
           ) : ownerPositions.length === 0 ? (
@@ -1456,8 +1753,8 @@ export default function ProfilePage() {
           )}
         </div>
 
-      {/* Owner: Open Orders */}
-      <div style={{ display: isOwnerView && ownerTab === 'orders' ? undefined : 'none' }}>
+      {/* Owner: Open Orders (paid) */}
+      <div style={{ display: profileMode === 'paid' && isOwnerView && ownerTab === 'orders' ? undefined : 'none' }}>
           {loadingOrders ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
           ) : openOrders.length === 0 ? (
@@ -1516,8 +1813,8 @@ export default function ProfilePage() {
           )}
         </div>
 
-      {/* Owner: History */}
-      <div style={{ display: isOwnerView && ownerTab === 'history' ? undefined : 'none' }}>
+      {/* Owner: History (paid) */}
+      <div style={{ display: profileMode === 'paid' && isOwnerView && ownerTab === 'history' ? undefined : 'none' }}>
         <div>
           {loadingOwnerHistory ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
@@ -1601,11 +1898,11 @@ export default function ProfilePage() {
       </div>
 
       {/* ════════════════════════════════════════════════
-          PUBLIC TAB CONTENT
+          PAID PUBLIC TAB CONTENT
           ════════════════════════════════════════════════ */}
 
-      {/* Public: Positions */}
-      <div style={{ display: !isOwnerView && publicTab === 'positions' ? undefined : 'none' }}>
+      {/* Public: Positions (paid) */}
+      <div style={{ display: profileMode === 'paid' && !isOwnerView && publicTab === 'positions' ? undefined : 'none' }}>
         <>
           <div className="flex items-center gap-3 mb-4">
             <div className="flex rounded-lg border border-white/10 overflow-hidden">
@@ -1738,8 +2035,8 @@ export default function ProfilePage() {
         </>
       </div>
 
-      {/* Public: Activity */}
-      <div style={{ display: !isOwnerView && publicTab === 'activity' ? undefined : 'none' }}>
+      {/* Public: Activity (paid) */}
+      <div style={{ display: profileMode === 'paid' && !isOwnerView && publicTab === 'activity' ? undefined : 'none' }}>
         {profile.history.length === 0 ? (
           <div className="flex items-center justify-center py-16">
             <span className="text-neutral-500 text-sm">No activity yet</span>
@@ -1810,8 +2107,157 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Achievements (shared — shown to both owner and public viewers) */}
-      <div style={{ display: (isOwnerView ? ownerTab === 'achievements' : publicTab === 'achievements') ? undefined : 'none' }}>
+      {/* ════════════════════════════════════════════════
+          FREE MARKET TAB CONTENT
+          ════════════════════════════════════════════════ */}
+
+      {/* Free: Positions (owner + public) */}
+      <div style={{ display: profileMode === 'free' && (isOwnerView ? freeOwnerTab === 'positions' : freePublicTab === 'positions') ? undefined : 'none' }}>
+        {profile.freeMarket.positions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="text-neutral-500 text-sm">No free market positions</span>
+            <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">Browse free markets</Link>
+          </div>
+        ) : (
+          <>
+            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+              <span>Market / Word</span>
+              <span className="text-right">YES Shares</span>
+              <span className="text-right">NO Shares</span>
+              <span className="text-right">Tokens Spent</span>
+              <span className="text-right">Tokens Received</span>
+              <span className="text-right">Status</span>
+            </div>
+            {profile.freeMarket.positions.map(pos => {
+              const pnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
+              return (
+                <div
+                  key={pos.id}
+                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                >
+                  <div className="min-w-0">
+                    <Link href={`/custom/${pos.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                      {pos.market_title}
+                    </Link>
+                    <span className="text-neutral-500 text-xs">{pos.word}</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right">
+                    <span className="text-neutral-500 text-xs md:hidden">YES</span>
+                    <span className={`text-sm font-medium ${parseFloat(pos.yes_shares) > 0 ? 'text-apple-green' : 'text-neutral-500'}`}>
+                      {parseFloat(pos.yes_shares).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right">
+                    <span className="text-neutral-500 text-xs md:hidden">NO</span>
+                    <span className={`text-sm font-medium ${parseFloat(pos.no_shares) > 0 ? 'text-apple-red' : 'text-neutral-500'}`}>
+                      {parseFloat(pos.no_shares).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right">
+                    <span className="text-neutral-500 text-xs md:hidden">Spent</span>
+                    <span className="text-white text-sm">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right">
+                    <span className="text-neutral-500 text-xs md:hidden">Received</span>
+                    <span className="text-white text-sm">{parseFloat(pos.tokens_received).toFixed(2)}</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right">
+                    <span className="text-neutral-500 text-xs md:hidden">Status</span>
+                    <div>
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        pos.market_status === 'open' ? 'text-apple-green bg-apple-green/10' :
+                        pos.market_status === 'resolved' ? 'text-neutral-300 bg-white/5' :
+                        'text-yellow-400 bg-yellow-400/10'
+                      }`}>
+                        {pos.market_status.charAt(0).toUpperCase() + pos.market_status.slice(1)}
+                      </span>
+                      {pnl !== 0 && (
+                        <span className={`block text-[10px] mt-0.5 ${pnl > 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                          {pnl > 0 ? '+' : ''}{pnl.toFixed(2)} tokens
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </>
+        )}
+      </div>
+
+      {/* Free: Trade History (owner) / Activity (public) */}
+      <div style={{ display: profileMode === 'free' && (isOwnerView ? freeOwnerTab === 'history' : freePublicTab === 'activity') ? undefined : 'none' }}>
+        {profile.freeMarket.trades.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="text-neutral-500 text-sm">No free market trades yet</span>
+            <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">Browse free markets</Link>
+          </div>
+        ) : (
+          <>
+            <div className="hidden md:grid grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+              <span>Market / Word</span>
+              <span className="text-center">Action</span>
+              <span className="text-right">Shares</span>
+              <span className="text-right">Cost</span>
+              <span className="text-right">Price After</span>
+              <span className="text-right">Date</span>
+            </div>
+            {profile.freeMarket.trades.map(t => (
+              <div
+                key={t.id}
+                className="grid grid-cols-1 md:grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                      t.side === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                    }`}>
+                      {t.side}
+                    </span>
+                    <Link href={`/custom/${t.market_id}`} className="text-white text-sm font-medium truncate hover:underline">
+                      {t.market_title}
+                    </Link>
+                  </div>
+                  <span className="text-neutral-500 text-xs">{t.word}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Action</span>
+                  <span className={`text-sm font-semibold ${t.action === 'buy' ? 'text-apple-green' : 'text-apple-red'}`}>
+                    {t.action === 'buy' ? 'Buy' : 'Sell'}
+                  </span>
+                </div>
+                <div className="flex md:block justify-between md:text-right">
+                  <span className="text-neutral-500 text-xs md:hidden">Shares</span>
+                  <span className="text-white text-sm">{parseFloat(t.shares).toFixed(2)}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right">
+                  <span className="text-neutral-500 text-xs md:hidden">Cost</span>
+                  <span className="text-white text-sm">{parseFloat(t.cost).toFixed(2)}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right">
+                  <span className="text-neutral-500 text-xs md:hidden">Price After</span>
+                  <span className="text-neutral-300 text-sm">
+                    Y: {(parseFloat(t.yes_price) * 100).toFixed(0)}% / N: {(parseFloat(t.no_price) * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="flex md:block justify-between md:text-right">
+                  <span className="text-neutral-500 text-xs md:hidden">Date</span>
+                  <span className="text-neutral-400 text-xs">
+                    {new Date(t.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Achievements (shared — shown to both owner and public viewers, both modes) */}
+      <div style={{ display: (
+        profileMode === 'paid'
+          ? (isOwnerView ? ownerTab === 'achievements' : publicTab === 'achievements')
+          : (isOwnerView ? freeOwnerTab === 'achievements' : freePublicTab === 'achievements')
+      ) ? undefined : 'none' }}>
         <div>
           {loadingAchievements ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>

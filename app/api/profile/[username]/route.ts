@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getProfileByUsername, getProfileByWallet, getWalletPointTotal } from '@/lib/db'
+import {
+  getProfileByUsername,
+  getProfileByWallet,
+  getWalletPointTotal,
+  getWalletWeeklyPoints,
+  getWalletFreeMarketPositions,
+  getWalletFreeMarketTrades,
+  getWalletFreeMarketStats,
+  getWalletPointHistory,
+} from '@/lib/db'
+import { getWeekStart } from '@/lib/points'
 import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
 
 export const dynamic = 'force-dynamic'
@@ -40,7 +50,9 @@ export async function GET(
   const posParams = new URLSearchParams({ ownerPubkey: wallet })
   const histParams = new URLSearchParams({ ownerPubkey: wallet })
 
-  const [posRes, histRes, allTimePoints] = await Promise.all([
+  const weekStart = getWeekStart()
+
+  const [posRes, histRes, allTimePoints, weeklyPoints, freePositions, freeTrades, freeStats, pointHistory] = await Promise.all([
     fetch(`${JUP_BASE}/positions?${posParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
       .then(r => r.ok ? r.json() : { data: [] })
       .catch(() => ({ data: [] })),
@@ -48,6 +60,11 @@ export async function GET(
       .then(r => r.ok ? r.json() : { data: [] })
       .catch(() => ({ data: [] })),
     getWalletPointTotal(wallet),
+    getWalletWeeklyPoints(wallet, weekStart),
+    getWalletFreeMarketPositions(wallet),
+    getWalletFreeMarketTrades(wallet, 200),
+    getWalletFreeMarketStats(wallet),
+    getWalletPointHistory(wallet),
   ])
 
   const positions: Record<string, unknown>[] = posRes.data ?? []
@@ -98,6 +115,13 @@ export async function GET(
       tradesCount,
       biggestWin,
       allTimePoints,
+      weeklyPoints,
     },
+    freeMarket: {
+      positions: freePositions,
+      trades: freeTrades,
+      stats: freeStats,
+    },
+    pointHistory,
   })
 }
