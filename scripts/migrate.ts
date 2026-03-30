@@ -1,9 +1,13 @@
 import 'dotenv/config'
 import pg from 'pg'
 
+const dbUrl = process.env.DATABASE_URL ?? ''
+const sslDisabled = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')
+  || dbUrl.includes('sslmode=disable') || process.env.DB_SSL === 'false'
+
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
+  connectionString: dbUrl,
+  ssl: sslDisabled ? false : { rejectUnauthorized: false },
 })
 
 const schema = `
@@ -239,6 +243,12 @@ CREATE INDEX IF NOT EXISTS idx_cmt_wallet ON custom_market_trades(wallet, create
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_id TEXT;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_username TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_discord_id ON user_profiles(discord_id) WHERE discord_id IS NOT NULL;
+
+-- Referral system
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referred_by TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_referral_code ON user_profiles(referral_code) WHERE referral_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_profile_referred_by ON user_profiles(referred_by) WHERE referred_by IS NOT NULL;
 `
 
 async function main() {

@@ -352,8 +352,48 @@ export default function ProfilePage() {
   const [achievements, setAchievements] = useState<Achievement[]>([])
   const [loadingAchievements, setLoadingAchievements] = useState(true)
 
+  // ── Referral state ─────────────────────────────────────
+  const [referralCode, setReferralCode] = useState<string | null>(null)
+  const [referralCount, setReferralCount] = useState(0)
+  const [referredBy, setReferredBy] = useState<string | null>(null)
+  const [bonusPointsEarned, setBonusPointsEarned] = useState(0)
+  const [referralCopied, setReferralCopied] = useState(false)
+  const [applyingCode, setApplyingCode] = useState(false)
+  const [applyCodeInput, setApplyCodeInput] = useState('')
+  const [applyCodeError, setApplyCodeError] = useState<string | null>(null)
+  const [applyCodeSuccess, setApplyCodeSuccess] = useState(false)
+  const [referralModalOpen, setReferralModalOpen] = useState(false)
+  const [referredUsers, setReferredUsers] = useState<{ wallet: string; username: string; createdAt: string }[]>([])
+  const referralModalRef = useRef<HTMLDivElement>(null)
+
   // Discord params extracted from URL on mount (before we know ownership)
   const [pendingDiscordStatus, setPendingDiscordStatus] = useState<string | null>(null)
+
+  // ── Referral modal: fetch referred users + close on outside click
+  const openReferralModal = useCallback(async () => {
+    setReferralModalOpen(true)
+    if (!publicKey) return
+    try {
+      const res = await fetch(`/api/referral?wallet=${publicKey}`)
+      if (res.ok) {
+        const data = await res.json()
+        setReferredUsers(data.referredUsers ?? [])
+        setReferralCount(data.referralCount ?? 0)
+        setBonusPointsEarned(data.bonusPointsEarned ?? 0)
+      }
+    } catch { /* ignore */ }
+  }, [publicKey])
+
+  useEffect(() => {
+    if (!referralModalOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (referralModalRef.current && !referralModalRef.current.contains(e.target as Node)) {
+        setReferralModalOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [referralModalOpen])
 
   // ── Load achievements (for any viewer) ────────────────
   const fetchAchievements = useCallback(async (wallet: string) => {
@@ -381,12 +421,18 @@ export default function ProfilePage() {
       .finally(() => setLoading(false))
   }, [usernameParam, fetchAchievements])
 
-  // ── Load owner-private data (discord, etc.) ────────────
+  // ── Load owner-private data (discord, referral, etc.) ──
   useEffect(() => {
     if (!isOwnProfile || !publicKey) return
     fetch(`/api/profile?wallet=${publicKey}`)
       .then(r => r.json())
-      .then(d => setDiscordUsername(d.discordUsername ?? null))
+      .then(d => {
+        setDiscordUsername(d.discordUsername ?? null)
+        setReferralCode(d.referralCode ?? null)
+        setReferralCount(d.referralCount ?? 0)
+        setReferredBy(d.referredBy ?? null)
+        setBonusPointsEarned(d.bonusPointsEarned ?? 0)
+      })
       .catch(() => {})
   }, [isOwnProfile, publicKey])
 
@@ -982,60 +1028,227 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Discord — not linked */}
-          {!discordUsername && (
-            <div className="mb-4 px-4 py-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <DiscordIcon className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                  <div>
-                    <p className="text-amber-400 font-semibold text-sm">Link your Discord to earn points</p>
-                    <p className="text-amber-400/70 text-xs mt-0.5">
-                      Points and competition rewards require a linked Discord account to prevent sybil attacks.
-                    </p>
-                  </div>
-                </div>
+          {/* Discord + Referral row */}
+          <div className="mb-4 flex items-stretch gap-3">
+            {/* Discord — left half */}
+            <div className="flex-1 min-w-0">
+              {!discordUsername ? (
                 <a
                   href={`/api/discord/link?wallet=${publicKey}`}
-                  className="flex-shrink-0 px-4 py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-colors h-full"
                 >
-                  <DiscordIcon className="w-4 h-4" />
-                  Link Discord
+                  <DiscordIcon className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span className="text-amber-400 font-semibold text-sm truncate">Link Discord to earn points</span>
                 </a>
-              </div>
-            </div>
-          )}
-
-          {/* Discord — linked */}
-          {discordUsername && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <DiscordIcon className="w-4 h-4 text-[#5865F2]" />
-                  <span className="text-[#5865F2] text-sm font-medium">{discordUsername}</span>
-                  <svg className="w-4 h-4 text-apple-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
+              ) : (
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20 h-full">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <DiscordIcon className="w-4 h-4 text-[#5865F2] flex-shrink-0" />
+                    <span className="text-[#5865F2] text-sm font-medium truncate">{discordUsername}</span>
+                    <svg className="w-3.5 h-3.5 text-apple-green flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Unlink your Discord? You will stop earning points until you re-link.')) return
+                      setUnlinkingDiscord(true)
+                      try {
+                        await fetch('/api/discord/unlink', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ wallet: publicKey }),
+                        })
+                        setDiscordUsername(null)
+                      } catch { /* ignore */ }
+                      setUnlinkingDiscord(false)
+                    }}
+                    disabled={unlinkingDiscord}
+                    className="text-neutral-500 hover:text-neutral-300 text-xs transition-colors flex-shrink-0 ml-2"
+                  >
+                    {unlinkingDiscord ? '...' : 'Unlink'}
+                  </button>
                 </div>
-                <button
-                  onClick={async () => {
-                    if (!confirm('Unlink your Discord? You will stop earning points until you re-link.')) return
-                    setUnlinkingDiscord(true)
-                    try {
-                      await fetch('/api/discord/unlink', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ wallet: publicKey }),
-                      })
-                      setDiscordUsername(null)
-                    } catch { /* ignore */ }
-                    setUnlinkingDiscord(false)
-                  }}
-                  disabled={unlinkingDiscord}
-                  className="text-neutral-500 hover:text-neutral-300 text-xs transition-colors"
-                >
-                  {unlinkingDiscord ? 'Unlinking...' : 'Unlink'}
-                </button>
+              )}
+            </div>
+
+            {/* Referral button — right side */}
+            <button
+              onClick={openReferralModal}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl glass border border-white/10 hover:border-white/20 transition-colors flex-shrink-0"
+            >
+              <span className="text-sm">🔗</span>
+              <span className="text-white text-sm font-medium">Referrals</span>
+              {referralCount > 0 && (
+                <span className="text-[10px] bg-apple-green/20 text-apple-green px-1.5 py-0.5 rounded-full font-bold">{referralCount}</span>
+              )}
+            </button>
+          </div>
+
+          {/* Referral modal */}
+          {referralModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+              <div ref={referralModalRef} className="w-full max-w-md glass rounded-2xl border border-white/10 p-6 shadow-2xl">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-white font-bold text-lg">Referrals</h3>
+                  <button onClick={() => setReferralModalOpen(false)} className="text-neutral-400 hover:text-white transition-colors">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* OG preview image */}
+                {referralCode && (
+                  <div className="mb-4 rounded-xl overflow-hidden border border-white/5 relative">
+                    {/* Loading spinner — hidden once image loads */}
+                    <div id="og-spinner" className="flex items-center justify-center py-16 bg-black/50">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    </div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/og/referral?code=${referralCode}`}
+                      alt="Referral preview"
+                      className="w-full h-auto hidden"
+                      onLoad={(e) => {
+                        const img = e.currentTarget
+                        img.classList.remove('hidden')
+                        const spinner = img.parentElement?.querySelector('#og-spinner')
+                        if (spinner) (spinner as HTMLElement).style.display = 'none'
+                      }}
+                    />
+                    {/* Copy image button */}
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/og/referral?code=${referralCode}`)
+                          const blob = await res.blob()
+                          await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+                          const btn = document.getElementById('copy-img-btn')
+                          if (btn) { btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = 'Copy Image' }, 2000) }
+                        } catch {
+                          // Fallback: download instead
+                          const a = document.createElement('a')
+                          a.href = `/api/og/referral?code=${referralCode}`
+                          a.download = `mentioned-referral-${referralCode}.png`
+                          a.click()
+                        }
+                      }}
+                      id="copy-img-btn"
+                      className="absolute bottom-2 right-2 px-2.5 py-1 bg-black/70 hover:bg-black/90 text-white text-[11px] font-medium rounded-lg backdrop-blur-sm transition-colors border border-white/10"
+                    >
+                      Copy Image
+                    </button>
+                  </div>
+                )}
+
+                {/* Link + copy */}
+                {referralCode && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex-1 bg-white/5 rounded-lg px-3 py-2 text-xs text-neutral-300 font-mono truncate">
+                      mentioned.market/ref/{referralCode}
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`https://www.mentioned.market/ref/${referralCode}`)
+                        setReferralCopied(true)
+                        setTimeout(() => setReferralCopied(false), 2000)
+                      }}
+                      className="flex-shrink-0 px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      {referralCopied ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Stats row */}
+                <div className="flex items-center gap-4 mb-4 text-xs text-neutral-400">
+                  <span>{referralCount} referred</span>
+                  {bonusPointsEarned > 0 && (
+                    <span className="text-apple-green">+{bonusPointsEarned} bonus pts</span>
+                  )}
+                </div>
+
+                {/* Apply a code (if not already referred) */}
+                {!referredBy && !applyCodeSuccess && (
+                  <div className="mb-4 pt-4 border-t border-white/5">
+                    <p className="text-xs text-neutral-400 mb-2">Have someone&apos;s referral code?</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={applyCodeInput}
+                        onChange={(e) => { setApplyCodeInput(e.target.value.toUpperCase()); setApplyCodeError(null) }}
+                        placeholder="e.g. TAYL3X9K"
+                        maxLength={12}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-white/20"
+                      />
+                      <button
+                        disabled={applyingCode || !applyCodeInput.trim()}
+                        onClick={async () => {
+                          setApplyingCode(true)
+                          setApplyCodeError(null)
+                          try {
+                            const res = await fetch('/api/referral', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ wallet: publicKey, code: applyCodeInput.trim() }),
+                            })
+                            const data = await res.json()
+                            if (!res.ok) {
+                              setApplyCodeError(data.error || 'Failed to apply code')
+                            } else {
+                              setApplyCodeSuccess(true)
+                              setReferredBy(data.referredBy)
+                            }
+                          } catch {
+                            setApplyCodeError('Something went wrong')
+                          }
+                          setApplyingCode(false)
+                        }}
+                        className="flex-shrink-0 px-3 py-1.5 bg-apple-blue/20 hover:bg-apple-blue/30 text-apple-blue text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {applyingCode ? '...' : 'Apply'}
+                      </button>
+                    </div>
+                    {applyCodeError && <p className="text-xs text-apple-red mt-1">{applyCodeError}</p>}
+                  </div>
+                )}
+
+                {/* Already referred */}
+                {(referredBy || applyCodeSuccess) && (
+                  <div className="mb-4 pt-4 border-t border-white/5">
+                    <p className="text-xs text-apple-green">
+                      ✓ Referred by {referredBy?.slice(0, 6)}...{referredBy?.slice(-4)}
+                    </p>
+                  </div>
+                )}
+
+                {/* Referred users list */}
+                <div className="pt-4 border-t border-white/5">
+                  <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider mb-2">Your referrals</p>
+                  {referredUsers.length === 0 ? (
+                    <p className="text-xs text-neutral-600">No referrals yet. Share your link!</p>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto scrollbar-hide space-y-1.5">
+                      {referredUsers.map((u) => (
+                        <div key={u.wallet} className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-300 truncate">
+                            {u.username !== u.wallet ? `@${u.username}` : `${u.wallet.slice(0, 6)}...${u.wallet.slice(-4)}`}
+                          </span>
+                          <span className="text-neutral-600 flex-shrink-0 ml-2">
+                            {new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer note */}
+                <p className="text-[11px] text-neutral-600 mt-4 text-center">
+                  You both earn 10% of each other&apos;s points
+                </p>
               </div>
             </div>
           )}

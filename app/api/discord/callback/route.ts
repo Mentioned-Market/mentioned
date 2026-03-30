@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { linkDiscord, getWalletByDiscordId } from '@/lib/db'
+import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, getProfile } from '@/lib/db'
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET!
@@ -106,7 +106,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=linked`)
+    // Apply referral code from cookie (if present)
+    const refCode = req.cookies.get('ref')?.value
+    if (refCode) {
+      try {
+        const referrerWallet = await getWalletByReferralCode(refCode)
+        if (referrerWallet) {
+          await applyReferral(wallet, referrerWallet)
+        }
+      } catch (err) {
+        console.error('Referral apply error:', err)
+      }
+    }
+
+    // Prefer username in redirect URL
+    const userProfile = await getProfile(wallet)
+    const profileSlug = userProfile?.username && userProfile.username !== wallet ? userProfile.username : wallet
+
+    const response = NextResponse.redirect(`${BASE_URL}/profile/${profileSlug}?discord=linked`)
+    // Clear referral cookie after applying
+    if (refCode) {
+      response.cookies.set('ref', '', { maxAge: 0, path: '/' })
+    }
+    return response
   } catch (err) {
     console.error('Discord OAuth error:', err)
     return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)

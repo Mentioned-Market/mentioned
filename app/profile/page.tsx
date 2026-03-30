@@ -19,7 +19,15 @@ export default function ProfileRedirect() {
 
   useEffect(() => {
     if (publicKey) {
-      router.replace(`/profile/${publicKey}`)
+      // Prefer username in URL if available, fall back to wallet
+      fetch(`/api/profile?wallet=${publicKey}`)
+        .then(r => r.json())
+        .then(d => {
+          router.replace(`/profile/${d.username || publicKey}`)
+        })
+        .catch(() => {
+          router.replace(`/profile/${publicKey}`)
+        })
     } else if (settled) {
       router.replace('/')
     }

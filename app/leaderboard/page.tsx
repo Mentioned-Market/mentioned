@@ -72,7 +72,7 @@ type Tab = 'trading' | 'points'
 // ── Component ──────────────────────────────────────────────
 
 export default function LeaderboardPage() {
-  const [tab, setTab] = useState<Tab>('trading')
+  const [tab, setTab] = useState<Tab>('points')
 
   // Trading tab state
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
@@ -87,9 +87,10 @@ export default function LeaderboardPage() {
   const [pointsLoading, setPointsLoading] = useState(true)
   const [pointsSort, setPointsSort] = useState<PointsSortKey>('weekly')
 
-  // ── Fetch trading leaderboard ──────────────────────────
+  // ── Fetch trading leaderboard (lazy — only when tab active) ──
 
   useEffect(() => {
+    if (tab !== 'trading') return
     let mounted = true
 
     async function fetchLeaderboard() {
@@ -115,12 +116,11 @@ export default function LeaderboardPage() {
       mounted = false
       clearInterval(interval)
     }
-  }, [tradingPeriod])
+  }, [tab, tradingPeriod])
 
   // ── Fetch points leaderboard ───────────────────────────
 
   useEffect(() => {
-    if (tab !== 'points') return
     let mounted = true
 
     async function fetchPoints() {
@@ -142,7 +142,7 @@ export default function LeaderboardPage() {
     setPointsLoading(true)
     fetchPoints()
     return () => { mounted = false }
-  }, [tab, pointsSort])
+  }, [pointsSort])
 
   // ── Sort trading entries ───────────────────────────────
 
@@ -213,16 +213,6 @@ export default function LeaderboardPage() {
             {/* Tab switcher */}
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setTab('trading')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                  tab === 'trading'
-                    ? 'bg-white/10 text-white'
-                    : 'text-neutral-500 hover:text-neutral-300'
-                }`}
-              >
-                P&L / Volume
-              </button>
-              <button
                 onClick={() => setTab('points')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
                   tab === 'points'
@@ -231,6 +221,16 @@ export default function LeaderboardPage() {
                 }`}
               >
                 Points
+              </button>
+              <button
+                onClick={() => setTab('trading')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                  tab === 'trading'
+                    ? 'bg-white/10 text-white'
+                    : 'text-neutral-500 hover:text-neutral-300'
+                }`}
+              >
+                P&L / Volume
               </button>
             </div>
           </div>

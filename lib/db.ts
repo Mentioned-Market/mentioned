@@ -2,9 +2,13 @@ import pg from 'pg'
 import type { ParsedTradeEvent } from './tradeParser'
 import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from './virtualLmsr'
 
+const dbUrl = process.env.DATABASE_URL ?? ''
+const sslDisabled = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')
+  || dbUrl.includes('sslmode=disable') || process.env.DB_SSL === 'false'
+
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
+  connectionString: dbUrl,
+  ssl: sslDisabled ? false : { rejectUnauthorized: false },
   max: 10,
 })
 
@@ -327,6 +331,146 @@ export async function getWalletByDiscordId(discordId: string): Promise<string | 
   return result.rows[0]?.wallet || null
 }
 
+// ── Referrals ─────────────────────────────────────────
+
+/**
+ * Generate a unique referral code for a wallet. If one already exists, return it.
+ * Format: first 4 chars of username (or wallet) + 4 random alphanumeric chars.
+ */
+export async function ensureReferralCode(wallet: string): Promise<string> {
+  // Return existing code if present
+  const existing = await pool.query(
+    `SELECT referral_code FROM user_profiles WHERE wallet = $1 AND referral_code IS NOT NULL`,
+    [wallet],
+  )
+  if (existing.rows[0]?.referral_code) return existing.rows[0].referral_code
+
+  // Generate code: username prefix + random suffix
+  const profile = await pool.query(
+    `SELECT username FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  const base = (profile.rows[0]?.username || wallet).slice(0, 4).toUpperCase()
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789' // no ambiguous chars
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let suffix = ''
+    for (let i = 0; i < 4; i++) suffix += chars[Math.floor(Math.random() * chars.length)]
+    const code = `${base}${suffix}`
+    try {
+      const res = await pool.query(
+        `UPDATE user_profiles SET referral_code = $2, updated_at = NOW()
+         WHERE wallet = $1 AND referral_code IS NULL
+         RETURNING referral_code`,
+        [wallet, code],
+      )
+      if (res.rows[0]) return res.rows[0].referral_code
+      // referral_code was set between our SELECT and UPDATE — re-read
+      const recheck = await pool.query(
+        `SELECT referral_code FROM user_profiles WHERE wallet = $1`,
+        [wallet],
+      )
+      if (recheck.rows[0]?.referral_code) return recheck.rows[0].referral_code
+    } catch (err: unknown) {
+      const msg = (err as Error).message || ''
+      if (msg.includes('idx_profile_referral_code')) continue // collision, retry
+      throw err
+    }
+  }
+  throw new Error('Failed to generate unique referral code after 10 attempts')
+}
+
+/**
+ * Look up the wallet that owns a referral code.
+ */
+export async function getWalletByReferralCode(code: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT wallet FROM user_profiles WHERE UPPER(referral_code) = UPPER($1)`,
+    [code],
+  )
+  return result.rows[0]?.wallet || null
+}
+
+/**
+ * Apply a referral relationship. Sets referred_by on the referee's profile.
+ * Returns true if applied, false if already referred or self-referral.
+ */
+export async function applyReferral(refereeWallet: string, referrerWallet: string): Promise<boolean> {
+  if (refereeWallet === referrerWallet) return false
+  const result = await pool.query(
+    `UPDATE user_profiles SET referred_by = $2, updated_at = NOW()
+     WHERE wallet = $1 AND referred_by IS NULL
+     RETURNING wallet`,
+    [refereeWallet, referrerWallet],
+  )
+  return result.rows.length > 0
+}
+
+/**
+ * Get the referrer wallet for a given wallet (if any).
+ */
+export async function getReferrer(wallet: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT referred_by FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0]?.referred_by || null
+}
+
+/**
+ * Count how many users a wallet has referred.
+ */
+export async function getReferralCount(wallet: string): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(*) as cnt FROM user_profiles WHERE referred_by = $1`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.cnt ?? '0', 10)
+}
+
+/**
+ * Get referral stats for a wallet: code, count referred, total bonus points earned.
+ */
+export async function getReferralStats(wallet: string): Promise<{
+  referralCode: string | null
+  referralCount: number
+  referredBy: string | null
+  bonusPointsEarned: number
+}> {
+  const [profileRes, countRes, bonusRes] = await Promise.all([
+    pool.query(
+      `SELECT referral_code, referred_by FROM user_profiles WHERE wallet = $1`,
+      [wallet],
+    ),
+    pool.query(
+      `SELECT COUNT(*) as cnt FROM user_profiles WHERE referred_by = $1`,
+      [wallet],
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(points), 0) as total FROM point_events
+       WHERE wallet = $1 AND action = 'referral_bonus'`,
+      [wallet],
+    ),
+  ])
+  return {
+    referralCode: profileRes.rows[0]?.referral_code || null,
+    referralCount: parseInt(countRes.rows[0]?.cnt ?? '0', 10),
+    referredBy: profileRes.rows[0]?.referred_by || null,
+    bonusPointsEarned: parseInt(bonusRes.rows[0]?.total ?? '0', 10),
+  }
+}
+
+/**
+ * Get the list of users referred by a wallet.
+ */
+export async function getReferredUsers(wallet: string): Promise<{ wallet: string; username: string; createdAt: string }[]> {
+  const result = await pool.query(
+    `SELECT wallet, username, created_at FROM user_profiles WHERE referred_by = $1 ORDER BY created_at DESC`,
+    [wallet],
+  )
+  return result.rows.map((r: any) => ({ wallet: r.wallet, username: r.username, createdAt: r.created_at }))
+}
+
 // ── Chat Messages ────────────────────────────────────
 
 export interface ChatRow {
@@ -529,9 +673,12 @@ export async function hasDiscordLinked(wallet: string): Promise<boolean> {
   return result.rows.length > 0
 }
 
+const REFERRAL_BONUS_RATE = 0.10 // 10% mutual bonus
+
 /**
  * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
  * Points are only awarded to wallets with a linked Discord account.
+ * Also awards 10% referral bonus to both referrer and referred if a relationship exists.
  */
 export async function insertPointEvent(
   wallet: string,
@@ -550,7 +697,44 @@ export async function insertPointEvent(
      RETURNING points`,
     [wallet, action, points, refId ?? null, metadata ? JSON.stringify(metadata) : null],
   )
-  return result.rows[0]?.points ?? null
+  const awarded = result.rows[0]?.points ?? null
+  if (awarded === null || awarded === 0) return awarded
+
+  // Don't award referral bonus on referral_bonus events (prevent recursion)
+  if (action === 'referral_bonus') return awarded
+
+  const bonus = Math.floor(awarded * REFERRAL_BONUS_RATE)
+  if (bonus <= 0) return awarded
+
+  // Mutual 10% referral bonus:
+  // If this wallet was referred by someone → referrer gets 10%
+  const referrer = await getReferrer(wallet)
+  if (referrer) {
+    await pool.query(
+      `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
+       VALUES ($1, 'referral_bonus', $2, $3, $4)
+       ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
+      [referrer, bonus, `ref:${wallet}:${action}:${refId ?? '_'}`,
+       JSON.stringify({ fromWallet: wallet, originalAction: action })],
+    )
+  }
+
+  // If this wallet referred others → each referred user gets 10%
+  const referred = await pool.query(
+    `SELECT wallet FROM user_profiles WHERE referred_by = $1`,
+    [wallet],
+  )
+  for (const row of referred.rows) {
+    await pool.query(
+      `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
+       VALUES ($1, 'referral_bonus', $2, $3, $4)
+       ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
+      [row.wallet, bonus, `ref:${wallet}:${action}:${refId ?? '_'}`,
+       JSON.stringify({ fromWallet: wallet, originalAction: action })],
+    )
+  }
+
+  return awarded
 }
 
 /**

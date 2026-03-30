@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getProfile, upsertProfile, updatePfpEmoji, getUnlockedAchievements } from '@/lib/db'
+import { getProfile, upsertProfile, updatePfpEmoji, getUnlockedAchievements, ensureReferralCode, getReferralStats } from '@/lib/db'
 import { tryUnlockAchievement, ACHIEVEMENT_MAP } from '@/lib/achievements'
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
@@ -11,11 +11,30 @@ export async function GET(req: NextRequest) {
   }
 
   const profile = await getProfile(wallet)
+
+  // Ensure referral code exists and fetch stats
+  let referralCode: string | null = null
+  let referralStats = { referralCount: 0, referredBy: null as string | null, bonusPointsEarned: 0 }
+  if (profile) {
+    try {
+      [referralCode, referralStats] = await Promise.all([
+        ensureReferralCode(wallet),
+        getReferralStats(wallet),
+      ])
+    } catch (err) {
+      console.error('Referral code/stats error:', err)
+    }
+  }
+
   return NextResponse.json({
     username: profile?.username ?? null,
     pfpEmoji: profile?.pfp_emoji ?? null,
     discordId: profile?.discord_id ?? null,
     discordUsername: profile?.discord_username ?? null,
+    referralCode,
+    referralCount: referralStats.referralCount,
+    referredBy: referralStats.referredBy,
+    bonusPointsEarned: referralStats.bonusPointsEarned,
   })
 }
 
