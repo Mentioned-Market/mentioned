@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getCustomMarketTradeCount } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getCustomMarketTradeCount, hasDiscordLinked } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 
@@ -55,6 +55,15 @@ export async function POST(
     return NextResponse.json({ error: 'Slow down' }, { status: 429 })
   }
   lastTrade.set(wallet, now)
+
+  // Require Discord linked to trade on free markets
+  const discordOk = await hasDiscordLinked(wallet)
+  if (!discordOk) {
+    return NextResponse.json(
+      { error: 'You must link your Discord account to trade on free markets' },
+      { status: 403 },
+    )
+  }
 
   const market = await getCustomMarket(marketId)
   if (!market) {

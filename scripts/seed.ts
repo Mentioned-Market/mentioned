@@ -176,8 +176,237 @@ async function seed() {
       )
     }
 
+    // ── Free markets (custom markets with virtual LMSR) ──────────────────────
+    console.log('  Seeding free markets...')
+
+    // Market 1: Open, active trading
+    const { rows: [fm1] } = await client.query(
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, created_at)
+       VALUES ($1, $2, 'open', 100, 1000, $3, $4)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [
+        'Will "GG" be said in the T1 vs Gen.G post-match interview?',
+        'Predict which words or phrases will be mentioned during the post-match interview. Market locks 5 minutes before the interview starts.',
+        hoursAgo(-48), // lock_time 48 hours from now
+        daysAgo(3),
+      ],
+    )
+
+    // Market 2: Open, fresh (no trades yet)
+    const { rows: [fm2] } = await client.query(
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, created_at)
+       VALUES ($1, $2, 'open', 150, 500, $3, $4)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [
+        'NaVi vs Vitality — caster word bingo',
+        'Which words will the casters say during the grand final? Trade on your predictions before the match starts.',
+        hoursAgo(-72), // lock_time 72 hours from now
+        daysAgo(1),
+      ],
+    )
+
+    // Market 3: Resolved
+    const { rows: [fm3] } = await client.query(
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, created_at)
+       VALUES ($1, $2, 'resolved', 100, 1000, $3, $4)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [
+        'Cloud9 vs FaZe — analyst desk predictions',
+        'Which phrases will the analyst desk use when breaking down this match?',
+        daysAgo(1), // already past
+        daysAgo(5),
+      ],
+    )
+
+    if (fm1) {
+      // Words for market 1
+      const fm1Words = ['GG', 'well played', 'outplayed', 'clutch', 'draft diff']
+      const fm1WordIds: number[] = []
+      for (const w of fm1Words) {
+        const { rows: [row] } = await client.query(
+          `INSERT INTO custom_market_words (market_id, word) VALUES ($1, $2)
+           ON CONFLICT DO NOTHING RETURNING id`,
+          [fm1.id, w],
+        )
+        if (row) fm1WordIds.push(row.id)
+      }
+
+      // Pools with some trading activity (unequal quantities = shifted prices)
+      const fm1Pools = [
+        { yesQty: 25, noQty: 10 },   // GG — leaning YES ~82%
+        { yesQty: 15, noQty: 18 },   // well played — slight NO ~53%
+        { yesQty: 8,  noQty: 12 },   // outplayed — slight NO ~60%
+        { yesQty: 30, noQty: 5 },    // clutch — heavy YES ~92%
+        { yesQty: 10, noQty: 10 },   // draft diff — balanced 50/50
+      ]
+
+      for (let i = 0; i < fm1WordIds.length; i++) {
+        const pool = fm1Pools[i]
+        await client.query(
+          `INSERT INTO custom_market_word_pools (word_id, yes_qty, no_qty)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (word_id) DO NOTHING`,
+          [fm1WordIds[i], pool.yesQty, pool.noQty],
+        )
+      }
+
+      // Positions + balances for users who traded
+      // cryptowizard: bought YES on "GG" and "clutch"
+      await client.query(
+        `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+         VALUES ($1, $2, $3, 15, 0, 120, 0)
+         ON CONFLICT (word_id, wallet) DO NOTHING`,
+        [fm1.id, fm1WordIds[0], USERS[0].wallet],
+      )
+      await client.query(
+        `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+         VALUES ($1, $2, $3, 20, 0, 180, 0)
+         ON CONFLICT (word_id, wallet) DO NOTHING`,
+        [fm1.id, fm1WordIds[3], USERS[0].wallet],
+      )
+      await client.query(
+        `INSERT INTO custom_market_balances (market_id, wallet, balance) VALUES ($1, $2, 700)
+         ON CONFLICT (market_id, wallet) DO NOTHING`,
+        [fm1.id, USERS[0].wallet],
+      )
+
+      // moonbetter: bought NO on "well played", YES on "draft diff"
+      await client.query(
+        `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+         VALUES ($1, $2, $3, 0, 12, 85, 0)
+         ON CONFLICT (word_id, wallet) DO NOTHING`,
+        [fm1.id, fm1WordIds[1], USERS[1].wallet],
+      )
+      await client.query(
+        `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+         VALUES ($1, $2, $3, 8, 0, 55, 0)
+         ON CONFLICT (word_id, wallet) DO NOTHING`,
+        [fm1.id, fm1WordIds[4], USERS[1].wallet],
+      )
+      await client.query(
+        `INSERT INTO custom_market_balances (market_id, wallet, balance) VALUES ($1, $2, 860)
+         ON CONFLICT (market_id, wallet) DO NOTHING`,
+        [fm1.id, USERS[1].wallet],
+      )
+
+      // Some trade history + price history for charting
+      const fm1Trades = [
+        { wordIdx: 0, wallet: USERS[0].wallet, action: 'buy', side: 'YES', shares: 15, cost: 120, yesPrice: 0.82, noPrice: 0.18, hoursAgo: 48 },
+        { wordIdx: 3, wallet: USERS[0].wallet, action: 'buy', side: 'YES', shares: 20, cost: 180, yesPrice: 0.92, noPrice: 0.08, hoursAgo: 36 },
+        { wordIdx: 1, wallet: USERS[1].wallet, action: 'buy', side: 'NO',  shares: 12, cost: 85,  yesPrice: 0.47, noPrice: 0.53, hoursAgo: 24 },
+        { wordIdx: 4, wallet: USERS[1].wallet, action: 'buy', side: 'YES', shares: 8,  cost: 55,  yesPrice: 0.50, noPrice: 0.50, hoursAgo: 12 },
+        { wordIdx: 2, wallet: USERS[2].wallet, action: 'buy', side: 'NO',  shares: 5,  cost: 40,  yesPrice: 0.40, noPrice: 0.60, hoursAgo: 6  },
+      ]
+
+      for (const t of fm1Trades) {
+        const ts = hoursAgo(t.hoursAgo)
+        await client.query(
+          `INSERT INTO custom_market_trades (market_id, word_id, wallet, action, side, shares, cost, yes_price, no_price, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [fm1.id, fm1WordIds[t.wordIdx], t.wallet, t.action, t.side, t.shares, t.cost, t.yesPrice, t.noPrice, ts],
+        )
+        await client.query(
+          `INSERT INTO custom_market_price_history (word_id, yes_price, no_price, recorded_at)
+           VALUES ($1, $2, $3, $4)`,
+          [fm1WordIds[t.wordIdx], t.yesPrice, t.noPrice, ts],
+        )
+      }
+
+      // tradingpete: bought NO on "outplayed"
+      await client.query(
+        `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+         VALUES ($1, $2, $3, 0, 5, 40, 0)
+         ON CONFLICT (word_id, wallet) DO NOTHING`,
+        [fm1.id, fm1WordIds[2], USERS[2].wallet],
+      )
+      await client.query(
+        `INSERT INTO custom_market_balances (market_id, wallet, balance) VALUES ($1, $2, 960)
+         ON CONFLICT (market_id, wallet) DO NOTHING`,
+        [fm1.id, USERS[2].wallet],
+      )
+    }
+
+    if (fm2) {
+      // Words for market 2 (fresh, no trades — just pools at 50/50)
+      const fm2Words = ['insane', 'unbelievable', 'what a play', 'economy', 'ace']
+      for (const w of fm2Words) {
+        const { rows: [row] } = await client.query(
+          `INSERT INTO custom_market_words (market_id, word) VALUES ($1, $2)
+           ON CONFLICT DO NOTHING RETURNING id`,
+          [fm2.id, w],
+        )
+        if (row) {
+          await client.query(
+            `INSERT INTO custom_market_word_pools (word_id, yes_qty, no_qty)
+             VALUES ($1, 0, 0) ON CONFLICT (word_id) DO NOTHING`,
+            [row.id],
+          )
+        }
+      }
+    }
+
+    if (fm3) {
+      // Words for market 3 (resolved — some YES, some NO)
+      const fm3Words = [
+        { word: 'dominant', outcome: true },
+        { word: 'upset', outcome: false },
+        { word: 'momentum', outcome: true },
+        { word: 'choking', outcome: false },
+      ]
+      const fm3WordIds: number[] = []
+      for (const w of fm3Words) {
+        const { rows: [row] } = await client.query(
+          `INSERT INTO custom_market_words (market_id, word, resolved_outcome) VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING RETURNING id`,
+          [fm3.id, w.word, w.outcome],
+        )
+        if (row) fm3WordIds.push(row.id)
+      }
+
+      // Pools at final state
+      const fm3Pools = [
+        { yesQty: 40, noQty: 5 },   // dominant — resolved YES
+        { yesQty: 5,  noQty: 35 },  // upset — resolved NO
+        { yesQty: 30, noQty: 8 },   // momentum — resolved YES
+        { yesQty: 3,  noQty: 28 },  // choking — resolved NO
+      ]
+      for (let i = 0; i < fm3WordIds.length; i++) {
+        await client.query(
+          `INSERT INTO custom_market_word_pools (word_id, yes_qty, no_qty)
+           VALUES ($1, $2, $3) ON CONFLICT (word_id) DO NOTHING`,
+          [fm3WordIds[i], fm3Pools[i].yesQty, fm3Pools[i].noQty],
+        )
+      }
+
+      // mentioned_fan had positions in this resolved market
+      if (fm3WordIds.length >= 4) {
+        await client.query(
+          `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+           VALUES ($1, $2, $3, 25, 0, 200, 250)
+           ON CONFLICT (word_id, wallet) DO NOTHING`,
+          [fm3.id, fm3WordIds[0], USERS[3].wallet],
+        )
+        await client.query(
+          `INSERT INTO custom_market_positions (market_id, word_id, wallet, yes_shares, no_shares, tokens_spent, tokens_received)
+           VALUES ($1, $2, $3, 10, 0, 100, 0)
+           ON CONFLICT (word_id, wallet) DO NOTHING`,
+          [fm3.id, fm3WordIds[1], USERS[3].wallet],
+        )
+        await client.query(
+          `INSERT INTO custom_market_balances (market_id, wallet, balance) VALUES ($1, $2, 950)
+           ON CONFLICT (market_id, wallet) DO NOTHING`,
+          [fm3.id, USERS[3].wallet],
+        )
+      }
+    }
+
+    const freeMarketCount = [fm1, fm2, fm3].filter(Boolean).length
+
     await client.query('COMMIT')
-    console.log(`  Done. Seeded ${USERS.length} users, ${trades.length} trades, ${points.length} point events, ${chats.length} chat messages.`)
+    console.log(`  Done. Seeded ${USERS.length} users, ${trades.length} trades, ${points.length} point events, ${chats.length} chat messages, ${freeMarketCount} free markets.`)
   } catch (err) {
     await client.query('ROLLBACK')
     throw err

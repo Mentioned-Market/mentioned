@@ -162,7 +162,7 @@ export default function CustomMarketPage() {
   const params = useParams()
   const id = params.id as string
   const marketId = parseInt(id, 10)
-  const { connected, connect, publicKey } = useWallet()
+  const { connected, connect, publicKey, discordLinked } = useWallet()
   const { showAchievementToast } = useAchievements()
 
   const [market, setMarket] = useState<CustomMarket | null>(null)
@@ -402,6 +402,7 @@ export default function CustomMarketPage() {
   const handleTrade = async () => {
     if (!publicKey || !market || !selectedWord) return
     if (amountNum <= 0) return
+    if (!discordLinked) return
 
     setTrading(true)
     setTradeStatus(null)
@@ -461,7 +462,7 @@ export default function CustomMarketPage() {
       {connected && (
         <div className="mb-4 pb-4 border-b border-white/10">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Play Tokens $</span>
+            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider cursor-help" title="Virtual tokens used for trading in this market. Each market gives you a fresh balance to trade with — no real money involved.">Play Tokens $</span>
             <span className="text-sm font-semibold text-white">{Math.floor(balance)} / {startingBalance}</span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
@@ -480,22 +481,22 @@ export default function CustomMarketPage() {
       {connected && positions.length > 0 && market?.status !== 'resolved' && (
         <div className="mb-4 pb-4 border-b border-white/10">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Current P&L</span>
+            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider cursor-help" title="Your profit and loss across all positions in this market. Includes tokens spent, tokens received from selling, and the estimated value if you sold all remaining shares now.">Current P&L</span>
             <span className={`text-sm font-bold ${currentProfit.total >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
               {currentProfit.total >= 0 ? '+' : ''}{currentProfit.total.toFixed(1)} tokens
             </span>
           </div>
           <div className="space-y-0.5 text-[11px]">
             <div className="flex justify-between text-neutral-500">
-              <span>Spent</span>
+              <span className="cursor-help" title="Total play tokens you've spent buying shares in this market.">Spent</span>
               <span>{currentProfit.spent.toFixed(1)}</span>
             </div>
             <div className="flex justify-between text-neutral-500">
-              <span>Realised (from sells)</span>
+              <span className="cursor-help" title="Tokens you've already received back by selling shares.">Realised (from sells)</span>
               <span>{currentProfit.received.toFixed(1)}</span>
             </div>
             <div className="flex justify-between text-neutral-500">
-              <span>Unrealised (if sold now)</span>
+              <span className="cursor-help" title="Estimated tokens you'd get if you sold all remaining shares right now at current market prices.">Unrealised (if sold now)</span>
               <span>{currentProfit.unrealised.toFixed(1)}</span>
             </div>
           </div>
@@ -517,7 +518,7 @@ export default function CustomMarketPage() {
       </div>
 
       {/* Buy / Sell toggle */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-4" title="Buy to open a new position, or sell to close an existing one and get tokens back.">
         <button
           onClick={() => { setTradeMode('buy'); setAmount('') }}
           className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
@@ -533,7 +534,7 @@ export default function CustomMarketPage() {
       </div>
 
       {/* Yes / No buttons */}
-      <div className="flex gap-2 mb-5">
+      <div className="flex gap-2 mb-5" title="Pick a side. YES means you think this word will be said. NO means you think it won't. The price shows the current market probability.">
         <button
           onClick={() => { setSide('YES'); setAmount('') }}
           className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
@@ -560,7 +561,7 @@ export default function CustomMarketPage() {
       <div className="mb-4">
         <div className="flex items-center justify-between py-3">
           <div>
-            <div className="text-sm text-neutral-400 font-medium">
+            <div className="text-sm text-neutral-400 font-medium cursor-help" title={tradeMode === 'buy' ? 'How many play tokens to spend. More tokens = more shares. The price per share increases as more people buy the same side.' : 'How many shares to sell back to the market. You\'ll receive tokens based on the current market price.'}>
               {tradeMode === 'buy' ? 'Amount (Tokens)' : 'Shares to sell'}
             </div>
             {preview && (
@@ -616,23 +617,23 @@ export default function CustomMarketPage() {
       {preview && amountNum > 0 && tradeMode === 'buy' && (
         <div className="mb-5 space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-neutral-400">Avg Price</span>
+            <span className="text-neutral-400 cursor-help" title="The average cost per share for this order. Larger orders move the price, so the average may be higher than the current price.">Avg Price</span>
             <span className="text-white font-medium">{preview.shares > 0 ? Math.round((preview.cost / preview.shares) * 100) : 0}¢</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-400">Shares</span>
+            <span className="text-neutral-400 cursor-help" title="The number of shares you'll receive. Each share pays out 1 token if the outcome is correct.">Shares</span>
             <span className="text-white font-medium">{preview.shares.toFixed(1)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-400">Payout if correct</span>
+            <span className="text-neutral-400 cursor-help" title="If your prediction is correct, each share pays out 1 token. This is the total you'd receive at resolution.">Payout if correct</span>
             <span className="text-white font-medium">{preview.payout.toFixed(1)} tokens</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-400">Profit</span>
+            <span className="text-neutral-400 cursor-help" title="Payout minus your cost. This is how many tokens you'd gain if your prediction is correct.">Profit</span>
             <span className="text-apple-green font-semibold">+{preview.profit.toFixed(1)} tokens</span>
           </div>
           <div className="flex justify-between pt-1 border-t border-white/5">
-            <span className="text-neutral-400">Points earned</span>
+            <span className="text-neutral-400 cursor-help" title="Profit from free markets converts to platform points at a 0.5x rate. Points count toward the leaderboard.">Points earned</span>
             <span className="text-apple-blue font-semibold">+{Math.floor(preview.profit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} pts</span>
           </div>
         </div>
@@ -642,7 +643,7 @@ export default function CustomMarketPage() {
       {preview && amountNum > 0 && tradeMode === 'sell' && (
         <div className="mb-5 space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-neutral-400">Tokens returned</span>
+            <span className="text-neutral-400 cursor-help" title="The amount of play tokens you'll get back by selling these shares at the current market price.">Tokens returned</span>
             <span className="text-white font-medium">{preview.cost.toFixed(1)}</span>
           </div>
         </div>
@@ -664,6 +665,20 @@ export default function CustomMarketPage() {
         <button disabled className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed">
           {market?.status === 'resolved' ? 'Market Resolved' : market?.status === 'locked' ? 'Market Locked' : 'Market Closed'}
         </button>
+      ) : connected && !discordLinked ? (
+        <div className="space-y-2">
+          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
+            <p className="font-medium mb-1">Discord required to trade</p>
+            <p className="text-amber-300/70">Link your Discord account to start trading on free markets. This helps us prevent abuse and reward real players.</p>
+          </div>
+          <a
+            href={`/api/discord/link?wallet=${publicKey}`}
+            className="flex items-center justify-center gap-2 w-full py-3.5 bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-base rounded-xl transition-all duration-200"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03z"/></svg>
+            Link Discord to trade
+          </a>
+        </div>
       ) : connected ? (
         <button
           onClick={handleTrade}
@@ -698,7 +713,7 @@ export default function CustomMarketPage() {
       {/* User positions for this market */}
       {connected && positions.length > 0 && (
         <div className="mt-4 pt-4 border-t border-white/10">
-          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
+          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2 cursor-help" title="Your open positions in this market. Click a position to switch to sell mode and close it.">
             Positions ({positions.length})
           </div>
           <div className="space-y-2">
