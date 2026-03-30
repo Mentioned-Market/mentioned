@@ -89,6 +89,7 @@ specs/                    # Feature specifications
 ### 3. Free Markets (Virtual LMSR)
 - Same LMSR math as on-chain markets, but with virtual play tokens
 - No real money — profit converts to platform points at 0.5x
+- **Discord required to trade.** Users can view free markets but must link Discord before placing trades. Enforced both client-side (UI gate in `/custom/[id]`) and server-side (403 from `/api/custom/[id]/trade`).
 - Pages: `/custom/[id]`, `/customadmin`
 - API: `/api/custom/*`
 - Full spec: `specs/custom_free_market_spec.md`
