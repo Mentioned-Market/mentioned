@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import WalletProviderWrapper from '@/components/WalletProviderWrapper'
 import GlobalChat from '@/components/GlobalChat'
+import BugReportButton from '@/components/BugReportButton'
 import TradeTicker from '@/components/TradeTicker'
 import { faqSchema, webApplicationSchema } from '@/lib/seo-schemas'
 
@@ -203,6 +204,7 @@ export default function RootLayout({
         <WalletProviderWrapper>
           {children}
           <GlobalChat />
+          <BugReportButton />
         </WalletProviderWrapper>
       </body>
     </html>
