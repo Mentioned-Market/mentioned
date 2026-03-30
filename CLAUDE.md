@@ -10,6 +10,11 @@ Solana prediction market platform. Users trade YES/NO outcomes on esports matche
 - **APIs:** Jupiter Prediction API (`api.jup.ag/prediction/v1`), Helius webhooks for on-chain indexing
 - **Charts:** Canvas-based (`EventPriceChart`, `MarketChart`), Recharts
 
+## Important notes to remember:
+- The code needs to be well written and without errors, verify as you're working
+- Every solution needs to take into account user experience and keep with the social aspect of Mentioned
+- Scalability, performance and security is incredibly important, make sure any change meets this criteria  
+
 ## Architecture
 
 ```
