@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { insertPolymarketTrade, getPolymarketTradeCount } from '@/lib/db'
-import { awardPoints, checkAndAwardFirstTrade } from '@/lib/points'
+import { insertPolymarketTrade, getPolymarketTradeCount, getTradePointsCountToday } from '@/lib/db'
+import { awardPoints, checkAndAwardFirstTrade, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 
 export async function POST(req: NextRequest) {
@@ -25,8 +25,15 @@ export async function POST(req: NextRequest) {
     )
 
     // Award points (fire-and-forget — do not block response)
+    const tradePointsCfg = POINT_CONFIG.trade_placed
+    const awardTradePoints = async () => {
+      if (Number(amountUsd) < tradePointsCfg.minAmountUsd) return
+      const todayCount = await getTradePointsCountToday(wallet)
+      if (todayCount >= tradePointsCfg.dailyCap) return
+      await awardPoints(wallet, 'trade_placed', String(trade.id))
+    }
     Promise.all([
-      awardPoints(wallet, 'trade_placed', String(trade.id)),
+      awardTradePoints(),
       checkAndAwardFirstTrade(wallet),
     ]).catch((err) => console.error('Points award error (trade):', err))
 

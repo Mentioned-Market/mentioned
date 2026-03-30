@@ -568,6 +568,20 @@ export async function getChatPointsCountToday(wallet: string): Promise<number> {
 }
 
 /**
+ * Count trade_placed point events for a wallet since UTC midnight today.
+ */
+export async function getTradePointsCountToday(wallet: string): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(*) as cnt FROM point_events
+     WHERE wallet = $1
+       AND action = 'trade_placed'
+       AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.cnt ?? '0', 10)
+}
+
+/**
  * Get the earliest trade time for a wallet+marketId combination from polymarket_trades.
  */
 export async function getEarliestTradeTime(

@@ -7,7 +7,7 @@ import {
 // ── Config ───────────────────────────────────────────────
 
 export const POINT_CONFIG = {
-  trade_placed: { points: 10, description: 'Placed a trade' },
+  trade_placed: { points: 10, description: 'Placed a trade', dailyCap: 20, minAmountUsd: 1 },
   first_trade:  { points: 100, description: 'First ever trade on Mentioned' },
   claim_won:    { points: 50, description: 'Claimed a winning position' },
   chat_message: { points: 2, description: 'Sent a chat message', dailyCap: 10 },
