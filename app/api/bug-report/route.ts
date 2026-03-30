@@ -35,12 +35,7 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000) // every 10 min
 
-const MAX_WORDS = 200
-const MAX_CHARS = 2000 // safety cap
-
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length
-}
+const MAX_CHARS = 300
 
 function sanitize(text: string): string {
   // Strip Discord markdown exploits and @mentions
@@ -83,9 +78,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Message is required' }, { status: 400 })
   }
 
-  if (countWords(message) > MAX_WORDS) {
+  if (message.length > MAX_CHARS) {
     return NextResponse.json(
-      { error: `Message must be ${MAX_WORDS} words or fewer` },
+      { error: `Message must be ${MAX_CHARS} characters or fewer` },
       { status: 400 }
     )
   }
