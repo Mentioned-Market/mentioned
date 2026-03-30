@@ -954,6 +954,7 @@ export async function getWalletFreeMarketStats(wallet: string): Promise<{
   totalTokensSpent: number
   totalTokensReceived: number
   activePositions: number
+  totalPoints: number
 }> {
   const result = await pool.query(
     `SELECT
@@ -961,7 +962,8 @@ export async function getWalletFreeMarketStats(wallet: string): Promise<{
        (SELECT COUNT(*)::int FROM custom_market_trades WHERE wallet = $1) AS total_trades,
        COALESCE(SUM(p.tokens_spent::numeric), 0)::float AS total_tokens_spent,
        COALESCE(SUM(p.tokens_received::numeric), 0)::float AS total_tokens_received,
-       COALESCE(SUM(CASE WHEN p.yes_shares::numeric > 0 OR p.no_shares::numeric > 0 THEN 1 ELSE 0 END), 0)::int AS active_positions
+       COALESCE(SUM(CASE WHEN p.yes_shares::numeric > 0 OR p.no_shares::numeric > 0 THEN 1 ELSE 0 END), 0)::int AS active_positions,
+       (SELECT COALESCE(SUM(points), 0)::int FROM point_events WHERE wallet = $1 AND action = 'custom_market_win') AS total_points
      FROM custom_market_positions p
      WHERE p.wallet = $1`,
     [wallet],
@@ -973,6 +975,7 @@ export async function getWalletFreeMarketStats(wallet: string): Promise<{
     totalTokensSpent: r?.total_tokens_spent ?? 0,
     totalTokensReceived: r?.total_tokens_received ?? 0,
     activePositions: r?.active_positions ?? 0,
+    totalPoints: r?.total_points ?? 0,
   }
 }
 

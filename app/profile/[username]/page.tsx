@@ -138,6 +138,7 @@ interface FreeMarketData {
     totalTokensSpent: number
     totalTokensReceived: number
     activePositions: number
+    totalPoints: number
   }
 }
 
@@ -651,10 +652,12 @@ export default function ProfilePage() {
     return () => clearInterval(ordInterval)
   }, [isOwnProfile, ownerTab, fetchOrders])
 
+  // Always fetch history (P&L chart depends on it); poll when history tab is active
   useEffect(() => {
-    if (!isOwnProfile || ownerTab !== 'history') return
+    if (!isOwnProfile) return
     setLoadingOwnerHistory(true)
     fetchOwnerHistory()
+    if (ownerTab !== 'history') return
     const histInterval = setInterval(fetchOwnerHistory, 30_000)
     return () => clearInterval(histInterval)
   }, [isOwnProfile, ownerTab, fetchOwnerHistory])
@@ -1159,11 +1162,10 @@ export default function ProfilePage() {
                 <span className="text-apple-green text-xs font-semibold">Best P&L {microToUsd(biggestWin, true)}</span>
               </div>
             )}
-            {profileMode === 'free' && (
+            {profileMode === 'free' && profile.freeMarket.stats.totalPoints > 0 && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/5 border border-purple-500/10">
                 <span className="text-purple-400 text-xs font-semibold">
-                  {profile.freeMarket.stats.totalTokensReceived > profile.freeMarket.stats.totalTokensSpent ? '+' : ''}
-                  {(profile.freeMarket.stats.totalTokensReceived - profile.freeMarket.stats.totalTokensSpent).toFixed(1)} token P&L
+                  +{profile.freeMarket.stats.totalPoints} pts from trades
                 </span>
               </div>
             )}
@@ -1510,13 +1512,9 @@ export default function ProfilePage() {
                 <div className="text-white text-xl font-bold">{profile.freeMarket.stats.totalMarkets}</div>
               </div>
               <div className="glass rounded-xl p-4">
-                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Token P&L</div>
-                <div className={`text-xl font-bold ${
-                  profile.freeMarket.stats.totalTokensReceived >= profile.freeMarket.stats.totalTokensSpent
-                    ? 'text-apple-green' : 'text-apple-red'
-                }`}>
-                  {(profile.freeMarket.stats.totalTokensReceived - profile.freeMarket.stats.totalTokensSpent) >= 0 ? '+' : ''}
-                  {(profile.freeMarket.stats.totalTokensReceived - profile.freeMarket.stats.totalTokensSpent).toFixed(1)}
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Points Earned</div>
+                <div className="text-xl font-bold text-yellow-400">
+                  +{profile.freeMarket.stats.totalPoints}
                 </div>
               </div>
               <div className="glass rounded-xl p-4">
