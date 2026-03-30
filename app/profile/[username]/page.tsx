@@ -1209,7 +1209,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                <span className="text-neutral-400 text-sm font-medium">Points Earned</span>
+                <span className="text-neutral-400 text-sm font-medium">Total Points Earned</span>
               </div>
               <div className="flex items-center gap-0.5">
                 {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
@@ -1514,7 +1514,7 @@ export default function ProfilePage() {
                 <div className="text-white text-xl font-bold">{profile.freeMarket.stats.totalMarkets}</div>
               </div>
               <div className="glass rounded-xl p-4">
-                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Points Earned</div>
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Market Points Earned</div>
                 <div className="text-xl font-bold text-yellow-400">
                   +{profile.freeMarket.stats.totalPoints}
                 </div>
