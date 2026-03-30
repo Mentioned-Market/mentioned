@@ -14,6 +14,8 @@ interface MarketWithWords extends CustomMarketRow {
 export default function CustomAdminPage() {
   const { publicKey } = useWallet()
 
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   const [markets, setMarkets] = useState<MarketWithWords[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -62,7 +64,23 @@ export default function CustomAdminPage() {
     }
   }, [publicKey])
 
-  useEffect(() => { fetchMarkets() }, [fetchMarkets])
+  // Check admin status
+  useEffect(() => {
+    if (!publicKey) {
+      setIsAdmin(false)
+      setAuthChecked(true)
+      return
+    }
+    fetch(`/api/auth/admin?wallet=${publicKey}`)
+      .then(res => res.json())
+      .then(json => setIsAdmin(json.admin === true))
+      .catch(() => setIsAdmin(false))
+      .finally(() => setAuthChecked(true))
+  }, [publicKey])
+
+  useEffect(() => {
+    if (isAdmin) fetchMarkets()
+  }, [isAdmin, fetchMarkets])
 
   const expandMarket = (market: MarketWithWords) => {
     if (expandedId === market.id) {
@@ -248,6 +266,45 @@ export default function CustomAdminPage() {
     const res: Record<number, boolean | null> = {}
     words.forEach(w => { res[w.id] = outcome })
     setResolutions(res)
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+        <div className="layout-container flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <main className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              </main>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!publicKey || !isAdmin) {
+    return (
+      <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+        <div className="layout-container flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <main className="flex-1 flex flex-col items-center justify-center gap-2">
+                <p className="text-neutral-400 text-sm">
+                  {!publicKey
+                    ? 'Nice try. Connect your wallet first, anon.'
+                    : 'You shall not pass. This area is for admins only.'}
+                </p>
+              </main>
+              <Footer />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
