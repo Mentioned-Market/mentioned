@@ -510,16 +510,15 @@ export default function Home() {
   const revealRef = useScrollReveal()
   const { containerRef, totalHeight, currentSlide, slideProgress } = useGlobalScroll(HERO_VH, VH_PER_SLIDE, SLIDES.length)
 
-  // Slide transition: outgoing slides left, incoming slides from right
-  // 25% of scroll for crossfade = longer, smoother transition
+  // Slide transition: snappy crossfade in last 10% of scroll
   function slideStyle(slideIdx: number): { opacity: number; translateX: number } {
     if (slideIdx === currentSlide) {
-      const exitT = ease(sub(slideProgress, 0.75, 1.0))
-      return { opacity: 1 - exitT, translateX: lerp(0, -60, exitT) }
+      const exitT = ease(sub(slideProgress, 0.9, 1.0))
+      return { opacity: 1 - exitT, translateX: lerp(0, -40, exitT) }
     }
     if (slideIdx === currentSlide + 1) {
-      const enterT = ease(sub(slideProgress, 0.75, 1.0))
-      return { opacity: enterT, translateX: lerp(60, 0, enterT) }
+      const enterT = ease(sub(slideProgress, 0.9, 1.0))
+      return { opacity: enterT, translateX: lerp(40, 0, enterT) }
     }
     return { opacity: 0, translateX: 0 }
   }
@@ -565,7 +564,8 @@ export default function Home() {
             {SLIDES.map((slide, i) => {
               const idx = i + 1 // slide 0 is hero
               const { opacity, translateX } = slideStyle(idx)
-              const isPlaying = currentSlide === idx || currentSlide > idx
+              // Start playing as soon as slide begins entering (during crossfade)
+              const isPlaying = currentSlide === idx || currentSlide > idx || (currentSlide === idx - 1 && slideProgress > 0.9)
               if (opacity <= 0) return null
               return (
                 <div key={idx} className="absolute inset-0 flex items-center justify-center px-4 md:px-10 py-16 md:py-20" style={{ opacity, transform: `translateX(${translateX}px)` }}>
