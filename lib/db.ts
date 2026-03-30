@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import pg from 'pg'
 import type { ParsedTradeEvent } from './tradeParser'
 import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from './virtualLmsr'
@@ -920,7 +921,7 @@ export async function getWalletFreeMarketPositions(wallet: string): Promise<
   (CustomMarketPositionRow & { word: string; market_title: string; market_status: string })[]
 > {
   const result = await pool.query(
-    `SELECT p.*, w.word, m.title AS market_title, m.status AS market_status
+    `SELECT p.*, w.word, m.title AS market_title, m.status AS market_status, m.slug AS market_slug
      FROM custom_market_positions p
      JOIN custom_market_words w ON w.id = p.word_id
      JOIN custom_markets m ON m.id = p.market_id
@@ -936,7 +937,7 @@ export async function getWalletFreeMarketTrades(wallet: string, limit: number = 
   (CustomMarketTradeRow & { word: string; market_title: string })[]
 > {
   const result = await pool.query(
-    `SELECT t.*, w.word, m.title AS market_title
+    `SELECT t.*, w.word, m.title AS market_title, m.slug AS market_slug
      FROM custom_market_trades t
      JOIN custom_market_words w ON w.id = t.word_id
      JOIN custom_markets m ON m.id = t.market_id
@@ -991,6 +992,7 @@ export interface CustomMarketRow {
   lock_time: string | null
   b_parameter: number
   play_tokens: number
+  slug: string
   created_at: string
   updated_at: string
 }
@@ -1049,6 +1051,11 @@ export interface CustomMarketPriceHistoryRow {
   recorded_at: string
 }
 
+function generateSlug(prefix: string): string {
+  const hex = crypto.randomBytes(3).toString('hex')
+  return `${prefix}-${hex}`
+}
+
 export async function createCustomMarket(
   title: string,
   description: string | null,
@@ -1057,12 +1064,14 @@ export async function createCustomMarket(
   lockTime: string | null,
   bParameter: number,
   playTokens: number,
+  urlPrefix: string,
 ): Promise<CustomMarketRow> {
+  const slug = generateSlug(urlPrefix)
   const result = await pool.query(
-    `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, lock_time, b_parameter, play_tokens)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, lock_time, b_parameter, play_tokens, slug)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens],
+    [title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, slug],
   )
   return result.rows[0]
 }
@@ -1135,6 +1144,14 @@ export async function getCustomMarket(id: number): Promise<CustomMarketRow | nul
   const result = await pool.query(
     `SELECT * FROM custom_markets WHERE id = $1`,
     [id],
+  )
+  return result.rows[0] || null
+}
+
+export async function getCustomMarketBySlug(slug: string): Promise<CustomMarketRow | null> {
+  const result = await pool.query(
+    `SELECT * FROM custom_markets WHERE slug = $1`,
+    [slug],
   )
   return result.rows[0] || null
 }

@@ -106,6 +106,7 @@ interface FreePosition {
   word: string
   market_title: string
   market_status: string
+  market_slug: string
   yes_shares: string
   no_shares: string
   tokens_spent: string
@@ -120,6 +121,7 @@ interface FreeTrade {
   wallet: string
   word: string
   market_title: string
+  market_slug: string
   action: string
   side: string
   shares: string
@@ -2134,7 +2136,7 @@ export default function ProfilePage() {
                   className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
                 >
                   <div className="min-w-0">
-                    <Link href={`/custom/${pos.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                    <Link href={`/free/${pos.market_slug}`} className="text-white text-sm font-medium truncate hover:underline block">
                       {pos.market_title}
                     </Link>
                     <span className="text-neutral-500 text-xs">{pos.word}</span>
@@ -2212,7 +2214,7 @@ export default function ProfilePage() {
                     }`}>
                       {t.side}
                     </span>
-                    <Link href={`/custom/${t.market_id}`} className="text-white text-sm font-medium truncate hover:underline">
+                    <Link href={`/free/${t.market_slug}`} className="text-white text-sm font-medium truncate hover:underline">
                       {t.market_title}
                     </Link>
                   </div>

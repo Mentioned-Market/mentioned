@@ -264,6 +264,10 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_achievements_wallet ON user_achievements(wallet);
+
+-- URL slug for free markets (e.g. TRUMP-1a2b3c)
+ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS slug TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_markets_slug ON custom_markets(slug);
 `
 
 async function main() {

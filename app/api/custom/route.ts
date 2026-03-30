@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { wallet, title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words } = body as {
+  const { wallet, title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words, urlPrefix } = body as {
     wallet?: string
     title?: string
     description?: string
@@ -35,10 +35,11 @@ export async function POST(req: NextRequest) {
     bParameter?: number
     playTokens?: number
     words?: string[]
+    urlPrefix?: string
   }
 
-  if (!wallet || !title) {
-    return NextResponse.json({ error: 'wallet and title are required' }, { status: 400 })
+  if (!wallet || !title || !urlPrefix?.trim()) {
+    return NextResponse.json({ error: 'wallet, title, and urlPrefix are required' }, { status: 400 })
   }
   if (!isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
@@ -53,6 +54,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'playTokens must be between 100 and 10000' }, { status: 400 })
   }
 
+  const trimmedPrefix = urlPrefix!.trim().toUpperCase()
+  if (!/^[A-Z0-9]+$/.test(trimmedPrefix)) {
+    return NextResponse.json({ error: 'URL prefix must contain only letters and numbers' }, { status: 400 })
+  }
+
   const market = await createCustomMarket(
     title,
     description ?? null,
@@ -61,6 +67,7 @@ export async function POST(req: NextRequest) {
     lockTime ?? null,
     b,
     tokens,
+    trimmedPrefix,
   )
 
   let marketWords: any[] = []
