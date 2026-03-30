@@ -264,6 +264,7 @@ interface CustomMarketSummary {
   cover_image_url: string | null
   status: string
   lock_time: string | null
+  slug: string
   word_count: number
   trader_count: number
   words_prices: { word_id: number; word: string; yes_price: number; no_price: number }[]

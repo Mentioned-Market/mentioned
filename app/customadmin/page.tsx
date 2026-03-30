@@ -28,6 +28,7 @@ export default function CustomAdminPage() {
   const [lockTime, setLockTime] = useState('')
   const [bParameter, setBParameter] = useState('500')
   const [playTokens, setPlayTokens] = useState('1000')
+  const [urlPrefix, setUrlPrefix] = useState('')
   const [wordsInput, setWordsInput] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -100,8 +101,8 @@ export default function CustomAdminPage() {
   }
 
   async function handleCreate() {
-    if (!publicKey || !title.trim()) {
-      show('Title is required', 'error')
+    if (!publicKey || !title.trim() || !urlPrefix.trim()) {
+      show('Title and URL prefix are required', 'error')
       return
     }
     setCreating(true)
@@ -120,11 +121,12 @@ export default function CustomAdminPage() {
           bParameter: parseFloat(bParameter) || 500,
           playTokens: parseInt(playTokens) || 1000,
           words: words.length > 0 ? words : undefined,
+          urlPrefix: urlPrefix.trim() || undefined,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
-      show(`Market "${json.market.title}" created (ID: ${json.market.id})`)
+      show(`Market "${json.market.title}" created (${json.market.slug})`)
       setTitle('')
       setDescription('')
       setCoverImageUrl('')
@@ -132,6 +134,7 @@ export default function CustomAdminPage() {
       setLockTime('')
       setBParameter('500')
       setPlayTokens('1000')
+      setUrlPrefix('')
       setWordsInput('')
       fetchMarkets()
     } catch (err: any) {
@@ -337,6 +340,18 @@ export default function CustomAdminPage() {
                 onChange={e => setTitle(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
               />
+              <div>
+                <input
+                  type="text"
+                  placeholder="URL Prefix (e.g. TRUMP)"
+                  value={urlPrefix}
+                  onChange={e => setUrlPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20 uppercase"
+                />
+                <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                  URL will be /free/{urlPrefix || 'PREFIX'}-xxxxxx
+                </p>
+              </div>
               <input
                 type="text"
                 placeholder="Cover Image URL"
@@ -442,7 +457,7 @@ export default function CustomAdminPage() {
                       className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.03] transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono text-neutral-500">#{market.id}</span>
+                        <span className="text-xs font-mono text-neutral-500">{market.slug}</span>
                         <span className="text-sm font-medium">{market.title}</span>
                         <span className={`text-xs font-semibold ${getStatusColor(market.status)}`}>
                           {getStatusLabel(market.status)}
@@ -643,7 +658,7 @@ export default function CustomAdminPage() {
                               Delete
                             </button>
                             <a
-                              href={`/custom/${market.id}`}
+                              href={`/free/${market.slug}`}
                               target="_blank"
                               className="px-4 py-2 bg-white/5 text-neutral-300 text-xs font-semibold rounded-lg hover:bg-white/10 transition-colors"
                             >

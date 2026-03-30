@@ -17,6 +17,7 @@ interface CustomMarketSummary {
   cover_image_url: string | null
   status: string
   lock_time: string | null
+  slug: string
   word_count: number
   trader_count: number
   words_prices: WordPrice[]
@@ -37,7 +38,7 @@ function formatCloseTime(isoTime: string): string {
 
 const VISIBLE_COUNT = 5
 
-function ScrollingSentimentList({ words, marketId }: { words: WordPrice[]; marketId: number }) {
+function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; marketUrl: string }) {
   const innerRef = useRef<HTMLDivElement>(null)
   const outerRef = useRef<HTMLDivElement>(null)
   const offsetRef = useRef(0)
@@ -92,7 +93,7 @@ function ScrollingSentimentList({ words, marketId }: { words: WordPrice[]; marke
         {words.map(w => (
           <Link
             key={w.word_id}
-            href={`/custom/${marketId}`}
+            href={marketUrl}
             className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
           >
             <span className="text-white text-xs font-medium truncate flex-1">{w.word}</span>
@@ -107,7 +108,7 @@ function ScrollingSentimentList({ words, marketId }: { words: WordPrice[]; marke
 
 export default function CustomEventCard({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
-  const url = `/custom/${market.id}`
+  const url = `/free/${market.slug}`
 
   return (
     <div className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift">
@@ -156,7 +157,7 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
 
         {/* Scrolling word sentiment list */}
         {market.words_prices.length > 0 && (
-          <ScrollingSentimentList words={market.words_prices} marketId={market.id} />
+          <ScrollingSentimentList words={market.words_prices} marketUrl={url} />
         )}
 
         <Link href={url} className="flex items-center gap-2 pt-2 border-t border-white/5">

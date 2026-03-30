@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -158,10 +157,7 @@ function HowItWorks() {
 
 // ── Main Page ──────────────────────────────────────────
 
-export default function CustomMarketPage() {
-  const params = useParams()
-  const id = params.id as string
-  const marketId = parseInt(id, 10)
+export default function CustomMarketPageContent({ marketId }: { marketId: number }) {
   const { connected, connect, publicKey, discordLinked } = useWallet()
   const { showAchievementToast } = useAchievements()
 
