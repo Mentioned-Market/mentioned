@@ -7,11 +7,13 @@ import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
-  const { publicKey, connected, connect, disconnect, username, pfpEmoji } = useWallet()
+  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
+  const discordTooltipRef = useRef<HTMLDivElement>(null)
 
   const formatAddress = (pubKey: string | null) => {
     if (!pubKey) return ''
@@ -26,16 +28,19 @@ export default function Header() {
       if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
         setMobileMenuOpen(false)
       }
+      if (discordTooltipRef.current && !discordTooltipRef.current.contains(event.target as Node)) {
+        setShowDiscordTooltip(false)
+      }
     }
 
-    if (dropdownOpen || mobileMenuOpen) {
+    if (dropdownOpen || mobileMenuOpen || showDiscordTooltip) {
       document.addEventListener('mousedown', handleClickOutside)
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [dropdownOpen, mobileMenuOpen])
+  }, [dropdownOpen, mobileMenuOpen, showDiscordTooltip])
 
   return (
     <>
@@ -57,6 +62,32 @@ export default function Header() {
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
+          {connected && !discordLinked && (
+            <div className="relative" ref={discordTooltipRef}>
+              <button
+                onClick={() => setShowDiscordTooltip(!showDiscordTooltip)}
+                className="flex items-center justify-center w-8 h-8 md:w-9 md:h-9 rounded-lg bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/30 transition-all duration-200"
+                aria-label="Discord not linked"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" />
+                </svg>
+              </button>
+              {showDiscordTooltip && (
+                <div className="absolute right-0 mt-2 w-64 bg-neutral-900 border border-yellow-500/40 rounded-xl p-3 z-50 shadow-card-hover animate-scale-in">
+                  <p className="text-yellow-400 text-xs font-semibold mb-1">Discord not linked</p>
+                  <p className="text-neutral-300 text-xs leading-relaxed">You won&apos;t earn points on the leaderboard until you link your Discord account.</p>
+                  <Link
+                    href={`/api/discord/link?wallet=${publicKey}`}
+                    onClick={() => setShowDiscordTooltip(false)}
+                    className="mt-2 block text-center text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors duration-200"
+                  >
+                    Link Discord
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
           {connected ? (
             <div className="relative" ref={dropdownRef}>
               <button

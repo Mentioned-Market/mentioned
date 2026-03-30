@@ -990,6 +990,15 @@ export default function CustomMarketPage() {
                     })}
                   </div>
 
+                  {/* Event chat (when no stream, show inline) */}
+                  {!streamEmbedUrl && (
+                    <div className="mb-6">
+                      <div className="h-[400px]">
+                        <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Recent trades */}
                   {trades.length > 0 && (
                     <div className="mb-6">
@@ -1010,15 +1019,6 @@ export default function CustomMarketPage() {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Event chat (when no stream, show inline) */}
-                  {!streamEmbedUrl && (
-                    <div className="mb-6">
-                      <div className="h-[400px]">
-                        <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
                       </div>
                     </div>
                   )}

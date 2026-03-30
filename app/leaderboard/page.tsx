@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
+import InfoTooltip from '@/components/InfoTooltip'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -196,7 +197,30 @@ export default function LeaderboardPage() {
           {/* Title */}
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-6">
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white">Leaderboard</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl md:text-3xl font-bold text-white">Leaderboard</h1>
+                <InfoTooltip position="below">
+                  <div className="space-y-2">
+                    <p>Link your Discord on your profile to earn points! The top 5 point earners each week win real USDC. Week ends Sunday night GMT — winners notified via Discord.</p>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-neutral-500">
+                          <th className="text-left font-medium pb-1">Place</th>
+                          <th className="text-right font-medium pb-1">Prize</th>
+                          <th className="text-right font-medium pb-1">%</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-neutral-200">
+                        <tr><td className="py-0.5">1st</td><td className="text-right text-yellow-400 font-semibold">$40</td><td className="text-right">40%</td></tr>
+                        <tr><td className="py-0.5">2nd</td><td className="text-right text-neutral-300 font-semibold">$25</td><td className="text-right">25%</td></tr>
+                        <tr><td className="py-0.5">3rd</td><td className="text-right text-orange-400 font-semibold">$18</td><td className="text-right">18%</td></tr>
+                        <tr><td className="py-0.5">4th</td><td className="text-right font-semibold">$10</td><td className="text-right">10%</td></tr>
+                        <tr><td className="py-0.5">5th</td><td className="text-right font-semibold">$7</td><td className="text-right">7%</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </InfoTooltip>
+              </div>
               <p className="text-neutral-400 text-sm mt-1" suppressHydrationWarning>
                 {tab === 'trading'
                   ? tradingPeriod === 'alltime'

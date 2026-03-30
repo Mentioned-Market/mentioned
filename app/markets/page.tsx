@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import CustomEventCard from '@/components/CustomEventCard'
+import InfoTooltip from '@/components/InfoTooltip'
 
 interface Pricing {
   buyYesPriceUsd: number
@@ -373,6 +374,9 @@ export default function MarketsPage() {
                       <div className="flex items-center gap-2 mb-4">
                         <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
                         <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
+                        <InfoTooltip>
+                          Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
+                        </InfoTooltip>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {customMarkets.map(market => (

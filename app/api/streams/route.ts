@@ -5,6 +5,7 @@ import {
   getEventStream,
   getAllEventStreams,
 } from '@/lib/db'
+import { isAdmin } from '@/lib/adminAuth'
 
 // GET /api/streams?eventId=POLY-123  → single stream URL
 // GET /api/streams                   → all streams (for admin)
@@ -20,11 +21,15 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ streams })
 }
 
-// POST /api/streams  { eventId, streamUrl }
+// POST /api/streams  { eventId, streamUrl, wallet }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { eventId, streamUrl } = body
+    const { eventId, streamUrl, wallet } = body
+
+    if (!wallet || !isAdmin(wallet)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    }
 
     if (!eventId || !streamUrl) {
       return NextResponse.json({ error: 'eventId and streamUrl required' }, { status: 400 })
@@ -38,11 +43,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/streams  { eventId }
+// DELETE /api/streams  { eventId, wallet }
 export async function DELETE(req: NextRequest) {
   try {
     const body = await req.json()
-    const { eventId } = body
+    const { eventId, wallet } = body
+
+    if (!wallet || !isAdmin(wallet)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    }
 
     if (!eventId) {
       return NextResponse.json({ error: 'eventId required' }, { status: 400 })

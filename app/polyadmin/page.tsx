@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useWallet } from '@/contexts/WalletContext'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 
@@ -11,6 +12,10 @@ interface StreamEntry {
 }
 
 export default function PolyAdminPage() {
+  const { publicKey } = useWallet()
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+
   const [streams, setStreams] = useState<StreamEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -19,6 +24,20 @@ export default function PolyAdminPage() {
   const [streamUrl, setStreamUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Check admin status
+  useEffect(() => {
+    if (!publicKey) {
+      setIsAdmin(false)
+      setAuthChecked(true)
+      return
+    }
+    fetch(`/api/auth/admin?wallet=${publicKey}`)
+      .then(res => res.json())
+      .then(json => setIsAdmin(json.admin === true))
+      .catch(() => setIsAdmin(false))
+      .finally(() => setAuthChecked(true))
+  }, [publicKey])
 
   async function fetchStreams() {
     try {
@@ -32,7 +51,9 @@ export default function PolyAdminPage() {
     }
   }
 
-  useEffect(() => { fetchStreams() }, [])
+  useEffect(() => {
+    if (isAdmin) fetchStreams()
+  }, [isAdmin])
 
   async function handleSave() {
     if (!eventId.trim() || !streamUrl.trim()) {
@@ -47,7 +68,7 @@ export default function PolyAdminPage() {
       const res = await fetch('/api/streams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: eventId.trim(), streamUrl: streamUrl.trim() }),
+        body: JSON.stringify({ eventId: eventId.trim(), streamUrl: streamUrl.trim(), wallet: publicKey }),
       })
 
       if (!res.ok) throw new Error('Failed to save')
@@ -68,12 +89,49 @@ export default function PolyAdminPage() {
       await fetch('/api/streams', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: id }),
+        body: JSON.stringify({ eventId: id, wallet: publicKey }),
       })
       fetchStreams()
     } catch {
       console.error('Failed to delete stream')
     }
+  }
+
+  // Auth gate
+  if (!authChecked) {
+    return (
+      <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+        <div className="layout-container flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <main className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              </main>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!publicKey || !isAdmin) {
+    return (
+      <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+        <div className="layout-container flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <main className="flex-1 flex flex-col items-center justify-center gap-2">
+                <p className="text-neutral-400 text-sm">
+                  {!publicKey ? 'Connect your wallet to access this page.' : 'You do not have admin access.'}
+                </p>
+              </main>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
