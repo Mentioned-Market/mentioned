@@ -202,6 +202,7 @@ export default function LeaderboardPage() {
                 <InfoTooltip position="below">
                   <div className="space-y-2">
                     <p>Link your Discord on your profile to earn points! The top 5 point earners each week win real USDC. Week ends Sunday night GMT — winners notified via Discord.</p>
+                    <p className="text-neutral-400">Achievement points don&apos;t count towards weekly rankings — only trades, wins, chats, and holds.</p>
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-neutral-500">

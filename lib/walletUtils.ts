@@ -18,10 +18,79 @@ interface SignTransactionFeature {
   ): Promise<Array<{ signedTransaction: Uint8Array }>>
 }
 
+const SIG_LENGTH = 64
+const ZERO_SIG = new Uint8Array(SIG_LENGTH) // 64 zero bytes = empty signature slot
+
+/**
+ * Read the compact-u16 encoded signature count from a serialized transaction.
+ * Returns [count, bytesConsumed].
+ */
+function readCompactU16(bytes: Uint8Array, offset: number): [number, number] {
+  let val = 0
+  let consumed = 0
+  let shift = 0
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const b = bytes[offset + consumed]
+    consumed++
+    val |= (b & 0x7f) << shift
+    if ((b & 0x80) === 0) break
+    shift += 7
+  }
+  return [val, consumed]
+}
+
+/**
+ * Strip all non-zero signatures from a serialized transaction,
+ * saving them for later restoration. This lets Phantom see a
+ * "clean" transaction with no pre-existing unknown signatures,
+ * avoiding Lighthouse warnings.
+ *
+ * Returns the stripped tx bytes and a map of index → saved signature.
+ */
+function stripSignatures(txBytes: Uint8Array): {
+  stripped: Uint8Array
+  saved: Map<number, Uint8Array>
+} {
+  const [sigCount, headerLen] = readCompactU16(txBytes, 0)
+  const saved = new Map<number, Uint8Array>()
+  const stripped = new Uint8Array(txBytes) // copy
+
+  for (let i = 0; i < sigCount; i++) {
+    const start = headerLen + i * SIG_LENGTH
+    const sig = txBytes.slice(start, start + SIG_LENGTH)
+    // Check if this sig slot is non-zero (already signed by someone)
+    const isNonZero = sig.some((b) => b !== 0)
+    if (isNonZero) {
+      saved.set(i, sig)
+      // Zero it out so Phantom sees an unsigned slot
+      stripped.set(ZERO_SIG, start)
+    }
+  }
+
+  return { stripped, saved }
+}
+
+/**
+ * Restore previously saved signatures back into a signed transaction.
+ */
+function restoreSignatures(
+  signedBytes: Uint8Array,
+  saved: Map<number, Uint8Array>
+): Uint8Array {
+  const [, headerLen] = readCompactU16(signedBytes, 0)
+  const restored = new Uint8Array(signedBytes) // copy
+
+  for (const [idx, sig] of saved) {
+    const start = headerLen + idx * SIG_LENGTH
+    restored.set(sig, start)
+  }
+
+  return restored
+}
+
 /**
  * Pre-simulate a transaction via our own RPC with sigVerify disabled.
- * This catches errors before Phantom sees the tx, avoiding the
- * "This dApp could be malicious" simulation warning.
  */
 async function preSimulate(txBytes: Uint8Array): Promise<void> {
   const base64Tx = btoa(String.fromCharCode(...txBytes))
@@ -81,9 +150,13 @@ async function sendRawTransaction(signedTxBytes: Uint8Array): Promise<string> {
 /**
  * Sign and send a base64-encoded transaction using whatever wallet is connected.
  *
- * For Phantom: uses signTransaction (sign-only) first so the wallet signature
- * comes first, then sends via RPC. This avoids Phantom's Lighthouse flagging
- * transactions with multiple signers where the wallet isn't the first signer.
+ * For Phantom with multi-signer transactions:
+ * 1. Strip existing signatures from Jupiter's pre-signed transaction
+ * 2. Have Phantom sign the clean transaction (wallet signs first)
+ * 3. Restore Jupiter's signatures back into the signed transaction
+ * 4. Send the fully-signed transaction via RPC
+ *
+ * This follows Phantom's recommended signing order to avoid Lighthouse warnings.
  */
 export async function signAndSendTx(
   transaction: string,
@@ -113,27 +186,33 @@ async function signAndSendPhantom(
   const chain =
     account.chains.find((c) => c.startsWith('solana:')) || SOLANA_CHAIN
 
+  // Pre-simulate the original transaction (with all signatures)
   await preSimulate(txBytes)
 
-  // Use signTransaction so wallet signs first (Phantom Lighthouse requirement).
-  // If signTransaction is available, use the two-step flow.
-  // Otherwise fall back to signAndSendTransaction.
+  // Check if signTransaction is available for the two-step flow
   if ('solana:signTransaction' in wallet.features) {
     const signFeature = wallet.features[
       'solana:signTransaction'
     ] as SignTransactionFeature
 
+    // Strip existing signatures so Phantom sees a clean transaction
+    const { stripped, saved } = stripSignatures(txBytes)
+
+    // Phantom signs first (clean transaction, no unknown signatures)
     const [result] = await signFeature.signTransaction({
-      transaction: txBytes,
+      transaction: stripped,
       account,
       chain,
     })
 
-    // Send the wallet-signed transaction via RPC
-    return sendRawTransaction(result.signedTransaction)
+    // Restore the other signers' signatures
+    const fullySigned = restoreSignatures(result.signedTransaction, saved)
+
+    // Send via RPC
+    return sendRawTransaction(fullySigned)
   }
 
-  // Fallback: signAndSendTransaction (single-signer transactions)
+  // Fallback: signAndSendTransaction
   const signAndSend = wallet.features[
     'solana:signAndSendTransaction'
   ] as SignAndSendFeature

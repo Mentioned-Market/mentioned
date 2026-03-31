@@ -1,6 +1,6 @@
 # Mentioned — Project Guide
 
-Solana prediction market platform. Users trade YES/NO outcomes on esports matches (via Jupiter/Polymarket), on-chain word-mention markets (LMSR AMM), and free play-token markets (virtual LMSR). Next.js 14 App Router fullstack app.
+Solana prediction market platform. Users trade YES/NO outcomes on events (via Jupiter/Polymarket), on-chain word-mention markets (LMSR AMM), and free play-token markets (virtual LMSR). Next.js 14 App Router fullstack app.
 
 ## Tech Stack
 
@@ -80,7 +80,7 @@ specs/                    # Feature specifications
 ## Three Market Types
 
 ### 1. Polymarket (Jupiter Integration)
-- Users trade on esports events via Jupiter's Prediction API
+- Users trade on events via Jupiter's Prediction API
 - Real USDC, real Solana transactions
 - Pages: `/polymarkets`, `/polymarkets/event/[eventId]`
 - API: `/api/polymarket/*`

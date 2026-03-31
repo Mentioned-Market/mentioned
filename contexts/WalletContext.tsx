@@ -129,7 +129,8 @@ async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Send a signed transaction via RPC.
+ * Send a signed transaction via RPC. Returns the base58 signature as a Uint8Array
+ * (text-encoded, for compatibility with TransactionSendingSigner return type).
  */
 async function sendRawTx(signedTxBytes: Uint8Array): Promise<Uint8Array> {
   const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
@@ -150,10 +151,8 @@ async function sendRawTx(signedTxBytes: Uint8Array): Promise<Uint8Array> {
   if (json.error) {
     throw new Error(`sendTransaction failed: ${json.error.message || JSON.stringify(json.error)}`)
   }
-  // Return the signature as bytes (base58 string → bytes)
   const sigStr = json.result as string
-  const encoder = new TextEncoder()
-  return encoder.encode(sigStr)
+  return new TextEncoder().encode(sigStr)
 }
 
 const FEAT_SIGN = 'solana:signTransaction'
@@ -162,16 +161,14 @@ function buildPhantomSigner(
   wallet: Wallet,
   account: WalletAccount
 ): TransactionSendingSigner {
-  const encoder = getTransactionEncoder()
-
-  // Prefer signTransaction so wallet signs first (Phantom Lighthouse requirement)
+  const txEncoder = getTransactionEncoder()
   const useSignOnly = FEAT_SIGN in wallet.features
 
   return {
     address: toAddress(account.address),
     signAndSendTransactions: async (transactions) => {
       const inputs = transactions.map((tx) => ({
-        transaction: new Uint8Array(encoder.encode(tx)),
+        transaction: new Uint8Array(txEncoder.encode(tx)),
         account,
         chain: SOLANA_CHAIN,
       }))
@@ -182,7 +179,10 @@ function buildPhantomSigner(
       }
 
       if (useSignOnly) {
-        // Two-step: wallet signs first, then we send via RPC
+        // Two-step: wallet signs first, then we send via RPC.
+        // For on-chain mention market txs, there's only one signer (the user),
+        // so no need to strip/restore signatures. But using signTransaction
+        // still avoids any Lighthouse multi-signer detection.
         const signFeature = wallet.features[FEAT_SIGN] as {
           signTransaction(...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>): Promise<Array<{ signedTransaction: Uint8Array }>>
         }
