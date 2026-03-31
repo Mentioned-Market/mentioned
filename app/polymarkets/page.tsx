@@ -303,7 +303,7 @@ export default function PolymarketsPage() {
                 <div className="flex items-center gap-3 mb-2">
                   <h1 className="text-white text-2xl md:text-3xl font-bold">Polymarkets</h1>
                   <span className="px-2.5 py-1 rounded-full bg-apple-blue/20 text-apple-blue text-xs font-semibold">
-                    Esports
+                    Live
                   </span>
                 </div>
                 <p className="text-neutral-400 text-sm">

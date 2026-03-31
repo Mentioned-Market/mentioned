@@ -398,6 +398,12 @@ export async function getWalletByReferralCode(code: string): Promise<string | nu
  */
 export async function applyReferral(refereeWallet: string, referrerWallet: string): Promise<boolean> {
   if (refereeWallet === referrerWallet) return false
+  // Prevent circular referrals (A referred B, then B tries to refer A)
+  const existing = await pool.query(
+    `SELECT referred_by FROM user_profiles WHERE wallet = $1`,
+    [referrerWallet],
+  )
+  if (existing.rows[0]?.referred_by === refereeWallet) return false
   const result = await pool.query(
     `UPDATE user_profiles SET referred_by = $2, updated_at = NOW()
      WHERE wallet = $1 AND referred_by IS NULL
@@ -828,7 +834,7 @@ export async function getBulkPointTotals(
     `SELECT
        wallet,
        COALESCE(SUM(points), 0)::int AS all_time,
-       COALESCE(SUM(points) FILTER (WHERE created_at >= $2), 0)::int AS weekly,
+       COALESCE(SUM(points) FILTER (WHERE created_at >= $2 AND action != 'achievement'), 0)::int AS weekly,
        COALESCE(COUNT(*) FILTER (WHERE action = 'trade_placed'), 0)::int AS trade_count,
        COALESCE(COUNT(*) FILTER (WHERE action = 'claim_won'), 0)::int AS win_count,
        COALESCE(COUNT(*) FILTER (WHERE action = 'chat_message'), 0)::int AS chat_count,

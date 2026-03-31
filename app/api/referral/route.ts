@@ -60,6 +60,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'You cannot refer yourself' }, { status: 400 })
   }
 
+  // Prevent circular referrals (they already referred you)
+  const referrerReferrer = await getReferrer(referrerWallet)
+  if (referrerReferrer === wallet) {
+    return NextResponse.json({ error: 'You cannot refer someone who already referred you' }, { status: 400 })
+  }
+
   const applied = await applyReferral(wallet, referrerWallet)
   if (!applied) {
     return NextResponse.json({ error: 'Failed to apply referral' }, { status: 409 })
