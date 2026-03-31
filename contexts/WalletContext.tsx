@@ -128,12 +128,44 @@ async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
   }
 }
 
+/**
+ * Send a signed transaction via RPC.
+ */
+async function sendRawTx(signedTxBytes: Uint8Array): Promise<Uint8Array> {
+  const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
+  const res = await fetch(MAINNET_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'sendTransaction',
+      params: [
+        base64Tx,
+        { encoding: 'base64', skipPreflight: true, preflightCommitment: 'confirmed' },
+      ],
+    }),
+  })
+  const json = await res.json()
+  if (json.error) {
+    throw new Error(`sendTransaction failed: ${json.error.message || JSON.stringify(json.error)}`)
+  }
+  // Return the signature as bytes (base58 string → bytes)
+  const sigStr = json.result as string
+  const encoder = new TextEncoder()
+  return encoder.encode(sigStr)
+}
+
+const FEAT_SIGN = 'solana:signTransaction'
+
 function buildPhantomSigner(
   wallet: Wallet,
   account: WalletAccount
 ): TransactionSendingSigner {
-  const feature = wallet.features[FEAT_SIGN_SEND] as SignAndSendFeature
   const encoder = getTransactionEncoder()
+
+  // Prefer signTransaction so wallet signs first (Phantom Lighthouse requirement)
+  const useSignOnly = FEAT_SIGN in wallet.features
 
   return {
     address: toAddress(account.address),
@@ -149,6 +181,22 @@ function buildPhantomSigner(
         await preSimulateTx(input.transaction)
       }
 
+      if (useSignOnly) {
+        // Two-step: wallet signs first, then we send via RPC
+        const signFeature = wallet.features[FEAT_SIGN] as {
+          signTransaction(...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>): Promise<Array<{ signedTransaction: Uint8Array }>>
+        }
+        const signed = await signFeature.signTransaction(...inputs)
+        const sigs: Uint8Array[] = []
+        for (const s of signed) {
+          const sig = await sendRawTx(s.signedTransaction)
+          sigs.push(sig)
+        }
+        return sigs as any
+      }
+
+      // Fallback: signAndSendTransaction
+      const feature = wallet.features[FEAT_SIGN_SEND] as SignAndSendFeature
       const results = await feature.signAndSendTransaction(...inputs)
       return results.map((r) => r.signature) as any
     },

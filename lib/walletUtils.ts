@@ -12,6 +12,12 @@ interface SignAndSendFeature {
   ): Promise<Array<{ signature: Uint8Array }>>
 }
 
+interface SignTransactionFeature {
+  signTransaction(
+    ...inputs: Array<{ transaction: Uint8Array; account: any; chain?: string }>
+  ): Promise<Array<{ signedTransaction: Uint8Array }>>
+}
+
 /**
  * Pre-simulate a transaction via our own RPC with sigVerify disabled.
  * This catches errors before Phantom sees the tx, avoiding the
@@ -44,7 +50,40 @@ async function preSimulate(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
+ * Send a signed transaction via RPC and return the signature.
+ */
+async function sendRawTransaction(signedTxBytes: Uint8Array): Promise<string> {
+  const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
+  const res = await fetch(MAINNET_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'sendTransaction',
+      params: [
+        base64Tx,
+        {
+          encoding: 'base64',
+          skipPreflight: true,
+          preflightCommitment: 'confirmed',
+        },
+      ],
+    }),
+  })
+  const json = await res.json()
+  if (json.error) {
+    throw new Error(`sendTransaction failed: ${json.error.message || JSON.stringify(json.error)}`)
+  }
+  return json.result as string
+}
+
+/**
  * Sign and send a base64-encoded transaction using whatever wallet is connected.
+ *
+ * For Phantom: uses signTransaction (sign-only) first so the wallet signature
+ * comes first, then sends via RPC. This avoids Phantom's Lighthouse flagging
+ * transactions with multiple signers where the wallet isn't the first signer.
  */
 export async function signAndSendTx(
   transaction: string,
@@ -71,14 +110,33 @@ async function signAndSendPhantom(
   const account = wallet.accounts.find((a) => a.address === ownerPubkey)
   if (!account) throw new Error('Wallet account not found')
 
-  const signAndSend = wallet.features[
-    'solana:signAndSendTransaction'
-  ] as SignAndSendFeature
-
   const chain =
     account.chains.find((c) => c.startsWith('solana:')) || SOLANA_CHAIN
 
   await preSimulate(txBytes)
+
+  // Use signTransaction so wallet signs first (Phantom Lighthouse requirement).
+  // If signTransaction is available, use the two-step flow.
+  // Otherwise fall back to signAndSendTransaction.
+  if ('solana:signTransaction' in wallet.features) {
+    const signFeature = wallet.features[
+      'solana:signTransaction'
+    ] as SignTransactionFeature
+
+    const [result] = await signFeature.signTransaction({
+      transaction: txBytes,
+      account,
+      chain,
+    })
+
+    // Send the wallet-signed transaction via RPC
+    return sendRawTransaction(result.signedTransaction)
+  }
+
+  // Fallback: signAndSendTransaction (single-signer transactions)
+  const signAndSend = wallet.features[
+    'solana:signAndSendTransaction'
+  ] as SignAndSendFeature
 
   const [result] = await signAndSend.signAndSendTransaction({
     transaction: txBytes,
@@ -97,18 +155,13 @@ async function signAndSendPrivy(
   const wallet = getPrivySolanaProvider()
   if (!wallet) throw new Error('Privy Solana wallet not connected')
 
-  // Privy's ConnectedStandardSolanaWallet wraps a wallet-standard wallet.
-  // Find its underlying wallet-standard registration and use signAndSendTransaction.
-  // The wallet-standard registry will contain the Privy wallet after login.
   const wallets = getWallets().get()
 
-  // Try to find the Privy wallet in the wallet-standard registry
   for (const w of wallets) {
     if (!('solana:signAndSendTransaction' in w.features)) continue
     const account = w.accounts.find((a) => a.address === ownerPubkey)
     if (!account) continue
 
-    // Found a wallet-standard wallet matching the Privy address
     const signAndSend = w.features[
       'solana:signAndSendTransaction'
     ] as SignAndSendFeature
