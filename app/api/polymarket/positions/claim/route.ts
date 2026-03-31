@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
 import { awardPoints, awardHoldPoints } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
-import { getPolymarketWinCount } from '@/lib/db'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -56,11 +55,6 @@ export async function POST(req: NextRequest) {
       if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
     }
     push(await tryUnlockAchievement(ownerPubkey, 'win_trade'))
-
-    // Win milestones
-    const wins = await getPolymarketWinCount(ownerPubkey)
-    if (wins >= 3) push(await tryUnlockAchievement(ownerPubkey, '3_wins'))
-    if (wins >= 10) push(await tryUnlockAchievement(ownerPubkey, '10_wins'))
   } catch (err) {
     console.error('Achievement error (claim):', err)
   }

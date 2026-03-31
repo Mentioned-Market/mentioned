@@ -834,7 +834,7 @@ export async function getBulkPointTotals(
     `SELECT
        wallet,
        COALESCE(SUM(points), 0)::int AS all_time,
-       COALESCE(SUM(points) FILTER (WHERE created_at >= $2 AND action != 'achievement'), 0)::int AS weekly,
+       COALESCE(SUM(points) FILTER (WHERE created_at >= $2), 0)::int AS weekly,
        COALESCE(COUNT(*) FILTER (WHERE action = 'trade_placed'), 0)::int AS trade_count,
        COALESCE(COUNT(*) FILTER (WHERE action = 'claim_won'), 0)::int AS win_count,
        COALESCE(COUNT(*) FILTER (WHERE action = 'chat_message'), 0)::int AS chat_count,
