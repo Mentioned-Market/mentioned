@@ -185,32 +185,26 @@ The homepage (`app/page.tsx`) uses a scroll-driven slideshow architecture:
 - **Mobile**: Header uses burger menu (`md:hidden`), hero/slide text scales down, step 1 shows 1 card instead of 3, fixed viewport has safe padding
 - **GlobalChat hidden on homepage** via `usePathname() === '/'` check, also hidden on mobile via CSS `hidden md:block`
 
-## Achievements System
+## Achievements System (Weekly Rotation)
 
-15 achievements defined in `lib/achievements.ts`. Each has `id`, `emoji`, `title`, `description`, `points`.
+Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` as the `ACHIEVEMENTS` array. To rotate: clear the `user_achievements` table, update the array, and redeploy. Achievement points count toward the weekly leaderboard.
+
+**Current week's achievements:**
 
 | ID | Emoji | Title | Points | Trigger Location |
 |---|---|---|---|---|
-| `set_nickname` | 🏷️ | Named & Famed | 75 | `PUT /api/profile` |
-| `set_pfp` | 🎨 | Fresh Fit | 50 | `PATCH /api/profile` |
-| `first_trade` | 🎯 | First Shot | 150 | `POST /api/polymarket/trades/record` |
-| `win_trade` | 🏆 | Winner Winner | 225 | `POST /api/polymarket/positions/claim` |
-| `lose_trade` | 💀 | Battle Scarred | 75 | `DELETE /api/polymarket/positions/close` |
-| `10_trades` | 📊 | Getting Started | 100 | Trade record (count check) |
-| `50_trades` | 🔥 | On Fire | 250 | Trade record (count check) |
-| `100_trades` | 💯 | Centurion | 500 | Trade record (count check) |
-| `3_wins` | 🎰 | Hat Trick | 150 | Claim position (win count check) |
-| `10_wins` | 👑 | King of the Hill | 400 | Claim position (win count check) |
-| `first_chat` | 💬 | Say Something | 50 | `POST /api/chat` and `POST /api/chat/event` |
-| `50_chats` | 📢 | Loud Mouth | 150 | Chat POST (message count check) |
-| `first_free_trade` | 🎮 | Free Player | 75 | `POST /api/custom/[id]/trade` |
-| `free_market_win` | 🏅 | Play Money Pro | 150 | `lib/customScoring.ts` (on profit > 0) |
+| `place_trade` | 🎯 | Pull the Trigger | 100 | `POST /api/polymarket/trades/record` |
+| `win_trade` | 🏆 | Cashed Out | 150 | `POST /api/polymarket/positions/claim` |
+| `send_chat` | 💬 | Say Something | 75 | `POST /api/chat` and `POST /api/chat/event` |
+| `set_profile` | 🏷️ | Make It Official | 75 | `PUT /api/profile` |
+| `free_trade` | 🎮 | Play Money | 100 | `POST /api/custom/[id]/trade` |
+| `refer_friend` | 🤝 | Bring a Friend | 150 | `POST /api/referral` (awarded to referrer) |
 
 **Achievement flow**: API endpoint calls `tryUnlockAchievement(wallet, id)` → returns achievement def if newly unlocked → endpoint includes `newAchievements` array in response → frontend calls `showAchievementToast(ach)` from `useAchievements()` context.
 
-**Count helpers in db.ts**: `getPolymarketTradeCount`, `getPolymarketWinCount`, `getChatMessageCount`, `getCustomMarketTradeCount`.
-
 **Toast handling**: All endpoints that unlock achievements return `newAchievements` in the JSON response. Frontend pages/components that make these API calls check for `data.newAchievements?.length` and loop through calling `showAchievementToast()`. This includes: polymarket event page, positions page, profile page, custom market page, GlobalChat, and EventChat.
+
+**Weekly reset process**: Clear `user_achievements` table, update `ACHIEVEMENTS` array in `lib/achievements.ts` with new set, update trigger locations in API routes if new achievement IDs differ, redeploy.
 
 ## Performance Patterns
 

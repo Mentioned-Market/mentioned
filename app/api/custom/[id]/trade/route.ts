@@ -94,7 +94,7 @@ export async function POST(
     // Free market achievements (fire-and-forget)
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
     try {
-      const ach = await tryUnlockAchievement(wallet, 'first_free_trade')
+      const ach = await tryUnlockAchievement(wallet, 'free_trade')
       if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
     } catch (err) {
       console.error('Achievement error (custom trade):', err)

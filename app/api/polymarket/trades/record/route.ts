@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { insertPolymarketTrade, getPolymarketTradeCount, getTradePointsCountToday } from '@/lib/db'
+import { insertPolymarketTrade, getTradePointsCountToday } from '@/lib/db'
 import { awardPoints, checkAndAwardFirstTrade, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 
@@ -43,13 +43,7 @@ export async function POST(req: NextRequest) {
       const push = (a: Awaited<ReturnType<typeof tryUnlockAchievement>>) => {
         if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
       }
-      push(await tryUnlockAchievement(wallet, 'first_trade'))
-
-      // Trade milestones
-      const count = await getPolymarketTradeCount(wallet)
-      if (count >= 10) push(await tryUnlockAchievement(wallet, '10_trades'))
-      if (count >= 50) push(await tryUnlockAchievement(wallet, '50_trades'))
-      if (count >= 100) push(await tryUnlockAchievement(wallet, '100_trades'))
+      push(await tryUnlockAchievement(wallet, 'place_trade'))
     } catch (err) {
       console.error('Achievement error (trade):', err)
     }

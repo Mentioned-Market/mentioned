@@ -7,6 +7,7 @@ import {
   applyReferral,
   getReferrer,
 } from '@/lib/db'
+import { tryUnlockAchievement } from '@/lib/achievements'
 
 /**
  * GET /api/referral?wallet=xxx — Get referral stats + ensure code exists
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
   if (!applied) {
     return NextResponse.json({ error: 'Failed to apply referral' }, { status: 409 })
   }
+
+  // Award "refer a friend" achievement to the referrer (fire-and-forget)
+  tryUnlockAchievement(referrerWallet, 'refer_friend').catch(err =>
+    console.error('Achievement error (referral):', err)
+  )
 
   return NextResponse.json({ success: true, referredBy: referrerWallet })
 }

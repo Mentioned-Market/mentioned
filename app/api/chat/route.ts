@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRecentChatMessages, insertChatMessage, getProfile, getChatPointsCountToday, getChatMessageCount } from '@/lib/db'
+import { getRecentChatMessages, insertChatMessage, getProfile, getChatPointsCountToday } from '@/lib/db'
 import { awardPoints, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
+import { checkSlurs } from '@/lib/chatFilter'
 
 const MAX_LENGTH = 200
 const RATE_LIMIT_MS = 500
@@ -25,6 +26,11 @@ export async function POST(req: NextRequest) {
   }
 
   const text = message.trim().slice(0, MAX_LENGTH)
+
+  // Slur filter
+  if (checkSlurs(text)) {
+    return NextResponse.json({ error: 'Message contains prohibited language' }, { status: 400 })
+  }
 
   // Simple rate limit per wallet
   const now = Date.now()
@@ -55,9 +61,7 @@ export async function POST(req: NextRequest) {
     const push = (a: Awaited<ReturnType<typeof tryUnlockAchievement>>) => {
       if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
     }
-    push(await tryUnlockAchievement(wallet, 'first_chat'))
-    const msgCount = await getChatMessageCount(wallet)
-    if (msgCount >= 50) push(await tryUnlockAchievement(wallet, '50_chats'))
+    push(await tryUnlockAchievement(wallet, 'send_chat'))
   } catch (err) {
     console.error('Achievement error (chat):', err)
   }

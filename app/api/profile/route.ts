@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, upsertProfile, updatePfpEmoji, getUnlockedAchievements, ensureReferralCode, getReferralStats } from '@/lib/db'
 import { tryUnlockAchievement, ACHIEVEMENT_MAP } from '@/lib/achievements'
+import { checkSlurs } from '@/lib/chatFilter'
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 
@@ -55,13 +56,17 @@ export async function PUT(req: NextRequest) {
     )
   }
 
+  if (checkSlurs(trimmed)) {
+    return NextResponse.json({ error: 'Username contains prohibited language' }, { status: 400 })
+  }
+
   try {
     await upsertProfile(wallet, trimmed)
 
     // Fire-and-forget achievement — but collect result for toast
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
     try {
-      const ach = await tryUnlockAchievement(wallet, 'set_nickname')
+      const ach = await tryUnlockAchievement(wallet, 'set_profile')
       if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
     } catch (err) {
       console.error('Achievement error (nickname):', err)
@@ -99,16 +104,7 @@ export async function PATCH(req: NextRequest) {
   try {
     await updatePfpEmoji(wallet, pfpEmoji ?? null)
 
-    // Achievement for setting PFP
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
-    if (pfpEmoji) {
-      try {
-        const ach = await tryUnlockAchievement(wallet, 'set_pfp')
-        if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
-      } catch (err) {
-        console.error('Achievement error (pfp):', err)
-      }
-    }
 
     return NextResponse.json({ success: true, pfpEmoji: pfpEmoji ?? null, newAchievements })
   } catch (err) {
