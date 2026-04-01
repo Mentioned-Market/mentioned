@@ -6,6 +6,7 @@ import {
   addCustomMarketWords,
 } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function GET(req: NextRequest) {
   const admin = req.nextUrl.searchParams.get('admin') === 'true'
@@ -24,9 +25,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+  if (!isAdmin(wallet)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
   const body = await req.json()
-  const { wallet, title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words, urlPrefix } = body as {
-    wallet?: string
+  const { title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words, urlPrefix } = body as {
     title?: string
     description?: string
     coverImageUrl?: string
@@ -38,11 +46,8 @@ export async function POST(req: NextRequest) {
     urlPrefix?: string
   }
 
-  if (!wallet || !title || !urlPrefix?.trim()) {
-    return NextResponse.json({ error: 'wallet, title, and urlPrefix are required' }, { status: 400 })
-  }
-  if (!isAdmin(wallet)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  if (!title || !urlPrefix?.trim()) {
+    return NextResponse.json({ error: 'title and urlPrefix are required' }, { status: 400 })
   }
 
   const b = bParameter ?? 500

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { unlinkDiscord } from '@/lib/db'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { wallet } = body as { wallet?: string }
-
+  const wallet = getVerifiedWallet(req)
   if (!wallet) {
-    return NextResponse.json({ error: 'wallet is required' }, { status: 400 })
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
 
   try {

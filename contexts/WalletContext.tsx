@@ -34,6 +34,7 @@ const FEAT_CONNECT = 'standard:connect'
 const FEAT_DISCONNECT = 'standard:disconnect'
 const FEAT_EVENTS = 'standard:events'
 const FEAT_SIGN_SEND = 'solana:signAndSendTransaction'
+const FEAT_SIGN_MSG = 'solana:signMessage'
 
 // ── Types ────────────────────────────────────────────────
 
@@ -62,6 +63,15 @@ interface SignAndSendFeature {
   ): Promise<Array<{ signature: Uint8Array }>>
 }
 
+interface SignMessageFeature {
+  signMessage(
+    ...inputs: Array<{
+      message: Uint8Array
+      account: WalletAccount
+    }>
+  ): Promise<Array<{ signedMessage: Uint8Array; signature: Uint8Array }>>
+}
+
 interface WalletContextType {
   publicKey: string | null
   balance: number | null
@@ -84,6 +94,8 @@ interface WalletContextType {
   discordLinked: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
   refreshProfile: () => void
+  /** Whether the session has been verified server-side */
+  authenticated: boolean
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -216,6 +228,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   )
   const [showConnectModal, setShowConnectModal] = useState(false)
 
+  // Auth session state
+  const [authenticated, setAuthenticated] = useState(false)
+  const authInFlightRef = useRef<string | null>(null)
+
   // Cached profile data (fetched once per wallet connection)
   const [username, setUsername] = useState<string | null>(null)
   const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
@@ -232,6 +248,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     logout: privyLogout,
     authenticated: privyAuthenticated,
     ready: privyReady,
+    getAccessToken,
   } = usePrivy()
   const { wallets: privySolanaWallets, ready: privySolanaReady } =
     usePrivySolanaWallets()
@@ -267,7 +284,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setUsername(null)
     setPfpEmoji(null)
     setDiscordLinked(false)
+    setAuthenticated(false)
     profileFetchedForRef.current = null
+    authInFlightRef.current = null
     privyWalletRef.current = null
   }, [])
 
@@ -423,6 +442,86 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (pubkey) fetchProfile(pubkey)
   }, [pubkey, fetchProfile])
 
+  // ── Session establishment ───────────────────────────────
+
+  useEffect(() => {
+    if (!pubkey || !connected || !walletType) return
+    if (authInFlightRef.current === pubkey) return
+
+    // Check if a valid session already exists (non-httpOnly flag cookie)
+    const cookies = document.cookie.split('; ')
+    const sessionWallet = cookies
+      .find((c) => c.startsWith('session_wallet='))
+      ?.split('=')[1]
+    if (sessionWallet === pubkey) {
+      setAuthenticated(true)
+      return
+    }
+
+    authInFlightRef.current = pubkey
+
+    const establishSession = async () => {
+      try {
+        if (walletType === 'privy') {
+          // Privy: get access token (already authenticated) and verify server-side
+          const token = await getAccessToken()
+          if (!token) throw new Error('No Privy access token')
+          const res = await fetch('/api/auth/sign-in', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'privy', token }),
+          })
+          if (!res.ok) throw new Error('Privy sign-in failed')
+          setAuthenticated(true)
+        } else if (walletType === 'phantom') {
+          // Phantom: sign a message to prove wallet ownership
+          const wallet = walletRef.current
+          if (!wallet || !(FEAT_SIGN_MSG in wallet.features)) {
+            throw new Error('Wallet does not support signMessage')
+          }
+          const account = wallet.accounts[0]
+          if (!account) throw new Error('No wallet account')
+
+          const timestamp = Math.floor(Date.now() / 1000)
+          const message = `Sign in to Mentioned\nTimestamp: ${timestamp}`
+          const messageBytes = new TextEncoder().encode(message)
+
+          const signMessageFeature = wallet.features[FEAT_SIGN_MSG] as SignMessageFeature
+          const [result] = await signMessageFeature.signMessage({
+            message: messageBytes,
+            account,
+          })
+
+          // Encode signature as base64 for transport
+          const signatureBase64 = btoa(
+            String.fromCharCode(...result.signature),
+          )
+
+          const res = await fetch('/api/auth/sign-in', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'phantom',
+              wallet: pubkey,
+              signature: signatureBase64,
+              message,
+            }),
+          })
+          if (!res.ok) throw new Error('Phantom sign-in failed')
+          setAuthenticated(true)
+        }
+      } catch (err) {
+        console.error('Session establishment failed:', err)
+        authInFlightRef.current = null
+        // Don't disconnect — wallet is connected, just not authenticated.
+        // API calls that require auth will return 401 and the UI can handle it.
+      }
+    }
+
+    establishSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pubkey, connected, walletType])
+
   // ── Connect methods ────────────────────────────────────
 
   const connectPhantom = useCallback(async () => {
@@ -460,6 +559,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // ── Disconnect ─────────────────────────────────────────
 
   const disconnect = useCallback(async () => {
+    // Clear server session before clearing client state
+    await fetch('/api/auth/sign-out', { method: 'POST' }).catch(() => {})
+
     if (walletType === 'privy') {
       disconnectingRef.current = true
       setPrivySolanaProvider(null)
@@ -496,6 +598,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         pfpEmoji,
         discordLinked,
         refreshProfile,
+        authenticated,
       }}
     >
       {children}

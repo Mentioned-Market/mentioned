@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomMarket, addCustomMarketWords, removeCustomMarketWord } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(
   req: NextRequest,
@@ -12,14 +13,19 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
-  const body = await req.json()
-  const { wallet, words } = body as { wallet?: string; words?: string[] }
-
-  if (!wallet || !words || words.length === 0) {
-    return NextResponse.json({ error: 'wallet and words are required' }, { status: 400 })
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
   if (!isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { words } = body as { words?: string[] }
+
+  if (!words || words.length === 0) {
+    return NextResponse.json({ error: 'words are required' }, { status: 400 })
   }
 
   const market = await getCustomMarket(marketId)
@@ -44,14 +50,19 @@ export async function DELETE(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
-  const body = await req.json()
-  const { wallet, wordId } = body as { wallet?: string; wordId?: number }
-
-  if (!wallet || !wordId) {
-    return NextResponse.json({ error: 'wallet and wordId are required' }, { status: 400 })
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
   if (!isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { wordId } = body as { wordId?: number }
+
+  if (!wordId) {
+    return NextResponse.json({ error: 'wordId is required' }, { status: 400 })
   }
 
   const market = await getCustomMarket(marketId)
