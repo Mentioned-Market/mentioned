@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, upsertProfile, updatePfpEmoji, getUnlockedAchievements, ensureReferralCode, getReferralStats } from '@/lib/db'
 import { tryUnlockAchievement, ACHIEVEMENT_MAP } from '@/lib/achievements'
 import { checkSlurs } from '@/lib/chatFilter'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 
@@ -40,11 +41,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const body = await req.json()
-  const { wallet, username } = body as { wallet?: string; username?: string }
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
 
-  if (!wallet || !username) {
-    return NextResponse.json({ error: 'wallet and username are required' }, { status: 400 })
+  const body = await req.json()
+  const { username } = body as { username?: string }
+
+  if (!username) {
+    return NextResponse.json({ error: 'username is required' }, { status: 400 })
   }
 
   const trimmed = username.trim()
@@ -84,12 +90,13 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const body = await req.json()
-  const { wallet, pfpEmoji } = body as { wallet?: string; pfpEmoji?: string | null }
-
+  const wallet = getVerifiedWallet(req)
   if (!wallet) {
-    return NextResponse.json({ error: 'wallet is required' }, { status: 400 })
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
+
+  const body = await req.json()
+  const { pfpEmoji } = body as { pfpEmoji?: string | null }
 
   // Validate: pfpEmoji must be null (clear) or an emoji from an unlocked achievement
   if (pfpEmoji !== null && pfpEmoji !== undefined) {

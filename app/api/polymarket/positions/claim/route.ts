@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
 import { awardPoints, awardHoldPoints } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(req: NextRequest) {
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   const body = await req.json()
   const { positionPubkey, ownerPubkey, marketId } = body
 
@@ -12,6 +18,11 @@ export async function POST(req: NextRequest) {
       { error: 'positionPubkey and ownerPubkey required' },
       { status: 400 }
     )
+  }
+
+  // Verify the caller owns the position they're claiming
+  if (ownerPubkey !== wallet) {
+    return NextResponse.json({ error: 'Wallet mismatch' }, { status: 403 })
   }
 
   const fwd = getForwardHeaders(req)

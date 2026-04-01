@@ -8,6 +8,7 @@ import {
   getReferrer,
 } from '@/lib/db'
 import { tryUnlockAchievement } from '@/lib/achievements'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 /**
  * GET /api/referral?wallet=xxx — Get referral stats + ensure code exists
@@ -38,11 +39,16 @@ export async function GET(req: NextRequest) {
  * Body: { wallet: string, code: string }
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { wallet, code } = body as { wallet?: string; code?: string }
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
 
-  if (!wallet || !code) {
-    return NextResponse.json({ error: 'wallet and code are required' }, { status: 400 })
+  const body = await req.json()
+  const { code } = body as { code?: string }
+
+  if (!code) {
+    return NextResponse.json({ error: 'code is required' }, { status: 400 })
   }
 
   // Check if already referred

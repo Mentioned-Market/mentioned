@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { insertPolymarketTrade, getTradePointsCountToday } from '@/lib/db'
 import { awardPoints, checkAndAwardFirstTrade, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(req: NextRequest) {
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   try {
     const body = await req.json()
-    const { wallet, marketId, eventId, isYes, isBuy, side, amountUsd, txSignature, marketTitle } = body
+    const { marketId, eventId, isYes, isBuy, side, amountUsd, txSignature, marketTitle } = body
 
-    if (!wallet || !marketId || !eventId || isYes === undefined || !side || !amountUsd) {
+    if (!marketId || !eventId || isYes === undefined || !side || !amountUsd) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 

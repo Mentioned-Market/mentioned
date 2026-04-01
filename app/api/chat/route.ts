@@ -3,6 +3,7 @@ import { getRecentChatMessages, insertChatMessage, getProfile, getChatPointsCoun
 import { awardPoints, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { checkSlurs } from '@/lib/chatFilter'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const MAX_LENGTH = 200
 const RATE_LIMIT_MS = 500
@@ -18,11 +19,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { wallet, message } = body as { wallet?: string; message?: string }
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
 
-  if (!wallet || !message?.trim()) {
-    return NextResponse.json({ error: 'wallet and message are required' }, { status: 400 })
+  const body = await req.json()
+  const { message } = body as { message?: string }
+
+  if (!message?.trim()) {
+    return NextResponse.json({ error: 'message is required' }, { status: 400 })
   }
 
   const text = message.trim().slice(0, MAX_LENGTH)
