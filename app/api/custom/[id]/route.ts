@@ -9,6 +9,7 @@ import {
 } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
 import { virtualImpliedPrice } from '@/lib/virtualLmsr'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function GET(
   _req: NextRequest,
@@ -55,18 +56,18 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
+  const wallet = getVerifiedWallet(req)
+  if (!wallet || !isAdmin(wallet)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
   const body = await req.json()
-  const { wallet, ...fields } = body as {
-    wallet?: string
+  const fields = body as {
     title?: string
     description?: string
     cover_image_url?: string
     stream_url?: string
     lock_time?: string
-  }
-
-  if (!wallet || !isAdmin(wallet)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
   }
 
   const market = await updateCustomMarket(marketId, fields)
@@ -87,8 +88,8 @@ export async function DELETE(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
-  const body = await req.json()
-  if (!body.wallet || !isAdmin(body.wallet)) {
+  const wallet = getVerifiedWallet(req)
+  if (!wallet || !isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
   }
 

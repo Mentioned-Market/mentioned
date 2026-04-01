@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCustomMarket, updateCustomMarketStatus, lockCustomMarket } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
 import { isValidStatusTransition } from '@/lib/customMarketUtils'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(
   req: NextRequest,
@@ -13,14 +14,19 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
-  const body = await req.json()
-  const { wallet, status } = body as { wallet?: string; status?: string }
-
-  if (!wallet || !status) {
-    return NextResponse.json({ error: 'wallet and status are required' }, { status: 400 })
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
   if (!isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { status } = body as { status?: string }
+
+  if (!status) {
+    return NextResponse.json({ error: 'status is required' }, { status: 400 })
   }
 
   const market = await getCustomMarket(marketId)

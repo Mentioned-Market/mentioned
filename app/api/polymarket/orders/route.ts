@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(req: NextRequest) {
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   try {
     const body = await req.json()
     const fwd = getForwardHeaders(req)

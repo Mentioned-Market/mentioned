@@ -3,6 +3,7 @@ import { getRecentEventChatMessages, insertEventChatMessage, getProfile, getChat
 import { awardPoints, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { checkSlurs } from '@/lib/chatFilter'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const MAX_LENGTH = 200
 const RATE_LIMIT_MS = 500
@@ -24,16 +25,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   const body = await req.json()
-  const { wallet, message, eventId } = body as {
-    wallet?: string
+  const { message, eventId } = body as {
     message?: string
     eventId?: string
   }
 
-  if (!wallet || !message?.trim() || !eventId) {
+  if (!message?.trim() || !eventId) {
     return NextResponse.json(
-      { error: 'wallet, message, and eventId are required' },
+      { error: 'message and eventId are required' },
       { status: 400 },
     )
   }

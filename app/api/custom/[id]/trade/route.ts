@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getCustomMarketTradeCount, hasDiscordLinked } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const RATE_LIMIT_MS = 500
 const lastTrade = new Map<string, number>()
@@ -16,9 +17,13 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   const body = await req.json()
-  const { wallet, word_id, action, side, amount, amount_type } = body as {
-    wallet?: string
+  const { word_id, action, side, amount, amount_type } = body as {
     word_id?: number
     action?: string
     side?: string
@@ -26,9 +31,9 @@ export async function POST(
     amount_type?: string
   }
 
-  if (!wallet || word_id === undefined || !action || !side || amount === undefined) {
+  if (word_id === undefined || !action || !side || amount === undefined) {
     return NextResponse.json(
-      { error: 'wallet, word_id, action, side, and amount are required' },
+      { error: 'word_id, action, side, and amount are required' },
       { status: 400 },
     )
   }
