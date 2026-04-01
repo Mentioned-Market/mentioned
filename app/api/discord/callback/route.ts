@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, getProfile } from '@/lib/db'
+import { verifyDiscordState } from '@/lib/walletAuth'
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET!
@@ -20,13 +21,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${BASE_URL}/?discord=error`)
   }
 
-  // Decode state to get wallet
-  let wallet: string
-  try {
-    const parsed = JSON.parse(Buffer.from(state, 'base64url').toString())
-    wallet = parsed.wallet
-    if (!wallet) throw new Error('missing wallet')
-  } catch {
+  // Verify signed state to get wallet
+  const wallet = verifyDiscordState(state)
+  if (!wallet) {
     return NextResponse.redirect(`${BASE_URL}/?discord=error`)
   }
 

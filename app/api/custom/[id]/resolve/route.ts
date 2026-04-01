@@ -7,6 +7,7 @@ import {
 } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
 import { resolveWordPositions, resolveAndScoreVirtualMarket } from '@/lib/customScoring'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(
   req: NextRequest,
@@ -18,20 +19,24 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
   }
 
-  const body = await req.json()
-  const { wallet, resolutions } = body as {
-    wallet?: string
-    resolutions?: { wordId: number; outcome: boolean }[]
-  }
-
-  if (!wallet || !resolutions || resolutions.length === 0) {
-    return NextResponse.json(
-      { error: 'wallet and resolutions are required' },
-      { status: 400 },
-    )
+  const wallet = getVerifiedWallet(req)
+  if (!wallet) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
   if (!isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { resolutions } = body as {
+    resolutions?: { wordId: number; outcome: boolean }[]
+  }
+
+  if (!resolutions || resolutions.length === 0) {
+    return NextResponse.json(
+      { error: 'resolutions are required' },
+      { status: 400 },
+    )
   }
 
   let market, words
