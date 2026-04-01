@@ -37,4 +37,5 @@ next-env.d.ts
 
 .env
 
-scratchspecs/scalability_security_plan.md
+scratch
+specs/scalability_security_plan.md
