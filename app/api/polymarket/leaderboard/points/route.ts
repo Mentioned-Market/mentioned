@@ -20,20 +20,21 @@ export async function GET(req: NextRequest) {
     // 2. Aggregate point totals in one query
     const totals = await getBulkPointTotals(wallets, weekStart)
 
-    // 3. Fetch usernames
+    // 3. Fetch usernames + pfp
     const profileResult = await pool.query(
-      `SELECT wallet, username FROM user_profiles WHERE wallet = ANY($1)`,
+      `SELECT wallet, username, pfp_emoji FROM user_profiles WHERE wallet = ANY($1)`,
       [wallets],
     )
-    const usernameMap: Record<string, string> = {}
+    const profileMap: Record<string, { username: string; pfp_emoji: string | null }> = {}
     for (const row of profileResult.rows) {
-      usernameMap[row.wallet] = row.username
+      profileMap[row.wallet] = { username: row.username, pfp_emoji: row.pfp_emoji ?? null }
     }
 
     // 4. Build response rows
     const data = totals.map((t) => ({
       wallet: t.wallet,
-      username: usernameMap[t.wallet] ?? null,
+      username: profileMap[t.wallet]?.username ?? null,
+      pfpEmoji: profileMap[t.wallet]?.pfp_emoji ?? null,
       weeklyPoints: t.weekly,
       allTimePoints: t.all_time,
       breakdown: {

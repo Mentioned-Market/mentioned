@@ -447,8 +447,9 @@ function MockAchievements() {
       <div className="grid grid-cols-2 gap-2">
         {achievements.map((a) => (
           <div key={a.name} className="p-3 rounded-xl relative overflow-hidden" style={{ background: a.unlocked ? 'rgba(52,199,89,0.06)' : 'rgba(255,255,255,0.03)', border: a.unlocked ? '1px solid rgba(52,199,89,0.15)' : '1px solid rgba(255,255,255,0.05)' }}>
-            {!a.unlocked && <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] flex items-center justify-center z-10"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#525252" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg></div>}
-            <div className="text-lg mb-1">{a.icon}</div><p className="text-white text-xs font-semibold">{a.name}</p><p className="text-neutral-500 text-[10px]">{a.desc}</p><p className="text-green-400/70 text-[10px] font-mono mt-1">+{a.points} pts</p>
+            <div style={{ filter: a.unlocked ? undefined : 'blur(6px)', userSelect: 'none' }}>
+              <div className="text-lg mb-1">{a.icon}</div><p className="text-white text-xs font-semibold">{a.name}</p><p className="text-neutral-500 text-[10px]">{a.desc}</p><p className="text-green-400/70 text-[10px] font-mono mt-1">+{a.points} pts</p>
+            </div>
           </div>
         ))}
       </div>
@@ -465,11 +466,13 @@ function MockChat() {
   return (
     <div className="glass rounded-2xl p-5 w-full">
       <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Market Chat</h4><div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-green-400" style={{ animation: 'pulse 2s infinite' }} /><span className="text-[10px] text-neutral-500">24 online</span></div></div>
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         {messages.map((m, i) => { const isYou = m.user === 'you'; return (
-          <div key={i} className="flex items-start gap-2">
-            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs shrink-0">{m.emoji}</div>
-            <div className="flex-1 min-w-0"><div className="flex items-center gap-2"><span className={`text-xs font-semibold ${isYou ? 'text-blue-400' : 'text-white'}`}>{m.user}</span><span className="text-[10px] text-neutral-600">{m.time}</span></div><p className="text-neutral-300 text-xs">{m.text}</p></div>
+          <div key={i} className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs shrink-0 leading-none">{m.emoji}</div>
+            <span className={`text-xs font-semibold shrink-0 w-24 truncate ${isYou ? 'text-blue-400' : 'text-white'}`}>{m.user}</span>
+            <p className="text-neutral-400 text-xs flex-1 min-w-0 truncate">{m.text}</p>
+            <span className="text-[10px] text-neutral-600 shrink-0">{m.time}</span>
           </div>
         )})}
       </div>
@@ -562,7 +565,7 @@ export default function Home() {
       </section>
 
       {/* Auto-playing slideshow — loops through all 5 steps */}
-      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '100vh' }}>
+      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '80vh' }}>
         {SLIDES.map((slide, i) => {
           const isActive = activeSlide === i
           return (
@@ -611,7 +614,7 @@ export default function Home() {
         })}
 
         {/* Step navigation — arrows + clickable dots */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 z-10">
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10">
           <button onClick={prev} className="p-1.5 rounded-full hover:bg-white/10 transition-colors" aria-label="Previous slide">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-400"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
@@ -632,15 +635,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Scroll-down hint — appears once after final slide, stays visible */}
-        <div
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-500"
-          style={{ opacity: showScrollHint ? 1 : 0 }}
-        >
-          <div className="scroll-bounce">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-500"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
-          </div>
-        </div>
       </section>
 
       {/* Normal-flow content after the slideshow */}
