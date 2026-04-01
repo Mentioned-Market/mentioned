@@ -1045,8 +1045,9 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
                       {tradingPanel}
                     </div>
 
-                    {/* Event chat below trading panel when stream is visible (already shown beside stream above) */}
-                    {streamEmbedUrl && (
+                    {/* Event chat below trading panel only when stream is hidden or absent —
+                        when stream is visible the chat is already shown beside the stream */}
+                    {streamEmbedUrl && streamHidden && (
                       <div className="mt-4 h-[400px]">
                         <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
                       </div>

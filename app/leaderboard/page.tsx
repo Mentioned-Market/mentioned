@@ -83,7 +83,7 @@ function prizeForRank(rank: number) {
 function RankCell({ rank }: { rank: number }) {
   const prize = prizeForRank(rank)
   if (prize?.medal) {
-    return <span className="text-2xl leading-none">{prize.medal}</span>
+    return <span className="text-xl md:text-2xl leading-none">{prize.medal}</span>
   }
   return (
     <span className={`text-base font-bold tabular-nums ${rank <= 5 ? 'text-neutral-300' : 'text-neutral-600'}`}>
@@ -96,7 +96,7 @@ function RankCell({ rank }: { rank: number }) {
 
 function Avatar({ pfpEmoji }: { name: string; pfpEmoji?: string | null; size?: number }) {
   return (
-    <span className="text-xl leading-none flex-shrink-0 w-9 flex items-center justify-center">
+    <span className="text-lg md:text-xl leading-none flex-shrink-0 w-7 md:w-9 flex items-center justify-center">
       {pfpEmoji ?? '⚪'}
     </span>
   )
@@ -289,7 +289,7 @@ export default function LeaderboardPage() {
                     <div className="rounded-2xl border border-white/8 overflow-hidden">
 
                       {/* Column headers */}
-                      <div className="grid grid-cols-[56px_1fr_120px_80px] px-5 py-3 text-[11px] text-neutral-600 font-semibold uppercase tracking-widest border-b border-white/5 bg-white/[0.015]">
+                      <div className="grid grid-cols-[40px_1fr_80px_56px] md:grid-cols-[56px_1fr_120px_80px] px-3 md:px-5 py-3 text-[11px] text-neutral-600 font-semibold uppercase tracking-widest border-b border-white/5 bg-white/[0.015]">
                         <div>#</div>
                         <div>Trader</div>
                         <div className="text-right">{pointsSort === 'weekly' ? 'Weekly Pts' : 'All-Time Pts'}</div>
@@ -298,15 +298,15 @@ export default function LeaderboardPage() {
 
                       {/* Pinned "you" row if not in top view */}
                       {youPoints && youPointsRank && youPointsRank > pointsEntries.length && (
-                        <div className="grid grid-cols-[56px_1fr_120px_80px] px-5 py-4 border-b border-white/8 bg-white/[0.06] border-l-2 border-l-apple-blue">
+                        <div className="grid grid-cols-[40px_1fr_80px_56px] md:grid-cols-[56px_1fr_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/8 bg-white/[0.06] border-l-2 border-l-apple-blue">
                           <div className="flex items-center"><RankCell rank={youPointsRank} /></div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 md:gap-3 min-w-0">
                             <Avatar name={youPoints.username || youPoints.wallet} pfpEmoji={youPoints.pfpEmoji} />
-                            <div>
-                              <span className="text-white font-semibold text-sm">
+                            <div className="min-w-0">
+                              <span className="text-white font-semibold text-sm truncate block">
                                 {youPoints.username || truncateWallet(youPoints.wallet)}
                               </span>
-                              <span className="ml-2 text-[10px] text-apple-blue font-medium">you</span>
+                              <span className="text-[10px] text-apple-blue font-medium">you</span>
                             </div>
                           </div>
                           <div className="flex items-center justify-end font-bold text-white text-sm">
@@ -326,18 +326,18 @@ export default function LeaderboardPage() {
                         return (
                           <div
                             key={entry.wallet}
-                            className={`grid grid-cols-[56px_1fr_120px_80px] px-5 py-4 border-b border-white/5 last:border-b-0 transition-colors duration-100 ${rowClass(isYou)}`}
+                            className={`grid grid-cols-[40px_1fr_80px_56px] md:grid-cols-[56px_1fr_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/5 last:border-b-0 transition-colors duration-100 ${rowClass(isYou)}`}
                           >
                             <div className="flex items-center">
                               <RankCell rank={rank} />
                             </div>
 
-                            <div className="flex items-center gap-3 min-w-0">
+                            <div className="flex items-center gap-2 md:gap-3 min-w-0">
                               <Avatar name={displayName} pfpEmoji={entry.pfpEmoji} />
                               <div className="min-w-0">
                                 <Link
                                   href={`/profile/${entry.username ?? entry.wallet}`}
-                                  className="text-white font-semibold text-[15px] hover:underline truncate block"
+                                  className="text-white font-semibold text-sm md:text-[15px] hover:underline truncate block"
                                 >
                                   {displayName}
                                 </Link>
