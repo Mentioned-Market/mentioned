@@ -83,6 +83,40 @@ interface HistoryEvent {
 }
 
 type Tab = 'positions' | 'orders' | 'history'
+type MarketMode = 'paid' | 'free'
+
+interface FreePosition {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  yes_shares: string
+  no_shares: string
+  tokens_spent: string
+  tokens_received: string
+  updated_at: string
+  word: string
+  market_title: string
+  market_status: string
+  market_slug: string
+}
+
+interface FreeTrade {
+  id: number
+  market_id: number
+  word_id: number
+  wallet: string
+  action: string
+  side: string
+  shares: string
+  cost: string
+  yes_price: string
+  no_price: string
+  created_at: string
+  word: string
+  market_title: string
+  market_slug: string
+}
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -165,6 +199,7 @@ export default function PositionsPage() {
   const { showAchievementToast } = useAchievements()
 
   const [tab, setTab] = useState<Tab>('positions')
+  const [marketMode, setMarketMode] = useState<MarketMode>('paid')
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
@@ -173,6 +208,11 @@ export default function PositionsPage() {
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
+  // Free market data
+  const [freePositions, setFreePositions] = useState<FreePosition[]>([])
+  const [freeTrades, setFreeTrades] = useState<FreeTrade[]>([])
+  const [loadingFree, setLoadingFree] = useState(false)
 
   // ── Fetch positions ───────────────────────────────────────
 
@@ -232,6 +272,25 @@ export default function PositionsPage() {
     setLoadingHistory(false)
   }, [publicKey])
 
+  const fetchFreeActivity = useCallback(async () => {
+    if (!publicKey) {
+      setFreePositions([])
+      setFreeTrades([])
+      setLoadingFree(false)
+      return
+    }
+    setLoadingFree(true)
+    try {
+      const res = await fetch(`/api/custom/user-activity?wallet=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setFreePositions(json.positions || [])
+        setFreeTrades(json.trades || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingFree(false)
+  }, [publicKey])
+
   // Always fetch positions (default tab), lazy-fetch orders/history only when tab is active
   useEffect(() => {
     setLoadingPositions(true)
@@ -255,6 +314,11 @@ export default function PositionsPage() {
     const histInterval = setInterval(fetchHistory, 30_000)
     return () => clearInterval(histInterval)
   }, [tab, fetchHistory])
+
+  useEffect(() => {
+    if (marketMode !== 'free') return
+    fetchFreeActivity()
+  }, [marketMode, fetchFreeActivity])
 
   // ── Close position ─────────────────────────────────────────
 
@@ -401,12 +465,17 @@ export default function PositionsPage() {
   const totalPnl = unrealizedPnl + realizedPnl
   const totalValue = positions.reduce((sum, p) => sum + (Number(p.sizeUsd) || 0), 0)
 
+  // Free market derived
+  const freeTotalSpent = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_spent), 0)
+  const freeTotalReceived = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_received), 0)
+  const freeNetPnl = freeTotalReceived - freeTotalSpent
+
   // ── Tab counts ────────────────────────────────────────────
 
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'positions', label: 'Positions', count: positions.length },
+    { key: 'positions', label: 'Positions', count: marketMode === 'paid' ? positions.length : freePositions.length },
     { key: 'orders', label: 'Open Orders', count: openOrders.length },
-    { key: 'history', label: 'History', count: history.length },
+    { key: 'history', label: 'History', count: marketMode === 'paid' ? history.length : freeTrades.length },
   ]
 
   // ── Render ────────────────────────────────────────────────
@@ -420,11 +489,33 @@ export default function PositionsPage() {
 
             <main className="py-4 md:py-6 flex-1">
               {/* Page header */}
-              <div className="mb-6">
-                <h1 className="text-white text-2xl md:text-3xl font-bold mb-1">Positions</h1>
-                <p className="text-neutral-400 text-sm">
-                  Your Polymarket positions, open orders, and trade history
-                </p>
+              <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h1 className="text-white text-2xl md:text-3xl font-bold mb-1">Positions</h1>
+                  <p className="text-neutral-400 text-sm">
+                    {marketMode === 'paid'
+                      ? 'Your Polymarket positions, open orders, and trade history'
+                      : 'Your free market positions and trade history'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 p-1 glass rounded-xl shrink-0">
+                  <button
+                    onClick={() => setMarketMode('paid')}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      marketMode === 'paid' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Paid Markets
+                  </button>
+                  <button
+                    onClick={() => setMarketMode('free')}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      marketMode === 'free' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Free Markets
+                  </button>
+                </div>
               </div>
 
               {!connected ? (
@@ -446,29 +537,54 @@ export default function PositionsPage() {
                 <>
                   {/* Summary cards */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                    <div className="glass rounded-xl p-4">
-                      <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
-                      <div className="text-white text-xl font-bold">{positions.length}</div>
-                    </div>
-                    <div className="glass rounded-xl p-4">
-                      <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
-                      <div className="text-white text-xl font-bold">{microToUsd(totalValue)}</div>
-                    </div>
-                    <div className="glass rounded-xl p-4">
-                      <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">P&L</div>
-                      <div className={`text-xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {totalPnl >= 0 ? '+' : ''}{microToUsd(totalPnl)}
-                      </div>
-                    </div>
-                    <div className="glass rounded-xl p-4">
-                      <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
-                      <div className="text-white text-xl font-bold">{openOrders.length}</div>
-                    </div>
+                    {marketMode === 'paid' ? (
+                      <>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
+                          <div className="text-white text-xl font-bold">{positions.length}</div>
+                        </div>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
+                          <div className="text-white text-xl font-bold">{microToUsd(totalValue)}</div>
+                        </div>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">P&L</div>
+                          <div className={`text-xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                            {totalPnl >= 0 ? '+' : ''}{microToUsd(totalPnl)}
+                          </div>
+                        </div>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
+                          <div className="text-white text-xl font-bold">{openOrders.length}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
+                          <div className="text-white text-xl font-bold">{freePositions.length}</div>
+                        </div>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Tokens Spent</div>
+                          <div className="text-white text-xl font-bold">{freeTotalSpent.toFixed(0)}</div>
+                        </div>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Net P&L (pts)</div>
+                          <div className={`text-xl font-bold ${freeNetPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                            {freeNetPnl >= 0 ? '+' : ''}{freeNetPnl.toFixed(0)}
+                          </div>
+                        </div>
+                        <div className="glass rounded-xl p-4">
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Trades</div>
+                          <div className="text-white text-xl font-bold">{freeTrades.length}</div>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Tabs */}
                   <div className="flex items-center gap-1 mb-4 border-b border-white/10">
-                    {tabs.map(t => (
+                    {tabs.filter(t => marketMode === 'free' ? t.key !== 'orders' : true).map(t => (
                       <button
                         key={t.key}
                         onClick={() => setTab(t.key)}
@@ -490,8 +606,153 @@ export default function PositionsPage() {
                     ))}
                   </div>
 
+                  {/* ── Free Market Positions Tab ─────────────────── */}
+                  <div style={{ display: marketMode === 'free' && tab === 'positions' ? undefined : 'none' }}>
+                    {loadingFree ? (
+                      <div className="flex items-center justify-center py-16">
+                        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      </div>
+                    ) : freePositions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 gap-2">
+                        <span className="text-neutral-500 text-sm">No open free market positions</span>
+                        <Link href="/markets?type=free" className="text-apple-blue text-sm font-medium hover:underline">
+                          Browse free markets
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                          <span>Market / Word</span>
+                          <span className="text-right">YES Shares</span>
+                          <span className="text-right">NO Shares</span>
+                          <span className="text-right">Tokens Spent</span>
+                          <span className="text-right">Tokens Received</span>
+                          <span className="text-right">Status</span>
+                        </div>
+                        {freePositions.map(pos => (
+                          <div
+                            key={pos.id}
+                            className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                parseFloat(pos.yes_shares) > 0 ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                              }`}>
+                                {parseFloat(pos.yes_shares) > 0 ? 'YES' : 'NO'}
+                              </span>
+                              <div className="min-w-0">
+                                <Link href={`/custom/${pos.market_slug || pos.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                                  {pos.market_title}
+                                </Link>
+                                <span className="text-neutral-500 text-xs">{pos.word}</span>
+                              </div>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">YES Shares</span>
+                              <span className="text-white text-sm">{parseFloat(pos.yes_shares).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">NO Shares</span>
+                              <span className="text-white text-sm">{parseFloat(pos.no_shares).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Tokens Spent</span>
+                              <span className="text-neutral-300 text-sm">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Tokens Received</span>
+                              <span className={`text-sm font-medium ${parseFloat(pos.tokens_received) > 0 ? 'text-apple-green' : 'text-neutral-300'}`}>
+                                {parseFloat(pos.tokens_received).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Status</span>
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-block ${
+                                pos.market_status === 'resolved'
+                                  ? 'bg-apple-green/10 text-apple-green'
+                                  : pos.market_status === 'locked'
+                                  ? 'bg-yellow-500/10 text-yellow-400'
+                                  : 'bg-white/5 text-neutral-400'
+                              }`}>
+                                {pos.market_status.charAt(0).toUpperCase() + pos.market_status.slice(1)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── Free Market History Tab ────────────────────── */}
+                  <div style={{ display: marketMode === 'free' && tab === 'history' ? undefined : 'none' }}>
+                    {loadingFree ? (
+                      <div className="flex items-center justify-center py-16">
+                        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      </div>
+                    ) : freeTrades.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 gap-2">
+                        <span className="text-neutral-500 text-sm">No free market trade history yet</span>
+                        <Link href="/markets?type=free" className="text-apple-blue text-sm font-medium hover:underline">
+                          Browse free markets
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="hidden md:grid grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                          <span>Market / Word</span>
+                          <span className="text-center">Action</span>
+                          <span className="text-center">Side</span>
+                          <span className="text-right">Shares</span>
+                          <span className="text-right">Cost (tokens)</span>
+                          <span className="text-right">Date</span>
+                        </div>
+                        {freeTrades.map(t => (
+                          <div
+                            key={t.id}
+                            className="group grid grid-cols-1 md:grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                          >
+                            <div className="min-w-0">
+                              <Link href={`/custom/${t.market_slug || t.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                                {t.market_title}
+                              </Link>
+                              <span className="text-neutral-500 text-xs">{t.word}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-center">
+                              <span className="text-neutral-500 text-xs md:hidden">Action</span>
+                              <span className={`text-sm font-medium ${t.action === 'buy' ? 'text-apple-green' : 'text-apple-red'}`}>
+                                {t.action.charAt(0).toUpperCase() + t.action.slice(1)}
+                              </span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-center">
+                              <span className="text-neutral-500 text-xs md:hidden">Side</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block ${
+                                t.side === 'yes' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                              }`}>
+                                {t.side.toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Shares</span>
+                              <span className="text-white text-sm">{parseFloat(t.shares).toFixed(4)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Cost</span>
+                              <span className={`text-sm font-medium ${t.action === 'sell' ? 'text-apple-green' : 'text-white'}`}>
+                                {t.action === 'sell' ? '+' : '-'}{Math.abs(parseFloat(t.cost)).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right">
+                              <span className="text-neutral-500 text-xs md:hidden">Date</span>
+                              <span className="text-neutral-400 text-xs">{formatDate(Math.floor(new Date(t.created_at).getTime() / 1000))}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+
                   {/* ── Positions Tab ──────────────────────────────── */}
-                  <div style={{ display: tab === 'positions' ? undefined : 'none' }}>
+                  <div style={{ display: marketMode === 'paid' && tab === 'positions' ? undefined : 'none' }}>
                       {loadingPositions ? (
                         <div className="flex items-center justify-center py-16">
                           <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -646,7 +907,7 @@ export default function PositionsPage() {
                     </div>
 
                   {/* ── Open Orders Tab ────────────────────────────── */}
-                  <div style={{ display: tab === 'orders' ? undefined : 'none' }}>
+                  <div style={{ display: marketMode === 'paid' && tab === 'orders' ? undefined : 'none' }}>
                       {loadingOrders ? (
                         <div className="flex items-center justify-center py-16">
                           <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -721,7 +982,7 @@ export default function PositionsPage() {
                     </div>
 
                   {/* ── History Tab ─────────────────────────────────── */}
-                  <div style={{ display: tab === 'history' ? undefined : 'none' }}>
+                  <div style={{ display: marketMode === 'paid' && tab === 'history' ? undefined : 'none' }}>
                       {loadingHistory ? (
                         <div className="flex items-center justify-center py-16">
                           <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />

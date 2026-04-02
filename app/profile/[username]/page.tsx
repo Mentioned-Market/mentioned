@@ -1327,9 +1327,9 @@ export default function ProfilePage() {
                   </button>
                 </div>
 
-                {/* OG preview image */}
+                {/* OG preview image — desktop only */}
                 {referralCode && (
-                  <div className="mb-4 rounded-xl overflow-hidden border border-white/5 relative">
+                  <div className="hidden md:block mb-4 rounded-xl overflow-hidden border border-white/5 relative">
                     {/* Loading spinner — hidden once image loads */}
                     <div id="og-spinner" className="flex items-center justify-center py-16 bg-black/50">
                       <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
