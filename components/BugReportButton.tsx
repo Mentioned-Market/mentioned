@@ -107,6 +107,13 @@ export default function BugReportButton() {
     }
   }, [isOpen])
 
+  // Listen for open event dispatched from mobile burger menu
+  useEffect(() => {
+    const handler = () => setIsOpen(true)
+    window.addEventListener('open-bug-report', handler)
+    return () => window.removeEventListener('open-bug-report', handler)
+  }, [])
+
   if (isHomepage) return null
 
   return (
@@ -115,10 +122,10 @@ export default function BugReportButton() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-20 left-4 md:bottom-6 md:left-6 z-50
+          className="hidden md:flex fixed bottom-6 left-6 z-50
             w-10 h-10 rounded-full
             bg-neutral-800/90 hover:bg-neutral-700 border border-white/10
-            flex items-center justify-center
+            items-center justify-center
             transition-colors shadow-lg
             text-neutral-400 hover:text-white"
           aria-label="Report a bug"

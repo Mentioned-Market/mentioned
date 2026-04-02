@@ -10,7 +10,9 @@
     "db:start": "docker compose up -d && docker compose exec db sh -c 'until pg_isready -U mentioned; do sleep 1; done' && npm run db:migrate && npm run db:seed",
     "db:migrate": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/migrate.ts dotenv_config_path=.env.local",
     "db:seed": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed.ts dotenv_config_path=.env.local",
-    "db:stop": "docker compose down"
+    "db:stop": "docker compose down",
+    "db:leaderboard-test:seed": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-leaderboard-test.ts dotenv_config_path=.env.local",
+    "db:leaderboard-test:clean": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-leaderboard-test-clean.ts dotenv_config_path=.env.local"
   },
   "dependencies": {
     "@farcaster/mini-app-solana": "^1.1.3",

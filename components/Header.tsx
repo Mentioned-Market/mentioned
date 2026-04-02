@@ -189,6 +189,16 @@ export default function Header() {
                     My Profile
                   </Link>
                 )}
+                <div className="border-t border-white/10"></div>
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false)
+                    window.dispatchEvent(new Event('open-bug-report'))
+                  }}
+                  className="block w-full text-left px-4 py-3 text-neutral-500 text-sm hover:bg-white/10 transition-colors duration-200"
+                >
+                  Report a Bug
+                </button>
               </div>
             )}
           </div>
