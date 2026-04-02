@@ -169,15 +169,19 @@ export default function LeaderboardPage() {
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
       <div className="layout-container flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex justify-center">
+          <div className="w-full max-w-7xl">
+            <Header />
+          </div>
+        </div>
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="layout-content-container flex flex-col w-full max-w-4xl flex-1">
-            <Header />
             <main className="py-6 animate-fade-in">
 
               {/* ── Page header ─────────────────────────────── */}
               <div className="mb-6">
                 <div className="flex items-center gap-2">
-                  <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">Leaderboard</h1>
+                  <h1 className="text-2xl md:text-3xl font-bold text-white">Leaderboard</h1>
                   <InfoTooltip position="below">
                     <div className="space-y-2">
                       <p>Link your Discord on your profile to earn points! The top 5 point earners each week win real USDC. Week ends Sunday night GMT — winners notified via Discord.</p>
@@ -289,7 +293,7 @@ export default function LeaderboardPage() {
                     <div className="rounded-2xl border border-white/8 overflow-hidden">
 
                       {/* Column headers */}
-                      <div className="grid grid-cols-[40px_1fr_80px_56px] md:grid-cols-[56px_1fr_120px_80px] px-3 md:px-5 py-3 text-[11px] text-neutral-600 font-semibold uppercase tracking-widest border-b border-white/5 bg-white/[0.015]">
+                      <div className="grid grid-cols-[40px_minmax(0,1fr)_80px_56px] md:grid-cols-[56px_minmax(0,1fr)_120px_80px] px-3 md:px-5 py-3 text-[11px] text-neutral-600 font-semibold uppercase tracking-widest border-b border-white/5 bg-white/[0.015]">
                         <div>#</div>
                         <div>Trader</div>
                         <div className="text-right">{pointsSort === 'weekly' ? 'Weekly Pts' : 'All-Time Pts'}</div>
@@ -298,7 +302,7 @@ export default function LeaderboardPage() {
 
                       {/* Pinned "you" row if not in top view */}
                       {youPoints && youPointsRank && youPointsRank > pointsEntries.length && (
-                        <div className="grid grid-cols-[40px_1fr_80px_56px] md:grid-cols-[56px_1fr_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/8 bg-white/[0.06] border-l-2 border-l-apple-blue">
+                        <div className="grid grid-cols-[40px_minmax(0,1fr)_80px_56px] md:grid-cols-[56px_minmax(0,1fr)_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/8 bg-white/[0.06] border-l-2 border-l-apple-blue">
                           <div className="flex items-center"><RankCell rank={youPointsRank} /></div>
                           <div className="flex items-center gap-2 md:gap-3 min-w-0">
                             <Avatar name={youPoints.username || youPoints.wallet} pfpEmoji={youPoints.pfpEmoji} />
@@ -326,7 +330,7 @@ export default function LeaderboardPage() {
                         return (
                           <div
                             key={entry.wallet}
-                            className={`grid grid-cols-[40px_1fr_80px_56px] md:grid-cols-[56px_1fr_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/5 last:border-b-0 transition-colors duration-100 ${rowClass(isYou)}`}
+                            className={`grid grid-cols-[40px_minmax(0,1fr)_80px_56px] md:grid-cols-[56px_minmax(0,1fr)_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/5 last:border-b-0 transition-colors duration-100 ${rowClass(isYou)}`}
                           >
                             <div className="flex items-center">
                               <RankCell rank={rank} />

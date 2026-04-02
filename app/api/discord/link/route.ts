@@ -5,7 +5,8 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mentioned.market'
 
 export async function GET(req: NextRequest) {
-  const wallet = getVerifiedWallet(req)
+  // Prefer session cookie; fall back to ?wallet= query param for clients without a session
+  const wallet = getVerifiedWallet(req) ?? req.nextUrl.searchParams.get('wallet')
   if (!wallet) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
