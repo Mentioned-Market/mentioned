@@ -212,6 +212,7 @@ export default function PositionsPage() {
   // Free market data
   const [freePositions, setFreePositions] = useState<FreePosition[]>([])
   const [freeTrades, setFreeTrades] = useState<FreeTrade[]>([])
+  const [freePointsEarned, setFreePointsEarned] = useState<number>(0)
   const [loadingFree, setLoadingFree] = useState(false)
 
   // ── Fetch positions ───────────────────────────────────────
@@ -286,6 +287,7 @@ export default function PositionsPage() {
         const json = await res.json()
         setFreePositions(json.positions || [])
         setFreeTrades(json.trades || [])
+        setFreePointsEarned(json.pointsEarned ?? 0)
       }
     } catch { /* ignore */ }
     setLoadingFree(false)
@@ -467,8 +469,6 @@ export default function PositionsPage() {
 
   // Free market derived
   const freeTotalSpent = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_spent), 0)
-  const freeTotalReceived = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_received), 0)
-  const freeNetPnl = freeTotalReceived - freeTotalSpent
 
   // ── Tab counts ────────────────────────────────────────────
 
@@ -569,9 +569,8 @@ export default function PositionsPage() {
                           <div className="text-white text-xl font-bold">{freeTotalSpent.toFixed(0)}</div>
                         </div>
                         <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Net P&L (pts)</div>
-                          <div className={`text-xl font-bold ${freeNetPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                            {freeNetPnl >= 0 ? '+' : ''}{freeNetPnl.toFixed(0)}
+                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Points Earned</div>
+                          <div className="text-apple-green text-xl font-bold">+{freePointsEarned.toLocaleString()}
                           </div>
                         </div>
                         <div className="glass rounded-xl p-4">

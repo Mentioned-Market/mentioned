@@ -933,11 +933,15 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
                     </div>
 
                     {words.map(word => {
-                      const pct = Math.round(word.yes_price * 100)
-                      const wordYesCents = Math.round(word.yes_price * 100)
+                      const isResolved = word.resolved_outcome !== null
+                      const pct = isResolved
+                        ? (word.resolved_outcome ? 100 : 0)
+                        : Math.round(word.yes_price * 100)
+                      const wordYesCents = isResolved
+                        ? (word.resolved_outcome ? 100 : 0)
+                        : Math.round(word.yes_price * 100)
                       const wordNoCents = 100 - wordYesCents
                       const isSelected = word.id === selectedWordId
-                      const isResolved = word.resolved_outcome !== null
 
                       return (
                         <button
