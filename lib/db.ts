@@ -1168,6 +1168,7 @@ export interface CustomMarketWordPrice {
   word: string
   yes_price: number
   no_price: number
+  resolved_outcome: boolean | null
 }
 
 export interface CustomMarketListRow extends CustomMarketRow {
@@ -1189,7 +1190,7 @@ export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> 
        ORDER BY m.created_at DESC`,
     ),
     pool.query(
-      `SELECT w.id AS word_id, w.market_id, w.word,
+      `SELECT w.id AS word_id, w.market_id, w.word, w.resolved_outcome,
               COALESCE(p.yes_qty, 0) AS yes_qty, COALESCE(p.no_qty, 0) AS no_qty
        FROM custom_market_words w
        INNER JOIN custom_markets m ON m.id = w.market_id AND m.status IN ('open', 'locked', 'resolved')
@@ -1209,12 +1210,14 @@ export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> 
     const yesQty = parseFloat(r.yes_qty)
     const noQty = parseFloat(r.no_qty)
     const prices = virtualImpliedPrice(yesQty, noQty, b)
+    const isResolved = r.resolved_outcome !== null
     const entry: CustomMarketWordPrice = {
       word_id: r.word_id,
       market_id: r.market_id,
       word: r.word,
-      yes_price: prices.yes,
-      no_price: prices.no,
+      yes_price: isResolved ? (r.resolved_outcome ? 1 : 0) : prices.yes,
+      no_price: isResolved ? (r.resolved_outcome ? 0 : 1) : prices.no,
+      resolved_outcome: r.resolved_outcome ?? null,
     }
     const arr = pricesByMarket.get(r.market_id) || []
     arr.push(entry)

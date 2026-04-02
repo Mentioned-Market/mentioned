@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getWalletFreeMarketPositions, getWalletFreeMarketTrades } from '@/lib/db'
+import { getWalletFreeMarketPositions, getWalletFreeMarketTrades, getWalletFreeMarketStats } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,10 +11,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid wallet' }, { status: 400 })
   }
 
-  const [positions, trades] = await Promise.all([
+  const [positions, trades, stats] = await Promise.all([
     getWalletFreeMarketPositions(wallet),
     getWalletFreeMarketTrades(wallet, 100),
+    getWalletFreeMarketStats(wallet),
   ])
 
-  return NextResponse.json({ positions, trades })
+  return NextResponse.json({ positions, trades, pointsEarned: stats.totalPoints })
 }

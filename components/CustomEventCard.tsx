@@ -8,6 +8,7 @@ interface WordPrice {
   word: string
   yes_price: number
   no_price: number
+  resolved_outcome?: boolean | null
 }
 
 interface CustomMarketSummary {
@@ -90,17 +91,27 @@ function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; mark
       style={{ height: needsScroll ? fixedHeight : undefined }}
     >
       <div ref={innerRef} className="flex flex-col gap-1.5">
-        {words.map(w => (
-          <Link
-            key={w.word_id}
-            href={marketUrl}
-            className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
-          >
-            <span className="text-white text-xs font-medium truncate flex-1">{w.word}</span>
-            <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">{Math.round(w.yes_price * 100)}c</span>
-            <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">{Math.round(w.no_price * 100)}c</span>
-          </Link>
-        ))}
+        {words.map(w => {
+          const isResolved = w.resolved_outcome !== null && w.resolved_outcome !== undefined
+          const yesPct = isResolved ? (w.resolved_outcome ? 100 : 0) : Math.round(w.yes_price * 100)
+          const noPct = 100 - yesPct
+          return (
+            <Link
+              key={w.word_id}
+              href={marketUrl}
+              className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
+            >
+              <span className="text-white text-xs font-medium truncate flex-1">{w.word}</span>
+              {isResolved && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${w.resolved_outcome ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                  {w.resolved_outcome ? 'YES' : 'NO'}
+                </span>
+              )}
+              <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">{yesPct}c</span>
+              <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">{noPct}c</span>
+            </Link>
+          )
+        })}
       </div>
     </div>
   )

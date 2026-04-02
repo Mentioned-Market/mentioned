@@ -278,6 +278,7 @@ export default function MarketsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<MarketFilter>('all')
+  const [showResolved, setShowResolved] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -320,20 +321,32 @@ export default function MarketsPage() {
             <Header />
             <main className="flex-1 pt-6 pb-4">
               {/* Filter tabs */}
-              <div className="flex items-center gap-1 mb-6">
-                {(['all', 'paid', 'free'] as const).map(f => (
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-1">
+                  {(['all', 'paid', 'free'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        filter === f
+                          ? 'bg-white/10 text-white'
+                          : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
+                      }`}
+                    >
+                      {f === 'all' ? 'All' : f === 'paid' ? 'Paid' : 'Free'}
+                    </button>
+                  ))}
+                </div>
+                {filter !== 'paid' && (
                   <button
-                    key={f}
-                    onClick={() => setFilter(f)}
+                    onClick={() => setShowResolved(v => !v)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                      filter === f
-                        ? 'bg-white/10 text-white'
-                        : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
+                      showResolved ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
                     }`}
                   >
-                    {f === 'all' ? 'All' : f === 'paid' ? 'Paid' : 'Free'}
+                    {showResolved ? 'Hide Resolved' : 'Show Resolved'}
                   </button>
-                ))}
+                )}
               </div>
 
               {/* Loading state */}
@@ -370,7 +383,7 @@ export default function MarketsPage() {
               {!loading && !error && (
                 <div className="space-y-8 animate-fade-in">
                   {/* Free markets */}
-                  {filter !== 'paid' && customMarkets.length > 0 && (
+                  {filter !== 'paid' && customMarkets.filter(m => showResolved || m.status !== 'resolved').length > 0 && (
                     <section>
                       <div className="flex items-center gap-2 mb-4">
                         <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
@@ -380,7 +393,7 @@ export default function MarketsPage() {
                         </InfoTooltip>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {customMarkets.map(market => (
+                        {customMarkets.filter(m => showResolved || m.status !== 'resolved').map(market => (
                           <CustomEventCard key={`custom-${market.id}`} market={market} />
                         ))}
                       </div>
