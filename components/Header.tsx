@@ -2,15 +2,17 @@
 
 import { useWallet } from '@/contexts/WalletContext'
 import ConnectModal from '@/components/ConnectModal'
+import PrivyFundsModal from '@/components/PrivyFundsModal'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
-  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked } = useWallet()
+  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, walletType } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
+  const [showFundsModal, setShowFundsModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const discordTooltipRef = useRef<HTMLDivElement>(null)
@@ -118,6 +120,20 @@ export default function Header() {
                   >
                     My Profile
                   </Link>
+                  {walletType === 'privy' && (
+                    <>
+                      <div className="border-t border-white/10"></div>
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false)
+                          setShowFundsModal(true)
+                        }}
+                        className="w-full text-left px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200"
+                      >
+                        Deposit / Withdraw
+                      </button>
+                    </>
+                  )}
                   <div className="border-t border-white/10"></div>
                   <button
                     onClick={() => {
@@ -179,6 +195,7 @@ export default function Header() {
         </div>
       </header>
       <ConnectModal />
+      <PrivyFundsModal open={showFundsModal} onClose={() => setShowFundsModal(false)} />
     </>
   )
 }
