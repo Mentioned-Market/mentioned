@@ -10,7 +10,6 @@ import {
   getWalletPointHistory,
 } from '@/lib/db'
 import { getWeekStart } from '@/lib/points'
-import { JUP_API_KEY, JUP_BASE } from '@/lib/jupiterApi'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,11 +46,8 @@ export async function GET(
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
-  const quick = _req.nextUrl.searchParams.get('quick') === '1'
-
   const weekStart = getWeekStart()
 
-  // DB-only queries — always run, always fast
   const [allTimePoints, weeklyPoints, freePositions, freeTrades, freeStats, pointHistory] = await Promise.all([
     getWalletPointTotal(wallet),
     getWalletWeeklyPoints(wallet, weekStart),
@@ -61,76 +57,22 @@ export async function GET(
     getWalletPointHistory(wallet),
   ])
 
-  // Jupiter data — skip when quick=1 to let the page render fast
-  let positions: Record<string, unknown>[] = []
-  let history: Record<string, unknown>[] = []
-  let unrealizedPnl = 0
-  let realizedPnl = 0
-  let totalVolume = 0
-  let tradesCount = 0
-  let totalValue = 0
-  let biggestWin = 0
-
-  if (!quick) {
-    const posParams = new URLSearchParams({ ownerPubkey: wallet })
-    const histParams = new URLSearchParams({ ownerPubkey: wallet })
-
-    const [posRes, histRes] = await Promise.all([
-      fetch(`${JUP_BASE}/positions?${posParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
-        .then(r => r.ok ? r.json() : { data: [] })
-        .catch(() => ({ data: [] })),
-      fetch(`${JUP_BASE}/history?${histParams}`, { cache: 'no-store', headers: { 'x-api-key': JUP_API_KEY } })
-        .then(r => r.ok ? r.json() : { data: [] })
-        .catch(() => ({ data: [] })),
-    ])
-
-    positions = posRes.data ?? []
-    history = (histRes.data ?? [])
-      .sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
-        (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0),
-      )
-
-    unrealizedPnl = positions.reduce(
-      (sum: number, p: Record<string, unknown>) => sum + (Number(p.pnlUsd) || 0), 0,
-    )
-    realizedPnl = history.reduce(
-      (sum: number, h: Record<string, unknown>) => sum + (Number(h.realizedPnl) || 0), 0,
-    )
-    totalVolume = history.reduce(
-      (sum: number, h: Record<string, unknown>) => sum + (Number(h.depositAmountUsd) || 0), 0,
-    )
-    tradesCount = history.filter(
-      (h: Record<string, unknown>) => h.eventType === 'order_filled',
-    ).length
-    totalValue = positions.reduce(
-      (sum: number, p: Record<string, unknown>) => sum + (Number(p.sizeUsd) || 0), 0,
-    )
-    const SETTLEMENT_TYPES = new Set(['settle_position', 'payout_claimed'])
-    biggestWin = history.reduce((max: number, h: Record<string, unknown>) => {
-      const realized = Number(h.realizedPnl) || 0
-      const effective = realized !== 0
-        ? realized
-        : SETTLEMENT_TYPES.has(h.eventType as string) ? Number(h.payoutAmountUsd) || 0 : 0
-      return Math.max(max, effective)
-    }, 0)
-  }
-
   return NextResponse.json({
     username,
     wallet,
     pfpEmoji: pfp_emoji,
     createdAt: created_at,
-    positions,
-    history,
+    positions: [],
+    history: [],
     stats: {
-      positionsCount: positions.length,
-      totalVolume,
-      totalValue,
-      unrealizedPnl,
-      realizedPnl,
-      totalPnl: unrealizedPnl + realizedPnl,
-      tradesCount,
-      biggestWin,
+      positionsCount: 0,
+      totalVolume: 0,
+      totalValue: 0,
+      unrealizedPnl: 0,
+      realizedPnl: 0,
+      totalPnl: 0,
+      tradesCount: 0,
+      biggestWin: 0,
       allTimePoints,
       weeklyPoints,
     },
