@@ -534,18 +534,26 @@ export default function ProfilePage() {
     setLoadingAchievements(false)
   }, [])
 
-  // ── Load public profile + achievements in parallel ─────
+  // ── Load public profile: quick DB data first, then Jupiter ─────
   useEffect(() => {
     if (!usernameParam) return
     setLoading(true)
     setNotFound(false)
-    fetch(`/api/profile/${encodeURIComponent(usernameParam)}`)
+    const encoded = encodeURIComponent(usernameParam)
+
+    // Fast load — DB data only (skips Jupiter calls)
+    fetch(`/api/profile/${encoded}?quick=1`)
       .then(async res => {
         if (res.status === 404) { setNotFound(true); return }
         const data = await res.json()
         setProfile(data)
-        // Start achievements fetch immediately instead of waiting for next render cycle
         if (data.wallet) fetchAchievements(data.wallet)
+
+        // Background load — full data with Jupiter positions/history
+        fetch(`/api/profile/${encoded}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(full => { if (full) setProfile(full) })
+          .catch(() => {})
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
