@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export const JUP_API_KEY = 'JUPITER_API_KEY_REMOVED'
+export const JUP_API_KEY = process.env.JUPITER_API_KEY ?? ''
 export const JUP_BASE = 'https://api.jup.ag/prediction/v1'
 
 /** Returns empty headers — do not forward client IP to Jupiter, requests must appear to originate from the server */
