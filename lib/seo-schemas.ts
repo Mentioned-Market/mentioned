@@ -57,7 +57,7 @@ export const faqSchema = {
       name: 'Is Mentioned available now?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Mentioned is currently in development. Join our waitlist at mentioned.market/waitlist to get early access when we launch on mainnet.',
+        text: 'Mentioned is live now. Visit mentioned.market to start trading on prediction markets.',
       },
     },
   ],

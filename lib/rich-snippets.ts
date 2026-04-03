@@ -59,7 +59,7 @@ export const howToSchema = {
       '@type': 'HowToStep',
       position: 1,
       name: 'Join Mentioned',
-      text: 'Visit mentioned.market and join the waitlist for early access to mention markets',
+      text: 'Visit mentioned.market and connect your wallet to start trading on mention markets',
     },
     {
       '@type': 'HowToStep',

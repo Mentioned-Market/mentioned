@@ -27,14 +27,6 @@ export async function GET() {
     <priority>0.9</priority>
   </url>
 
-  <!-- Mentioned Waitlist -->
-  <url>
-    <loc>${baseUrl}/waitlist</loc>
-    <lastmod>${currentDate}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-  
   <!-- Mentioned Profile -->
   <url>
     <loc>${baseUrl}/profile</loc>
