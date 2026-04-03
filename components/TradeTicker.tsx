@@ -159,10 +159,10 @@ export default function TradeTicker() {
 
       {doubled.length > 0 ? (
         <div
-          className="flex items-center gap-3 h-full absolute whitespace-nowrap"
+          className="flex items-center gap-3 h-full absolute whitespace-nowrap animate-ticker"
           style={{
             willChange: 'transform',
-            animation: `ticker ${duration}s linear infinite`,
+            animationDuration: `${duration}s`,
             animationPlayState: paused ? 'paused' : 'running',
           }}
         >
