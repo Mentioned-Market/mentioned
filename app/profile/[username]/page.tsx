@@ -534,25 +534,33 @@ export default function ProfilePage() {
     setLoadingAchievements(false)
   }, [])
 
-  // ── Load public profile: quick DB data first, then Jupiter ─────
+  // ── Load profile: DB data first (fast), then Jupiter data (slow) ─────
   useEffect(() => {
     if (!usernameParam) return
     setLoading(true)
     setNotFound(false)
     const encoded = encodeURIComponent(usernameParam)
 
-    // Fast load — DB data only (skips Jupiter calls)
-    fetch(`/api/profile/${encoded}?quick=1`)
+    // Fast — DB-only profile data
+    fetch(`/api/profile/${encoded}`)
       .then(async res => {
         if (res.status === 404) { setNotFound(true); return }
         const data = await res.json()
         setProfile(data)
         if (data.wallet) fetchAchievements(data.wallet)
 
-        // Background load — full data with Jupiter positions/history
-        fetch(`/api/profile/${encoded}`)
+        // Slow — Jupiter positions/history, merge into existing profile
+        fetch(`/api/profile/${encoded}/jupiter`)
           .then(r => r.ok ? r.json() : null)
-          .then(full => { if (full) setProfile(full) })
+          .then(jup => {
+            if (!jup) return
+            setProfile(prev => prev ? {
+              ...prev,
+              positions: jup.positions,
+              history: jup.history,
+              stats: { ...prev.stats, ...jup.stats },
+            } : prev)
+          })
           .catch(() => {})
       })
       .catch(() => setNotFound(true))
