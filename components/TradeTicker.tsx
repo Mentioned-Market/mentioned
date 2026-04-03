@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
 interface TradeItem {
-  id: number
+  id: string | number
   wallet: string
   username: string | null
   marketId: string
@@ -15,12 +15,23 @@ interface TradeItem {
   amountUsd: string
   marketTitle: string | null
   createdAt: string
+  type: 'polymarket' | 'free'
+  wordLabel?: string | null
+  cost?: number | string | null
 }
 
 function formatAmount(microUsd: string): string {
   const usd = Number(microUsd) / 1_000_000
   if (usd >= 1_000) return `$${(usd / 1_000).toFixed(1)}K`
   return `$${usd.toFixed(2)}`
+}
+
+function formatTokens(cost: number | string | null | undefined): string {
+  if (cost == null) return ''
+  const n = Number(cost)
+  if (isNaN(n)) return ''
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toFixed(1)
 }
 
 function timeAgo(isoDate: string): string {
@@ -62,11 +73,19 @@ function TradeChip({ trade }: { trade: TradeItem }) {
     ? 'text-apple-red'
     : 'text-neutral-400'
 
+  const isFree = trade.type === 'free'
+  const href = isFree ? `/custom/${trade.marketId}` : `/polymarkets/event/${trade.eventId}`
+
   return (
     <div
       className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 shrink-0 select-none cursor-pointer hover:bg-white/10 hover:border-white/20 transition-colors"
-      onClick={() => router.push(`/polymarkets/event/${trade.eventId}`)}
+      onClick={() => router.push(href)}
     >
+      {isFree && (
+        <span className="text-[9px] font-bold uppercase tracking-wide text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded-full leading-none">
+          FREE
+        </span>
+      )}
       <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
       <Link
         href={profileHref(trade.username, trade.wallet)}
@@ -76,11 +95,17 @@ function TradeChip({ trade }: { trade: TradeItem }) {
         {displayName(trade.username, trade.wallet)}
       </Link>
       <span className={`text-xs font-semibold ${labelColor}`}>{label}</span>
-      <span className="text-white text-xs font-bold">{formatAmount(trade.amountUsd)}</span>
-      {trade.marketTitle && (
+      {isFree ? (
+        <span className="text-purple-300 text-xs font-bold">{formatTokens(trade.cost)} pts</span>
+      ) : (
+        <span className="text-white text-xs font-bold">{formatAmount(trade.amountUsd)}</span>
+      )}
+      {(isFree ? trade.wordLabel : trade.marketTitle) && (
         <>
           <span className="text-neutral-600 text-[10px]">·</span>
-          <span className="text-neutral-400 text-[10px] max-w-[140px] truncate">{trade.marketTitle}</span>
+          <span className="text-neutral-400 text-[10px] max-w-[140px] truncate">
+            {isFree ? trade.wordLabel : trade.marketTitle}
+          </span>
         </>
       )}
       <span className="text-neutral-500 text-[10px]">{timeAgo(trade.createdAt)}</span>
