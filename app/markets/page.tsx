@@ -275,7 +275,8 @@ type MarketFilter = 'all' | 'paid' | 'free'
 export default function MarketsPage() {
   const [events, setEvents] = useState<PolyEvent[]>([])
   const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
-  const [loading, setLoading] = useState(true)
+  const [polyLoading, setPolyLoading] = useState(true)
+  const [customLoading, setCustomLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<MarketFilter>('all')
   const [showResolved, setShowResolved] = useState(false)
@@ -283,31 +284,25 @@ export default function MarketsPage() {
   useEffect(() => {
     let cancelled = false
 
-    async function fetchAll() {
-      try {
-        const [polyRes, customRes] = await Promise.all([
-          fetch('/api/polymarket?category=mentions'),
-          fetch('/api/custom'),
-        ])
-        if (!polyRes.ok) throw new Error('Failed to fetch events')
-        const polyJson = await polyRes.json()
-        const customJson = customRes.ok ? await customRes.json() : { markets: [] }
-        if (!cancelled) {
-          setEvents(polyJson.data || [])
-          setCustomMarkets(customJson.markets || [])
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Something went wrong')
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
+    fetch('/api/custom')
+      .then(res => res.ok ? res.json() : { markets: [] })
+      .then(data => { if (!cancelled) setCustomMarkets(data.markets || []) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setCustomLoading(false) })
 
-    fetchAll()
+    fetch('/api/polymarket?category=mentions')
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch events')
+        return res.json()
+      })
+      .then(data => { if (!cancelled) setEvents(data.data || []) })
+      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Something went wrong') })
+      .finally(() => { if (!cancelled) setPolyLoading(false) })
+
     return () => { cancelled = true }
   }, [])
+
+  const loading = polyLoading && customLoading
 
   const activeEvents = events.filter(e => e.isActive)
   const liveEvents = activeEvents.filter(e => e.isLive)
@@ -349,7 +344,7 @@ export default function MarketsPage() {
                 )}
               </div>
 
-              {/* Loading state */}
+              {/* Full loading state — only when both are still loading */}
               {loading && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {Array.from({ length: 6 }).map((_, i) => (
@@ -366,7 +361,7 @@ export default function MarketsPage() {
               )}
 
               {/* Error state */}
-              {error && (
+              {error && !polyLoading && events.length === 0 && customMarkets.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20">
                   <p className="text-apple-red text-sm font-medium mb-2">Failed to load markets</p>
                   <p className="text-neutral-500 text-xs">{error}</p>
@@ -379,11 +374,10 @@ export default function MarketsPage() {
                 </div>
               )}
 
-              {/* Events */}
-              {!loading && !error && (
+              {!loading && (
                 <div className="space-y-8 animate-fade-in">
                   {/* Free markets */}
-                  {filter !== 'paid' && customMarkets.filter(m => showResolved || m.status !== 'resolved').length > 0 && (
+                  {filter !== 'paid' && !customLoading && customMarkets.filter(m => showResolved || m.status !== 'resolved').length > 0 && (
                     <section>
                       <div className="flex items-center gap-2 mb-4">
                         <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
@@ -401,46 +395,65 @@ export default function MarketsPage() {
                   )}
 
                   {/* Paid markets */}
-                  {filter !== 'free' && activeEvents.length > 0 && (
+                  {filter !== 'free' && (
                     <>
                       <div className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
                         <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
                       </div>
 
-                      {/* Live events */}
-                      {liveEvents.length > 0 && (
-                        <section>
-                          <div className="flex items-center gap-2 mb-4">
-                            <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                            <h2 className="text-white text-lg font-semibold">Live Now</h2>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {liveEvents.map(event => (
-                              <EventCard key={event.eventId} event={event} />
-                            ))}
-                          </div>
-                        </section>
+                      {polyLoading && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {Array.from({ length: 3 }).map((_, i) => (
+                            <div key={i} className="rounded-2xl glass animate-pulse">
+                              <div className="h-[140px] bg-neutral-800 rounded-t-2xl" />
+                              <div className="p-4 space-y-3">
+                                <div className="h-4 bg-neutral-800 rounded w-3/4" />
+                                <div className="h-8 bg-neutral-800 rounded" />
+                                <div className="h-3 bg-neutral-800 rounded w-1/2" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
 
-                      {/* Upcoming events */}
-                      {upcomingEvents.length > 0 && (
-                        <section>
+                      {!polyLoading && activeEvents.length > 0 && (
+                        <>
+                          {/* Live events */}
                           {liveEvents.length > 0 && (
-                            <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
+                            <section>
+                              <div className="flex items-center gap-2 mb-4">
+                                <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                                <h2 className="text-white text-lg font-semibold">Live Now</h2>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {liveEvents.map(event => (
+                                  <EventCard key={event.eventId} event={event} />
+                                ))}
+                              </div>
+                            </section>
                           )}
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {upcomingEvents.map(event => (
-                              <EventCard key={event.eventId} event={event} />
-                            ))}
-                          </div>
-                        </section>
+
+                          {/* Upcoming events */}
+                          {upcomingEvents.length > 0 && (
+                            <section>
+                              {liveEvents.length > 0 && (
+                                <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
+                              )}
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {upcomingEvents.map(event => (
+                                  <EventCard key={event.eventId} event={event} />
+                                ))}
+                              </div>
+                            </section>
+                          )}
+                        </>
                       )}
                     </>
                   )}
 
                   {/* Empty state */}
-                  {activeEvents.length === 0 && customMarkets.length === 0 && (
+                  {!polyLoading && !customLoading && activeEvents.length === 0 && customMarkets.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20">
                       <p className="text-neutral-400 text-sm">No markets available right now</p>
                     </div>
