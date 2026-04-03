@@ -140,6 +140,10 @@ export default function TradeTicker() {
   // Duplicate so the seamless loop works
   const doubled = trades.length > 0 ? [...trades, ...trades] : []
 
+  // ~250px per chip (avg width + gap). Target ~40px/s scroll speed.
+  const estimatedHalfWidth = trades.length * 250
+  const duration = Math.max(30, estimatedHalfWidth / 40)
+
   return (
     <div
       className="relative w-full overflow-hidden border-b border-white/10 bg-neutral-950/80 backdrop-blur-sm"
@@ -155,8 +159,12 @@ export default function TradeTicker() {
 
       {doubled.length > 0 ? (
         <div
-          className="flex items-center gap-3 h-full absolute whitespace-nowrap animate-ticker"
-          style={{ willChange: 'transform', animationPlayState: paused ? 'paused' : 'running' }}
+          className="flex items-center gap-3 h-full absolute whitespace-nowrap"
+          style={{
+            willChange: 'transform',
+            animation: `ticker ${duration}s linear infinite`,
+            animationPlayState: paused ? 'paused' : 'running',
+          }}
         >
           {doubled.map((trade, i) => (
             <TradeChip key={`${trade.id}-${i}`} trade={trade} />
