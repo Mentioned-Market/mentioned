@@ -5,7 +5,8 @@ export const dynamic = 'force-dynamic'
 
 // In-memory cache with stale-while-revalidate behavior
 const cache: Record<string, { data: unknown; ts: number; refreshing: boolean }> = {}
-const TTL = 30_000 // 30 seconds
+const TTL = 30_000       // serve from cache without revalidating
+const MAX_STALE = 120_000 // beyond this, block on fresh fetch instead of serving stale
 
 async function fetchFromJupiter(category: string, headers: Record<string, string>) {
   const res = await jupFetch(
@@ -27,7 +28,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(entry.data)
   }
 
-  // Cache hit but stale — return stale data, refresh in background
+  // Cache hit but too old — treat as cache miss, block on fresh fetch
+  if (entry && now - entry.ts >= MAX_STALE) {
+    const data = await fetchFromJupiter(category, getForwardHeaders(req))
+    cache[key] = { data, ts: Date.now(), refreshing: false }
+    return NextResponse.json(data)
+  }
+
+  // Cache hit, stale but within MAX_STALE — return stale, refresh in background
   if (entry && !entry.refreshing) {
     entry.refreshing = true
     fetchFromJupiter(category, getForwardHeaders(req))
