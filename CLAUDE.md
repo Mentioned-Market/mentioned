@@ -9,6 +9,7 @@ Solana prediction market platform. Users trade YES/NO outcomes on events (via Ju
 - **Database:** PostgreSQL 16 (Railway prod, Docker local), `pg` library with raw SQL
 - **APIs:** Jupiter Prediction API (`api.jup.ag/prediction/v1`), Helius webhooks for on-chain indexing
 - **Charts:** Canvas-based (`EventPriceChart`, `MarketChart`), Recharts
+- **Infra** All deployed on Railway - fronted with Cloudflare.
 
 ## Important notes to remember:
 - The code needs to be well written and without errors, verify as you're working
