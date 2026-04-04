@@ -817,12 +817,13 @@ export default function ProfilePage() {
       })
       if (!res.ok) {
         setProfile(p => p ? { ...p, pfpEmoji: prev } : p)
-      } else {
-        refreshProfile()
-        const data = await res.json()
-        if (data.newAchievements?.length) {
-          for (const ach of data.newAchievements) showAchievementToast(ach)
-        }
+        return
+      }
+      const data = await res.json()
+      // Update WalletContext (header) without touching local profile state
+      refreshProfile()
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
       }
     } catch {
       setProfile(p => p ? { ...p, pfpEmoji: prev } : p)
@@ -959,11 +960,7 @@ export default function ProfilePage() {
               <div className="relative flex-shrink-0" ref={pfpPickerRef}>
                 <button
                   onClick={() => setPfpPickerOpen(!pfpPickerOpen)}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg bg-white/5 border-2 transition-all ${
-                    !profile.pfpEmoji
-                      ? 'border-white/30 ring-2 ring-white/20 ring-offset-2 ring-offset-black animate-pulse hover:animate-none hover:border-white/60'
-                      : 'border-white/10 hover:border-white/30'
-                  }`}
+                  className="w-16 h-16 rounded-full flex items-center justify-center shadow-lg bg-white/5 border-2 border-white/10 hover:border-white/30 transition-all group"
                   title={profile.pfpEmoji ? 'Change profile picture' : 'Set profile picture'}
                   style={!profile.pfpEmoji ? { background: avatarColor(profile.username ?? profile.wallet) } : undefined}
                 >
@@ -974,7 +971,22 @@ export default function ProfilePage() {
                       {(profile.username ?? profile.wallet)[0].toUpperCase()}
                     </span>
                   )}
+                  {/* Hover overlay */}
+                  <span className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </span>
                 </button>
+                {/* Badge shown when no PFP set */}
+                {!profile.pfpEmoji && (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-apple-blue border-2 border-black flex items-center justify-center pointer-events-none">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                  </span>
+                )}
                 {pfpPickerOpen && (
                   <div className="absolute top-full left-0 mt-2 bg-neutral-900 border border-white/10 rounded-xl p-3 shadow-2xl z-50 animate-scale-in min-w-[200px]">
                     <p className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
