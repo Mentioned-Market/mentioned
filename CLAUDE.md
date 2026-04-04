@@ -24,7 +24,7 @@ app/
 │   ├── custom/           # Free market CRUD, trading, positions, chart, resolution
 │   ├── trades/           # On-chain trade queries + chart data
 │   ├── webhook/          # Helius webhook → parse Anchor events → insert to DB
-│   ├── chat/             # Global chat (GET polling, POST with rate limit)
+│   ├── chat/             # Global + event chat (SSE streaming, POST with rate limit)
 │   ├── profile/          # Username + PFP management
 │   ├── achievements/     # Achievement unlock
 │   ├── bug-report/       # Discord webhook bug reports (rate-limited, sanitized)
@@ -51,6 +51,7 @@ lib/
 ├── adminAuth.ts          # Admin wallet check (ADMIN_WALLETS env)
 ├── jupiterApi.ts         # Jupiter API client (API key, fetch wrapper)
 ├── tradeParser.ts        # Parse Anchor events from Helius webhook payloads
+├── chatStream.ts         # Shared Postgres LISTEN singleton for SSE chat streaming
 ├── achievements.ts       # Achievement definitions + unlock logic
 ├── points.ts             # Point system (trades, holds, chat, achievements)
 └── ...
@@ -209,7 +210,7 @@ Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` 
 ## Performance Patterns
 
 - **Profile data cached in WalletContext.** `username`, `pfpEmoji`, and `refreshProfile()` live in `contexts/WalletContext.tsx`. Fetched once on wallet connect, shared by Header, GlobalChat, EventChat. Call `refreshProfile()` after any profile edit (username, PFP) so the header updates.
-- **Smart chat polling.** `GlobalChat` and `EventChat` use adaptive `setTimeout` polling (not `setInterval`). Starts at 3s, backs off by 2s per empty response up to 15s max. Pauses when `document.hidden`. Resets to 3s on new messages or when the user sends a message. Constants: `POLL_MIN`, `POLL_MAX`, `POLL_BACKOFF_STEP`.
+- **Chat uses SSE + Postgres LISTEN/NOTIFY.** Real-time chat is delivered via Server-Sent Events, not polling. A single shared Postgres LISTEN connection (`lib/chatStream.ts`) fans out notifications to all SSE clients in-memory. GlobalChat only opens SSE when the chat panel is expanded; when collapsed, it polls a lightweight `/api/chat/latest-id` endpoint every 30s for the unread badge. EventChat connects SSE on mount and supports backward cursor pagination (`?before=` param) for scrolling through full chat history. Both components fall back to 30s polling if SSE fails.
 - **Lazy tab data loading.** Positions page and profile page only fetch data for the active tab. Orders and history fetch/poll when their tab becomes active; intervals are cleaned up when switching away. Follow the pattern: `useEffect` guarded by `tab !== 'x'` with interval inside.
 - **CSS display:none for tabs.** Tab content on positions and profile pages uses `style={{ display: active ? undefined : 'none' }}` instead of conditional rendering (`{tab === 'x' && (...)}`). DOM stays mounted across tab switches for instant switching and preserved scroll position.
 - **Memoized PNL map.** Profile page pre-computes `pnlMap` via `useMemo` over `activeHistory`, then uses `getPnl(h)` (a `Map.get` lookup) instead of calling `eventPnl(h)` repeatedly. All derived values (`periodPnl`, `biggestWin`, history row rendering) use `getPnl`.
@@ -221,3 +222,13 @@ Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` 
 - **GlobalChat**: Hidden on mobile via `hidden md:block md:flex` on both collapsed bubble and expanded panel
 - **Market pages**: Use fixed bottom sheet for trading on mobile (`lg:hidden`), desktop sidebar (`hidden lg:block`)
 - **CSS utility**: `.scrollbar-hide` in `globals.css` hides scrollbars cross-browser
+
+## Maintaining This File
+
+After completing work, consider whether CLAUDE.md needs updating. **Not every change warrants an update** — only update when:
+- A new architectural pattern is introduced (e.g. SSE replacing polling, a new shared singleton)
+- A key file is added to `lib/` or a new API domain is created under `app/api/`
+- An existing pattern documented here has changed (e.g. how chat works, how auth works)
+- A new "When Adding Features" rule applies going forward
+
+Do **not** update for: routine bug fixes, UI tweaks, copy changes, adding pages that follow existing patterns, or minor refactors. The goal is to keep this file as a high-level architectural guide, not a changelog.
