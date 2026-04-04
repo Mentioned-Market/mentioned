@@ -200,7 +200,7 @@ export default function PositionsPage() {
   const { showAchievementToast } = useAchievements()
 
   const [tab, setTab] = useState<Tab>('positions')
-  const [marketMode, setMarketMode] = useState<MarketMode>('paid')
+  const [marketMode, setMarketMode] = useState<MarketMode>('free')
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
@@ -639,7 +639,7 @@ export default function PositionsPage() {
                                 {parseFloat(pos.yes_shares) > 0 ? 'YES' : 'NO'}
                               </span>
                               <div className="min-w-0">
-                                <Link href={`/custom/${pos.market_slug || pos.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                                <Link href={`/free/${pos.market_slug || pos.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
                                   {pos.market_title}
                                 </Link>
                                 <span className="text-neutral-500 text-xs">{pos.word}</span>
@@ -708,7 +708,7 @@ export default function PositionsPage() {
                             className="group grid grid-cols-1 md:grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
                           >
                             <div className="min-w-0">
-                              <Link href={`/custom/${t.market_slug || t.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                              <Link href={`/free/${t.market_slug || t.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
                                 {t.market_title}
                               </Link>
                               <span className="text-neutral-500 text-xs">{t.word}</span>

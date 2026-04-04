@@ -98,13 +98,15 @@ export default function Header() {
                 <div className="absolute right-0 mt-2 w-64 bg-neutral-900 border border-yellow-500/40 rounded-xl p-3 z-50 shadow-card-hover animate-scale-in">
                   <p className="text-yellow-400 text-xs font-semibold mb-1">Discord not linked</p>
                   <p className="text-neutral-300 text-xs leading-relaxed">You won&apos;t earn points on the leaderboard until you link your Discord account.</p>
-                  <Link
+                  <a
                     href={`/api/discord/link?wallet=${publicKey}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     onClick={() => setShowDiscordTooltip(false)}
                     className="mt-2 block text-center text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors duration-200"
                   >
                     Link Discord
-                  </Link>
+                  </a>
                 </div>
               )}
             </div>
