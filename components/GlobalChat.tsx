@@ -14,11 +14,10 @@ interface ChatMessage {
   created_at: string
 }
 
-const POLL_MIN = 3000
-const POLL_MAX = 15000
-const POLL_BACKOFF_STEP = 2000
 const MAX_LENGTH = 200
 const SEND_COOLDOWN = 500
+const UNREAD_POLL_INTERVAL = 30_000
+const FALLBACK_POLL_INTERVAL = 30_000
 
 export default function GlobalChat() {
   const pathname = usePathname()
@@ -29,17 +28,51 @@ export default function GlobalChat() {
   const [input, setInput] = useState('')
   const [unread, setUnread] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const openRef = useRef(open)
   const lastIdRef = useRef(0)
+  const lastSeenIdRef = useRef(0)
   const lastSentRef = useRef(0)
+  const sseRef = useRef<EventSource | null>(null)
+  const unreadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    openRef.current = open
-    if (open) setUnread(0)
-  }, [open])
+  // ── SSE connection (only when open) ────────────────────
+  const connectSSE = useCallback(() => {
+    if (sseRef.current) return
 
-  // Fetch messages (initial load + polling for new)
-  const fetchMessages = useCallback(async () => {
+    const es = new EventSource('/api/chat/stream?channel=global')
+    sseRef.current = es
+
+    es.onmessage = (event) => {
+      try {
+        const msg: ChatMessage = JSON.parse(event.data)
+        if (msg.id <= lastIdRef.current) return
+        lastIdRef.current = msg.id
+        lastSeenIdRef.current = msg.id
+        setMessages((prev) => {
+          // Replace optimistic message if present, otherwise append
+          const withoutOptimistic = prev.filter((m) => m.id > 0)
+          return [...withoutOptimistic, msg].slice(-50)
+        })
+      } catch {}
+    }
+
+    es.onerror = () => {
+      // SSE failed — close and fall back to polling
+      disconnectSSE()
+      startFallbackPolling()
+    }
+  }, [])
+
+  const disconnectSSE = useCallback(() => {
+    if (sseRef.current) {
+      sseRef.current.close()
+      sseRef.current = null
+    }
+    stopFallbackPolling()
+  }, [])
+
+  // ── Fallback polling (only if SSE fails while open) ────
+  const fetchNewMessages = useCallback(async () => {
     try {
       const url = lastIdRef.current > 0
         ? `/api/chat?after=${lastIdRef.current}`
@@ -51,58 +84,107 @@ export default function GlobalChat() {
 
       const newLastId = data[data.length - 1].id
       if (newLastId > lastIdRef.current) {
-        if (lastIdRef.current > 0 && !openRef.current) {
-          setUnread((n) => n + data.length)
-        }
         lastIdRef.current = newLastId
+        lastSeenIdRef.current = newLastId
       }
 
       setMessages((prev) => {
-        if (prev.length === 0) return data
-        // Remove optimistic messages (negative ids) that now have real server rows
         const confirmed = prev.filter((m) => m.id > 0)
         const existingIds = new Set(confirmed.map((m) => m.id))
         const fresh = data.filter((m) => !existingIds.has(m.id))
-        return fresh.length > 0 ? [...confirmed, ...fresh] : confirmed.length < prev.length ? confirmed : prev
+        if (fresh.length > 0) return [...confirmed, ...fresh].slice(-50)
+        return confirmed.length < prev.length ? confirmed : prev
       })
     } catch {}
   }, [])
 
-  // Initial load + smart polling (backoff when idle, pause when tab hidden)
-  const pollIntervalRef = useRef(POLL_MIN)
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>
-    let stopped = false
-
+  const startFallbackPolling = useCallback(() => {
+    if (fallbackTimerRef.current) return
     const poll = async () => {
-      if (stopped) return
       if (document.hidden) {
-        timer = setTimeout(poll, pollIntervalRef.current)
+        fallbackTimerRef.current = setTimeout(poll, FALLBACK_POLL_INTERVAL)
         return
       }
-      const prevCount = lastIdRef.current
-      await fetchMessages()
-      // If new messages arrived, reset to fast polling; otherwise back off
-      if (lastIdRef.current > prevCount) {
-        pollIntervalRef.current = POLL_MIN
-      } else {
-        pollIntervalRef.current = Math.min(pollIntervalRef.current + POLL_BACKOFF_STEP, POLL_MAX)
+      await fetchNewMessages()
+      fallbackTimerRef.current = setTimeout(poll, FALLBACK_POLL_INTERVAL)
+    }
+    fallbackTimerRef.current = setTimeout(poll, FALLBACK_POLL_INTERVAL)
+  }, [fetchNewMessages])
+
+  const stopFallbackPolling = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current)
+      fallbackTimerRef.current = null
+    }
+  }, [])
+
+  // ── Unread polling (only when collapsed) ───────────────
+  const startUnreadPolling = useCallback(() => {
+    if (unreadTimerRef.current) return
+    const poll = async () => {
+      if (document.hidden) {
+        unreadTimerRef.current = setTimeout(poll, UNREAD_POLL_INTERVAL)
+        return
       }
-      if (!stopped) timer = setTimeout(poll, pollIntervalRef.current)
+      try {
+        const afterParam = lastSeenIdRef.current > 0 ? `?after=${lastSeenIdRef.current}` : ''
+        const res = await fetch(`/api/chat/latest-id${afterParam}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (lastSeenIdRef.current === 0) {
+            // First poll — just record the current latest, don't show unread
+            lastSeenIdRef.current = data.latestId
+          } else if (data.count > 0) {
+            setUnread(data.count)
+          }
+        }
+      } catch {}
+      unreadTimerRef.current = setTimeout(poll, UNREAD_POLL_INTERVAL)
+    }
+    // Initial poll immediately
+    poll()
+  }, [])
+
+  const stopUnreadPolling = useCallback(() => {
+    if (unreadTimerRef.current) {
+      clearTimeout(unreadTimerRef.current)
+      unreadTimerRef.current = null
+    }
+  }, [])
+
+  // ── Open/close lifecycle ───────────────────────────────
+  useEffect(() => {
+    if (open) {
+      // Opening: stop unread polling, fetch initial messages, start SSE
+      stopUnreadPolling()
+      setUnread(0)
+
+      const loadAndConnect = async () => {
+        await fetchNewMessages()
+        connectSSE()
+      }
+      loadAndConnect()
+    } else {
+      // Closing: disconnect SSE, clear messages, start unread polling
+      disconnectSSE()
+      setMessages([])
+      startUnreadPolling()
     }
 
-    fetchMessages().then(() => { if (!stopped) timer = setTimeout(poll, pollIntervalRef.current) })
-
-    // Resume fast polling when tab becomes visible
-    const onVisibility = () => {
-      if (!document.hidden) {
-        pollIntervalRef.current = POLL_MIN
-      }
+    return () => {
+      disconnectSSE()
+      stopUnreadPolling()
     }
-    document.addEventListener('visibilitychange', onVisibility)
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
-  }, [fetchMessages])
+  // Start unread polling on mount (chat starts collapsed)
+  useEffect(() => {
+    startUnreadPolling()
+    return () => {
+      stopUnreadPolling()
+      disconnectSSE()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll on new messages when open
   useEffect(() => {
@@ -111,6 +193,7 @@ export default function GlobalChat() {
     }
   }, [messages, open])
 
+  // ── Send message ───────────────────────────────────────
   const sendMessage = useCallback(async () => {
     if (!publicKey || !input.trim()) return
     const now = Date.now()
@@ -130,10 +213,7 @@ export default function GlobalChat() {
     }
     setMessages((prev) => [...prev, optimistic])
 
-    // Reset to fast polling so the real row comes quickly
-    pollIntervalRef.current = POLL_MIN
-
-    // POST — next poll will bring the real row
+    // POST — SSE will bring the real row
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -143,7 +223,7 @@ export default function GlobalChat() {
         for (const ach of data.newAchievements) showAchievementToast(ach)
       }
     }).catch(() => {})
-  }, [publicKey, input, username])
+  }, [publicKey, input, username, showAchievementToast])
 
   const formatTime = (ts: string) => {
     const d = new Date(ts)

@@ -39,11 +39,10 @@ interface EventChatProps {
   marketIds: string[]
 }
 
-const POLL_MIN = 3000
-const POLL_MAX = 15000
-const POLL_BACKOFF_STEP = 2000
 const MAX_LENGTH = 200
 const SEND_COOLDOWN = 500
+const FALLBACK_POLL_INTERVAL = 30_000
+const SCROLL_LOAD_THRESHOLD = 60
 
 function microToUsd(n: number) {
   return (n / 1_000_000).toFixed(2)
@@ -58,6 +57,14 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastIdRef = useRef(0)
   const lastSentRef = useRef(0)
+  const sseRef = useRef<EventSource | null>(null)
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Backward pagination state
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const oldestIdRef = useRef<number | null>(null)
+  const initialLoadDone = useRef(false)
 
   // Detect free market context from eventId (e.g. "custom_42")
   const customMarketId = eventId.startsWith('custom_') ? parseInt(eventId.slice(7), 10) : null
@@ -72,13 +79,112 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const positionCache = useRef<Map<string, UserPosition[]>>(new Map())
   const customPositionCache = useRef<Map<string, CustomPosition[]>>(new Map())
 
-  // Fetch messages
-  const fetchMessages = useCallback(async () => {
+  // ── Initial load ───────────────────────────────────────
+  const fetchInitialMessages = useCallback(async () => {
     try {
-      const url = lastIdRef.current > 0
-        ? `/api/chat/event?eventId=${encodeURIComponent(eventId)}&after=${lastIdRef.current}`
-        : `/api/chat/event?eventId=${encodeURIComponent(eventId)}`
-      const res = await fetch(url)
+      const res = await fetch(`/api/chat/event?eventId=${encodeURIComponent(eventId)}`)
+      if (!res.ok) return
+      const data: ChatMessage[] = await res.json()
+      if (data.length > 0) {
+        lastIdRef.current = data[data.length - 1].id
+        oldestIdRef.current = data[0].id
+        setHasMore(data.length >= 50) // If we got a full page, there may be more
+      } else {
+        setHasMore(false)
+      }
+      setMessages(data)
+      initialLoadDone.current = true
+    } catch {}
+  }, [eventId])
+
+  // ── Load older messages (backward pagination) ──────────
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlder || !hasMore || oldestIdRef.current === null) return
+    setLoadingOlder(true)
+
+    const container = messagesContainerRef.current
+    const prevScrollHeight = container?.scrollHeight ?? 0
+
+    try {
+      const res = await fetch(
+        `/api/chat/event?eventId=${encodeURIComponent(eventId)}&before=${oldestIdRef.current}`
+      )
+      if (!res.ok) return
+      const data: { messages: ChatMessage[]; hasMore: boolean } = await res.json()
+
+      if (data.messages.length > 0) {
+        oldestIdRef.current = data.messages[0].id
+        setMessages((prev) => [...data.messages, ...prev])
+
+        // Preserve scroll position after prepend
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - prevScrollHeight
+          }
+        })
+      }
+      setHasMore(data.hasMore)
+    } catch {} finally {
+      setLoadingOlder(false)
+    }
+  }, [eventId, loadingOlder, hasMore])
+
+  // ── Scroll-to-top detection ────────────────────────────
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      if (container.scrollTop < SCROLL_LOAD_THRESHOLD && hasMore && !loadingOlder && initialLoadDone.current) {
+        loadOlderMessages()
+      }
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [hasMore, loadingOlder, loadOlderMessages])
+
+  // ── SSE connection ─────────────────────────────────────
+  const connectSSE = useCallback(() => {
+    if (sseRef.current) return
+
+    const es = new EventSource(`/api/chat/stream?channel=event_${encodeURIComponent(eventId)}`)
+    sseRef.current = es
+
+    es.onmessage = (event) => {
+      try {
+        const msg: ChatMessage = JSON.parse(event.data)
+        if (msg.id <= lastIdRef.current) return
+        lastIdRef.current = msg.id
+
+        setMessages((prev) => {
+          const withoutOptimistic = prev.filter((m) => m.id > 0)
+          return [...withoutOptimistic, msg]
+        })
+      } catch {}
+    }
+
+    es.onerror = () => {
+      disconnectSSE()
+      startFallbackPolling()
+    }
+  }, [eventId])
+
+  const disconnectSSE = useCallback(() => {
+    if (sseRef.current) {
+      sseRef.current.close()
+      sseRef.current = null
+    }
+    stopFallbackPolling()
+  }, [])
+
+  // ── Fallback polling (only if SSE fails) ───────────────
+  const fetchNewMessages = useCallback(async () => {
+    if (lastIdRef.current === 0) return
+    try {
+      const res = await fetch(
+        `/api/chat/event?eventId=${encodeURIComponent(eventId)}&after=${lastIdRef.current}`
+      )
       if (!res.ok) return
       const data: ChatMessage[] = await res.json()
       if (data.length === 0) return
@@ -89,55 +195,67 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
       }
 
       setMessages((prev) => {
-        if (prev.length === 0) return data
         const confirmed = prev.filter((m) => m.id > 0)
         const existingIds = new Set(confirmed.map((m) => m.id))
         const fresh = data.filter((m) => !existingIds.has(m.id))
-        return fresh.length > 0 ? [...confirmed, ...fresh] : confirmed.length < prev.length ? confirmed : prev
+        if (fresh.length > 0) return [...confirmed, ...fresh]
+        return confirmed.length < prev.length ? confirmed : prev
       })
     } catch {}
   }, [eventId])
 
-  // Smart polling: backoff when idle, pause when tab hidden
-  const pollIntervalRef = useRef(POLL_MIN)
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>
-    let stopped = false
-
+  const startFallbackPolling = useCallback(() => {
+    if (fallbackTimerRef.current) return
     const poll = async () => {
-      if (stopped) return
       if (document.hidden) {
-        timer = setTimeout(poll, pollIntervalRef.current)
+        fallbackTimerRef.current = setTimeout(poll, FALLBACK_POLL_INTERVAL)
         return
       }
-      const prevCount = lastIdRef.current
-      await fetchMessages()
-      if (lastIdRef.current > prevCount) {
-        pollIntervalRef.current = POLL_MIN
-      } else {
-        pollIntervalRef.current = Math.min(pollIntervalRef.current + POLL_BACKOFF_STEP, POLL_MAX)
-      }
-      if (!stopped) timer = setTimeout(poll, pollIntervalRef.current)
+      await fetchNewMessages()
+      fallbackTimerRef.current = setTimeout(poll, FALLBACK_POLL_INTERVAL)
     }
+    fallbackTimerRef.current = setTimeout(poll, FALLBACK_POLL_INTERVAL)
+  }, [fetchNewMessages])
 
-    fetchMessages().then(() => { if (!stopped) timer = setTimeout(poll, pollIntervalRef.current) })
-
-    const onVisibility = () => {
-      if (!document.hidden) pollIntervalRef.current = POLL_MIN
+  const stopFallbackPolling = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current)
+      fallbackTimerRef.current = null
     }
-    document.addEventListener('visibilitychange', onVisibility)
+  }, [])
 
-    return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
-  }, [fetchMessages])
+  // ── Mount/unmount lifecycle ────────────────────────────
+  useEffect(() => {
+    // Reset state when eventId changes (navigating between markets)
+    setMessages([])
+    setHasMore(true)
+    setLoadingOlder(false)
+    lastIdRef.current = 0
+    oldestIdRef.current = null
+    initialLoadDone.current = false
 
-  // Auto-scroll within chat container only
+    fetchInitialMessages().then(() => {
+      connectSSE()
+    })
+
+    return () => {
+      disconnectSSE()
+      stopFallbackPolling()
+    }
+  }, [eventId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll within chat container on new messages
   useEffect(() => {
     const container = messagesContainerRef.current
-    if (container) {
+    if (!container) return
+    // Only auto-scroll if user is near the bottom (within 100px)
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+    if (isNearBottom) {
       container.scrollTop = container.scrollHeight
     }
   }, [messages])
 
+  // ── Send message ───────────────────────────────────────
   const sendMessage = useCallback(async () => {
     if (!publicKey || !input.trim()) return
     const now = Date.now()
@@ -158,8 +276,6 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     }
     setMessages((prev) => [...prev, optimistic])
 
-    pollIntervalRef.current = POLL_MIN
-
     fetch('/api/chat/event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -171,12 +287,11 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     }).catch(() => {})
   }, [publicKey, input, username, pfpEmoji, eventId, showAchievementToast])
 
-  // Fetch positions for hovered user
+  // ── Hover card: fetch positions ────────────────────────
   const fetchUserPositions = useCallback(async (wallet: string) => {
     setLoadingPositions(true)
 
     if (customMarketId !== null) {
-      // Free market: fetch from custom positions API
       if (customPositionCache.current.has(wallet)) {
         setHoverCustomPositions(customPositionCache.current.get(wallet)!)
         setLoadingPositions(false)
@@ -197,7 +312,6 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
         setLoadingPositions(false)
       }
     } else {
-      // Polymarket: fetch from Jupiter positions API
       if (positionCache.current.has(wallet)) {
         setHoverPositions(positionCache.current.get(wallet)!)
         setLoadingPositions(false)
@@ -257,7 +371,19 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
 
       {/* Messages */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
-        {messages.length === 0 && (
+        {/* Loading older indicator */}
+        {loadingOlder && (
+          <div className="flex justify-center py-2">
+            <div className="w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+          </div>
+        )}
+        {!hasMore && messages.length > 0 && (
+          <div className="text-center py-2">
+            <span className="text-neutral-600 text-[10px]">Beginning of chat</span>
+          </div>
+        )}
+
+        {messages.length === 0 && !loadingOlder && (
           <div className="flex items-center justify-center h-full">
             <p className="text-neutral-500 text-xs">No messages yet. Be the first to chat!</p>
           </div>

@@ -269,6 +269,44 @@ CREATE INDEX IF NOT EXISTS idx_user_achievements_wallet ON user_achievements(wal
 -- URL slug for free markets (e.g. TRUMP-1a2b3c)
 ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS slug TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_markets_slug ON custom_markets(slug);
+
+-- Chat real-time: NOTIFY trigger for SSE streaming
+CREATE OR REPLACE FUNCTION notify_chat_insert() RETURNS trigger AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'chat_messages' THEN
+    PERFORM pg_notify('chat_new', json_build_object(
+      'channel', 'global',
+      'id', NEW.id,
+      'wallet', NEW.wallet,
+      'username', NEW.username,
+      'message', NEW.message,
+      'created_at', NEW.created_at
+    )::text);
+  ELSIF TG_TABLE_NAME = 'event_chat_messages' THEN
+    PERFORM pg_notify('chat_new', json_build_object(
+      'channel', 'event_' || NEW.event_id,
+      'id', NEW.id,
+      'event_id', NEW.event_id,
+      'wallet', NEW.wallet,
+      'username', NEW.username,
+      'message', NEW.message,
+      'created_at', NEW.created_at,
+      'pfp_emoji', (SELECT pfp_emoji FROM user_profiles WHERE wallet = NEW.wallet)
+    )::text);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_chat_messages_notify ON chat_messages;
+CREATE TRIGGER trg_chat_messages_notify
+  AFTER INSERT ON chat_messages
+  FOR EACH ROW EXECUTE FUNCTION notify_chat_insert();
+
+DROP TRIGGER IF EXISTS trg_event_chat_messages_notify ON event_chat_messages;
+CREATE TRIGGER trg_event_chat_messages_notify
+  AFTER INSERT ON event_chat_messages
+  FOR EACH ROW EXECUTE FUNCTION notify_chat_insert();
 `
 
 async function main() {
