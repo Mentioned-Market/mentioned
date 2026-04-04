@@ -267,6 +267,23 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 
 CREATE INDEX IF NOT EXISTS idx_user_achievements_wallet ON user_achievements(wallet);
 
+-- Add week_start to user_achievements so each week's unlock is tracked independently
+ALTER TABLE user_achievements ADD COLUMN IF NOT EXISTS week_start DATE NOT NULL DEFAULT date_trunc('week', NOW())::date;
+
+-- Drop the old all-time unique constraint and replace with a per-week one
+-- (DO block so it's safe to re-run)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'user_achievements_wallet_achievement_id_key'
+  ) THEN
+    ALTER TABLE user_achievements DROP CONSTRAINT user_achievements_wallet_achievement_id_key;
+  END IF;
+END$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_achievements_wallet_week ON user_achievements(wallet, achievement_id, week_start);
+
 -- URL slug for free markets (e.g. TRUMP-1a2b3c)
 ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS slug TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_markets_slug ON custom_markets(slug);

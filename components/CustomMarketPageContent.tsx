@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -174,6 +174,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [trades, setTrades] = useState<Trade[]>([])
   const [chartData, setChartData] = useState<ChartWord[]>([])
   const [loading, setLoading] = useState(true)
+  const [chartLoading, setChartLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [streamHidden, setStreamHidden] = useState(false)
 
@@ -193,6 +194,64 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   useEffect(() => {
     const seen = document.cookie.split(';').some(c => c.trim().startsWith('mentioned_free_tutorial_seen='))
     if (!seen) setShowTutorial(true)
+  }, [])
+
+  // Hover card state for recent trades
+  interface TradeHoverPosition {
+    word_id: number
+    word: string
+    yes_shares: number
+    no_shares: number
+    tokens_spent: number
+    tokens_received: number
+  }
+  const [tradeHoveredWallet, setTradeHoveredWallet] = useState<string | null>(null)
+  const [tradeHoverPositions, setTradeHoverPositions] = useState<TradeHoverPosition[]>([])
+  const [tradeHoverPos, setTradeHoverPos] = useState({ top: 0, left: 0 })
+  const [tradeHoverLoading, setTradeHoverLoading] = useState(false)
+  const tradeHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tradePositionCache = useRef<Map<string, TradeHoverPosition[]>>(new Map())
+
+  const fetchTradeHoverPositions = useCallback(async (wallet: string) => {
+    setTradeHoverLoading(true)
+    if (tradePositionCache.current.has(wallet)) {
+      setTradeHoverPositions(tradePositionCache.current.get(wallet)!)
+      setTradeHoverLoading(false)
+      return
+    }
+    try {
+      const res = await fetch(`/api/custom/${marketId}/positions?wallet=${wallet}`)
+      if (!res.ok) { setTradeHoverPositions([]); return }
+      const json = await res.json()
+      const positions: TradeHoverPosition[] = (json.positions || []).filter(
+        (p: TradeHoverPosition) => p.yes_shares >= 0.01 || p.no_shares >= 0.01
+      )
+      tradePositionCache.current.set(wallet, positions)
+      if (tradePositionCache.current.size > 200) tradePositionCache.current.clear()
+      setTradeHoverPositions(positions)
+    } catch {
+      setTradeHoverPositions([])
+    } finally {
+      setTradeHoverLoading(false)
+    }
+  }, [marketId])
+
+  const handleTradeMouseEnter = useCallback((wallet: string, e: React.MouseEvent) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect()
+    setTradeHoverPos({ top: rect.bottom + 4, left: rect.left })
+    if (tradeHoverTimeout.current) clearTimeout(tradeHoverTimeout.current)
+    tradeHoverTimeout.current = setTimeout(() => {
+      setTradeHoveredWallet(wallet)
+      fetchTradeHoverPositions(wallet)
+    }, 300)
+  }, [fetchTradeHoverPositions])
+
+  const handleTradeMouseLeave = useCallback(() => {
+    if (tradeHoverTimeout.current) clearTimeout(tradeHoverTimeout.current)
+    tradeHoverTimeout.current = setTimeout(() => {
+      setTradeHoveredWallet(null)
+      setTradeHoverPositions([])
+    }, 200)
   }, [])
 
   // ── Fetch data ──────────────────────────────────────
@@ -253,7 +312,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       const res = await fetch(`/api/custom/${marketId}/chart`)
       const data = await res.json()
       setChartData(data.words || [])
-    } catch { /* ignore */ }
+    } catch { /* ignore */ } finally {
+      setChartLoading(false)
+    }
   }, [marketId])
 
   useEffect(() => { fetchMarket() }, [fetchMarket])
@@ -700,6 +761,12 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
             side === 'YES'
               ? 'bg-apple-green hover:bg-apple-green/90'
               : 'bg-apple-red hover:bg-apple-red/90'
+          } ${
+            selectedWordId !== null && amountNum > 0 && !(tradeMode === 'buy' && amountNum < 1) && !trading
+              ? side === 'YES'
+                ? 'ring-2 ring-apple-green/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(52,199,89,0.45)] animate-pulse'
+                : 'ring-2 ring-apple-red/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(255,59,48,0.45)] animate-pulse'
+              : ''
           }`}
         >
           {trading ? (
@@ -925,7 +992,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               )}
 
               {/* Price chart — matches polymarket event chart with legend + timeframes */}
-              {loading ? (
+              {loading || chartLoading ? (
                 <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
                   <MentionedSpinner className="" />
                 </div>
@@ -1042,22 +1109,69 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     <div className="mb-6">
                       <h2 className="text-base font-semibold text-white mb-3">Recent Trades</h2>
                       <div className="glass rounded-2xl p-4">
-                        <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
                           {trades.map(t => (
                             <div key={t.id} className="flex items-center justify-between text-xs py-1">
-                              <div className="flex items-center gap-2 text-neutral-400 truncate">
-                                <span className="text-neutral-300 font-medium">{t.username || t.wallet.slice(0, 6)}</span>
-                                <span>{t.action === 'buy' ? 'bought' : 'sold'}</span>
-                                <span className={t.side === 'YES' ? 'text-apple-green font-medium' : 'text-apple-red font-medium'}>
-                                  {t.shares.toFixed(1)} {t.side}
+                              <div className="flex items-center gap-1.5 text-neutral-400 min-w-0 flex-1">
+                                <Link
+                                  href={`/profile/${t.username || t.wallet}`}
+                                  className="text-neutral-300 font-medium hover:text-apple-blue transition-colors flex-shrink-0"
+                                  onMouseEnter={(e) => handleTradeMouseEnter(t.wallet, e)}
+                                  onMouseLeave={handleTradeMouseLeave}
+                                >
+                                  {t.username || t.wallet.slice(0, 6)}
+                                </Link>
+                                <span className="flex-shrink-0">{t.action === 'buy' ? 'bought' : 'sold'}</span>
+                                <span className={`flex-shrink-0 font-medium ${t.side === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+                                  {t.shares.toFixed(0)} {t.side}
                                 </span>
-                                <span>on {t.word}</span>
+                                <span className="flex-shrink-0">for</span>
+                                <span className="flex-shrink-0 text-neutral-300">{Math.round(t.cost)} tokens</span>
+                                <span className="truncate">on {t.word}</span>
                               </div>
-                              <span className="text-neutral-600 flex-shrink-0 ml-2">{Math.round(t.yes_price * 100)}¢</span>
+                              <span className="text-neutral-600 flex-shrink-0 ml-3 pr-1">{Math.round(t.yes_price * 100)}¢</span>
                             </div>
                           ))}
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Trade hover card */}
+                  {tradeHoveredWallet && (
+                    <div
+                      className="fixed z-[70] w-64 bg-neutral-900 border border-white/10 rounded-xl shadow-xl p-3"
+                      style={{ top: tradeHoverPos.top, left: tradeHoverPos.left }}
+                      onMouseEnter={() => { if (tradeHoverTimeout.current) clearTimeout(tradeHoverTimeout.current) }}
+                      onMouseLeave={handleTradeMouseLeave}
+                    >
+                      <div className="text-xs text-neutral-400 mb-2">
+                        {tradeHoveredWallet.slice(0, 4)}...{tradeHoveredWallet.slice(-4)} positions in this market
+                      </div>
+                      {tradeHoverLoading ? (
+                        <div className="text-xs text-neutral-500">Loading...</div>
+                      ) : tradeHoverPositions.length === 0 ? (
+                        <div className="text-xs text-neutral-500">No open positions</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {tradeHoverPositions.flatMap((pos) => {
+                            const rows: { word: string; side: string; shares: number }[] = []
+                            if (pos.yes_shares >= 0.01) rows.push({ word: pos.word, side: 'YES', shares: pos.yes_shares })
+                            if (pos.no_shares >= 0.01) rows.push({ word: pos.word, side: 'NO', shares: pos.no_shares })
+                            return rows
+                          }).slice(0, 6).map((row, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`font-semibold flex-shrink-0 ${row.side === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+                                  {row.side}
+                                </span>
+                                <span className="text-neutral-300 truncate">{row.word}</span>
+                              </div>
+                              <span className="text-neutral-400 flex-shrink-0 ml-2">{row.shares.toFixed(1)} shares</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
