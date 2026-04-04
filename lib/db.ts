@@ -523,6 +523,24 @@ export async function getRecentChatMessages(
   return result.rows
 }
 
+/** Lightweight query for unread badge — returns latest id and optional count since afterId */
+export async function getLatestChatId(
+  afterId?: number,
+): Promise<{ latestId: number; count: number }> {
+  if (afterId) {
+    const result = await pool.query(
+      `SELECT COALESCE(MAX(id), 0)::int AS latest_id, COUNT(*)::int AS count
+       FROM chat_messages WHERE id > $1`,
+      [afterId],
+    )
+    return { latestId: result.rows[0].latest_id, count: result.rows[0].count }
+  }
+  const result = await pool.query(
+    `SELECT COALESCE(MAX(id), 0)::int AS latest_id FROM chat_messages`,
+  )
+  return { latestId: result.rows[0].latest_id, count: 0 }
+}
+
 // ── Polymarket Trades ────────────────────────────────
 
 export interface PolymarketTradeRow {
@@ -629,6 +647,26 @@ export async function getRecentEventChatMessages(
     [eventId, limit],
   )
   return result.rows
+}
+
+/** Backward cursor pagination for event chat — returns older messages before a given id */
+export async function getEventChatMessagesBefore(
+  eventId: string,
+  beforeId: number,
+  limit = 50,
+): Promise<{ messages: EventChatRow[]; hasMore: boolean }> {
+  const result = await pool.query(
+    `SELECT m.*, p.pfp_emoji
+     FROM event_chat_messages m
+     LEFT JOIN user_profiles p ON p.wallet = m.wallet
+     WHERE m.event_id = $1 AND m.id < $2
+     ORDER BY m.id DESC
+     LIMIT $3`,
+    [eventId, beforeId, limit + 1],
+  )
+  const hasMore = result.rows.length > limit
+  const messages = (hasMore ? result.rows.slice(0, limit) : result.rows).reverse()
+  return { messages, hasMore }
 }
 
 // ── Event Streams ─────────────────────────────────────
