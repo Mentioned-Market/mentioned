@@ -949,7 +949,11 @@ export default function PolymarketEventPage() {
                   )}
 
                   {/* Price chart */}
-                  {event.markets.length > 0 && (
+                  {loading ? (
+                    <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
+                      <MentionedSpinner className="" />
+                    </div>
+                  ) : event.markets.length > 0 && (
                     <div className="mb-5">
                       <EventPriceChart
                         eventId={eventId}

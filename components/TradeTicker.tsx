@@ -74,7 +74,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
     : 'text-neutral-400'
 
   const isFree = trade.type === 'free'
-  const href = isFree ? `/custom/${trade.marketId}` : `/polymarkets/event/${trade.eventId}`
+  const href = isFree ? `/free/${trade.marketId}` : `/polymarkets/event/${trade.eventId}`
 
   return (
     <div
@@ -89,7 +89,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
       <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
       <Link
         href={profileHref(trade.username, trade.wallet)}
-        className="text-white text-xs font-medium hover:underline"
+        className="text-white text-xs font-medium hover:underline max-w-[80px] truncate"
         onClick={e => e.stopPropagation()}
       >
         {displayName(trade.username, trade.wallet)}

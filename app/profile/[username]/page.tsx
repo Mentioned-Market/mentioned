@@ -471,7 +471,7 @@ export default function ProfilePage() {
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
   // ── Profile mode (paid vs free) ────────────────────────
-  const [profileMode, setProfileMode] = useState<ProfileMode>('paid')
+  const [profileMode, setProfileMode] = useState<ProfileMode>('free')
   const [freeOwnerTab, setFreeOwnerTab] = useState<FreeOwnerTab>('positions')
   const [freePublicTab, setFreePublicTab] = useState<FreePublicTab>('positions')
 
@@ -959,7 +959,11 @@ export default function ProfilePage() {
               <div className="relative flex-shrink-0" ref={pfpPickerRef}>
                 <button
                   onClick={() => setPfpPickerOpen(!pfpPickerOpen)}
-                  className="w-16 h-16 rounded-full flex items-center justify-center shadow-lg bg-white/5 border-2 border-white/10 hover:border-white/30 transition-all"
+                  className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg bg-white/5 border-2 transition-all ${
+                    !profile.pfpEmoji
+                      ? 'border-white/30 ring-2 ring-white/20 ring-offset-2 ring-offset-black animate-pulse hover:animate-none hover:border-white/60'
+                      : 'border-white/10 hover:border-white/30'
+                  }`}
                   title={profile.pfpEmoji ? 'Change profile picture' : 'Set profile picture'}
                   style={!profile.pfpEmoji ? { background: avatarColor(profile.username ?? profile.wallet) } : undefined}
                 >
@@ -1057,8 +1061,8 @@ export default function ProfilePage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 mb-1">
-                      <h1 className="text-2xl font-bold text-white leading-tight">
+                    <div className="flex items-center gap-2 mb-1 min-w-0">
+                      <h1 className="text-2xl font-bold text-white leading-tight truncate min-w-0">
                         {profile.username ? `@${profile.username}` : 'Set Username'}
                       </h1>
                       <button
@@ -1073,6 +1077,14 @@ export default function ProfilePage() {
                     </div>
                   )}
                   {usernameError && <p className="text-apple-red text-xs mb-1">{usernameError}</p>}
+                  {!profile.username && !editingUsername && (
+                    <button
+                      onClick={() => { setUsernameInput(''); setEditingUsername(true); setUsernameError(null) }}
+                      className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors mb-1 text-left"
+                    >
+                      Add a username so people can find you
+                    </button>
+                  )}
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-neutral-500 text-sm font-mono">
                       {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
@@ -1089,7 +1101,7 @@ export default function ProfilePage() {
                 </>
               ) : isOwnProfile && viewAsPublic ? (
                 <>
-                  <h1 className="text-2xl font-bold text-white leading-tight">
+                  <h1 className="text-2xl font-bold text-white leading-tight truncate">
                     {displayName(profile.username, profile.wallet)}
                   </h1>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1108,7 +1120,7 @@ export default function ProfilePage() {
                 </>
               ) : (
                 <>
-                  <h1 className="text-2xl font-bold text-white leading-tight">
+                  <h1 className="text-2xl font-bold text-white leading-tight truncate">
                     {displayName(profile.username, profile.wallet)}
                   </h1>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1279,6 +1291,8 @@ export default function ProfilePage() {
               {!discordUsername ? (
                 <a
                   href={`/api/discord/link?wallet=${publicKey}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-colors h-full"
                 >
                   <DiscordIcon className="w-4 h-4 text-amber-400 flex-shrink-0" />
