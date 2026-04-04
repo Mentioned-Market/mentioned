@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
-  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, walletType } = useWallet()
+  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType } = useWallet()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
@@ -64,7 +64,7 @@ export default function Header() {
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
-          {connected && !discordLinked && (
+          {walletReady && connected && discordLinked === false && (
             <div className="relative" ref={discordTooltipRef}>
               <button
                 onClick={() => setShowDiscordTooltip(!showDiscordTooltip)}
@@ -90,7 +90,11 @@ export default function Header() {
               )}
             </div>
           )}
-          {connected ? (
+          {!walletReady || (connected && discordLinked === null) ? (
+            <div className="h-8 md:h-9 px-3 md:px-4 glass rounded-lg flex items-center">
+              <span className="text-neutral-500 text-sm tracking-widest">···</span>
+            </div>
+          ) : connected ? (
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
