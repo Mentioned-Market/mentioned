@@ -3,6 +3,7 @@ import {
   getMarketProfitByWallet,
   resolveWordPositionsPayout,
 } from './db'
+import { tryUnlockAchievement } from './achievements'
 
 
 export const VIRTUAL_MARKET_POINTS_MULTIPLIER = 0.5
@@ -39,6 +40,10 @@ export async function resolveAndScoreVirtualMarket(marketId: number): Promise<vo
         points,
         `custom_${marketId}`,
         { marketId, net, multiplier: VIRTUAL_MARKET_POINTS_MULTIPLIER },
+      )
+      // Award win achievement (idempotent — fires once ever per wallet)
+      tryUnlockAchievement(wallet, 'win_free_trade').catch(err =>
+        console.error(`Achievement error (win_free_trade) for ${wallet}:`, err),
       )
     }
   }

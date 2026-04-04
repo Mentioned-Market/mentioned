@@ -17,42 +17,38 @@ export interface AchievementDef {
  *
  * When rotating: clear user_achievements table, update this array,
  * and redeploy / restart the server.
+ *
+ * Daily login tiers (daily_login_3 / _5 / _7) are permanent fixtures —
+ * they are awarded by POST /api/visit based on the user_visit_logs table
+ * and should always be present here.
  */
 export const ACHIEVEMENTS: AchievementDef[] = [
-  // Week 1
-  {
-    id: 'place_trade',
-    emoji: '🎯',
-    title: 'Pull the Trigger',
-    description: 'Place a trade on any Polymarket event',
-    points: 100,
-  },
-  {
-    id: 'win_trade',
-    emoji: '🏆',
-    title: 'Cashed Out',
-    description: 'Claim a winning position',
-    points: 150,
-  },
   {
     id: 'send_chat',
     emoji: '💬',
     title: 'Say Something',
     description: 'Send a message in any chat',
-    points: 75,
+    points: 40,
   },
   {
     id: 'set_profile',
     emoji: '🏷️',
     title: 'Make It Official',
     description: 'Set your username',
-    points: 75,
+    points: 40,
   },
   {
     id: 'free_trade',
     emoji: '🎮',
     title: 'Play Money',
     description: 'Place a trade on a free market',
+    points: 60,
+  },
+  {
+    id: 'win_free_trade',
+    emoji: '🏆',
+    title: 'Cashed Out',
+    description: 'Win a free market trade',
     points: 100,
   },
   {
@@ -60,7 +56,29 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     emoji: '🤝',
     title: 'Bring a Friend',
     description: 'Refer a new user to Mentioned',
-    points: 150,
+    points: 100,
+  },
+  // Daily login streak — tiered, stacking
+  {
+    id: 'daily_login_3',
+    emoji: '📅',
+    title: 'Showing Up',
+    description: 'Visit Mentioned 3 days this week',
+    points: 50,
+  },
+  {
+    id: 'daily_login_5',
+    emoji: '🗓️',
+    title: 'Regular',
+    description: 'Visit Mentioned 5 days this week',
+    points: 75,
+  },
+  {
+    id: 'daily_login_7',
+    emoji: '🔥',
+    title: 'Every Day',
+    description: 'Visit Mentioned every day this week',
+    points: 100,
   },
 ]
 

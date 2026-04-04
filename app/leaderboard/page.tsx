@@ -185,7 +185,7 @@ export default function LeaderboardPage() {
                   <h1 className="text-2xl md:text-3xl font-bold text-white">Leaderboard</h1>
                   <InfoTooltip position="below">
                     <div className="space-y-2">
-                      <p>Link your Discord on your profile to earn points! The top 5 point earners each week win real USDC. Week ends Sunday night GMT — winners notified via Discord.</p>
+                      <p>Link your Discord on your profile to earn points! The top 5 point earners each week win real USDC. Week ends Sunday night GMT, winners notified via Discord.</p>
                       <table className="w-full text-xs mt-1">
                         <thead>
                           <tr className="text-neutral-500">
@@ -211,6 +211,21 @@ export default function LeaderboardPage() {
                     : tradingPeriod === 'alltime' ? 'All time' : weekStart ? formatWeekRange(weekStart) : 'This week'}
                 </p>
               </div>
+
+              {/* ── How to earn points link ──────────────────── */}
+              <Link
+                href="/points"
+                className="flex items-center justify-between gap-3 mb-5 px-4 py-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-apple-blue flex-shrink-0" />
+                  <span className="text-sm font-medium text-white">How to earn points</span>
+                  <span className="text-xs text-neutral-500">chat, free markets, daily streaks, achievements</span>
+                </div>
+                <svg className="w-4 h-4 text-neutral-600 group-hover:text-neutral-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
 
               {/* ── Tab pills ────────────────────────────────── */}
               <div className="flex items-center gap-1 mb-4 border-b border-white/5 pb-4">

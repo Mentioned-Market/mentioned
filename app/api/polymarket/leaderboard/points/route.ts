@@ -38,10 +38,7 @@ export async function GET(req: NextRequest) {
       weeklyPoints: t.weekly,
       allTimePoints: t.all_time,
       breakdown: {
-        trades: t.trade_count,
-        wins: t.win_count,
         chats: t.chat_count,
-        holds: t.hold_count,
       },
     }))
 
