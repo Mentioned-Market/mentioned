@@ -158,6 +158,8 @@ export default function GlobalChat() {
       // Opening: stop unread polling, fetch initial messages, start SSE
       stopUnreadPolling()
       setUnread(0)
+      // Reset so fetchNewMessages does a full load (no ?after= param)
+      lastIdRef.current = 0
 
       const loadAndConnect = async () => {
         await fetchNewMessages()
