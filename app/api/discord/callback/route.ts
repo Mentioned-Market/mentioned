@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(5000),
       body: new URLSearchParams({
         client_id: DISCORD_CLIENT_ID,
         client_secret: DISCORD_CLIENT_SECRET,
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
     // Get Discord user info
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5000),
     })
 
     if (!userRes.ok) {
@@ -85,6 +87,7 @@ export async function GET(req: NextRequest) {
         await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordId}`, {
           method: 'PUT',
           headers: botHeaders,
+          signal: AbortSignal.timeout(5000),
           body: JSON.stringify({ access_token: accessToken }),
         })
 
@@ -93,6 +96,7 @@ export async function GET(req: NextRequest) {
           const roleRes = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordId}/roles/${roleId}`, {
             method: 'PUT',
             headers: botHeaders,
+            signal: AbortSignal.timeout(5000),
           })
           if (!roleRes.ok) {
             console.error('Discord role assign failed:', roleRes.status, await roleRes.text())

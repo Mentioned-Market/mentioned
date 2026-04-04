@@ -11,6 +11,12 @@ const pool = new pg.Pool({
   connectionString: dbUrl,
   ssl: sslDisabled ? false : { rejectUnauthorized: false },
   max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+})
+
+pool.on('connect', (client) => {
+  client.query('SET statement_timeout = 30000').catch(() => {})
 })
 
 export interface TradeRow {
@@ -766,19 +772,16 @@ export async function insertPointEvent(
   }
 
   // If this wallet referred others → each referred user gets 10%
-  const referred = await pool.query(
-    `SELECT wallet FROM user_profiles WHERE referred_by = $1`,
-    [wallet],
+  await pool.query(
+    `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
+     SELECT up.wallet, 'referral_bonus', $1, $2, $3
+     FROM user_profiles up
+     WHERE up.referred_by = $4
+     ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
+    [bonus, `ref:${wallet}:${action}:${refId ?? '_'}`,
+     JSON.stringify({ fromWallet: wallet, originalAction: action }),
+     wallet],
   )
-  for (const row of referred.rows) {
-    await pool.query(
-      `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
-       VALUES ($1, 'referral_bonus', $2, $3, $4)
-       ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
-      [row.wallet, bonus, `ref:${wallet}:${action}:${refId ?? '_'}`,
-       JSON.stringify({ fromWallet: wallet, originalAction: action })],
-    )
-  }
 
   return awarded
 }
@@ -1226,7 +1229,8 @@ export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> 
        LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
        LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_positions GROUP BY market_id) p ON p.market_id = m.id
        WHERE m.status IN ('open', 'locked', 'resolved')
-       ORDER BY m.created_at DESC`,
+       ORDER BY m.created_at DESC
+       LIMIT 200`,
     ),
     pool.query(
       `SELECT w.id AS word_id, w.market_id, w.word, w.resolved_outcome,
@@ -1377,6 +1381,93 @@ export async function resolveCustomMarketWords(
   )
 }
 
+/**
+ * Atomically resolve words and apply payouts within a single transaction.
+ * Acquires FOR UPDATE lock on the market row to prevent double-resolution.
+ * Returns the updated words and whether all words are now resolved.
+ */
+export async function resolveMarketAtomic(
+  marketId: number,
+  resolutions: { wordId: number; outcome: boolean }[],
+): Promise<{ words: CustomMarketWordRow[]; allResolved: boolean; statusUpdated: boolean }> {
+  if (resolutions.length === 0) throw new Error('No resolutions provided')
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Lock market row and verify status
+    const marketResult = await client.query(
+      'SELECT status FROM custom_markets WHERE id = $1 FOR UPDATE',
+      [marketId],
+    )
+    const market = marketResult.rows[0]
+    if (!market || market.status !== 'locked') {
+      await client.query('ROLLBACK')
+      throw new Error('Market must be locked before resolving')
+    }
+
+    // Apply word resolutions
+    const cases: string[] = []
+    const ids: number[] = []
+    const values: (number | boolean)[] = [marketId]
+    let paramIndex = 2
+
+    for (const { wordId, outcome } of resolutions) {
+      cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}::boolean`)
+      values.push(wordId, outcome)
+      ids.push(wordId)
+      paramIndex += 2
+    }
+
+    values.push(...ids)
+    const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
+
+    await client.query(
+      `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders})`,
+      values,
+    )
+
+    // Apply payouts for each resolved word
+    for (const { wordId, outcome } of resolutions) {
+      const outcomeStr = outcome ? 'YES' : 'NO'
+      await client.query(
+        `UPDATE custom_market_positions
+         SET tokens_received = tokens_received + CASE WHEN $2 = 'YES' THEN yes_shares ELSE no_shares END,
+             updated_at = NOW()
+         WHERE word_id = $1`,
+        [wordId, outcomeStr],
+      )
+    }
+
+    // Check if all words are resolved
+    const wordsResult = await client.query(
+      'SELECT * FROM custom_market_words WHERE market_id = $1 ORDER BY id',
+      [marketId],
+    )
+    const words = wordsResult.rows as CustomMarketWordRow[]
+    const allResolved = words.every(w => w.resolved_outcome !== null)
+
+    // Update status to resolved if all words done
+    let statusUpdated = false
+    if (allResolved) {
+      const updateResult = await client.query(
+        `UPDATE custom_markets SET status = 'resolved', updated_at = NOW() WHERE id = $1 AND status = 'locked' RETURNING id`,
+        [marketId],
+      )
+      statusUpdated = (updateResult.rowCount ?? 0) > 0
+    }
+
+    await client.query('COMMIT')
+    return { words, allResolved, statusUpdated }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 // -- Pools --
 
 export async function getWordPools(marketId: number): Promise<CustomMarketPoolRow[]> {
@@ -1521,6 +1612,20 @@ export async function resolveWordPositionsPayout(
   )
 }
 
+// -- Admin Audit Log --
+
+export async function logAdminAction(
+  wallet: string,
+  action: string,
+  targetId?: string,
+  payload?: Record<string, unknown>,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO admin_audit_log (wallet, action, target_id, payload) VALUES ($1, $2, $3, $4)`,
+    [wallet, action, targetId ?? null, payload ? JSON.stringify(payload) : null],
+  ).catch(err => console.error('Admin audit log error:', err))
+}
+
 // -- Virtual Trade (transactional) --
 
 export interface VirtualTradeResult {
@@ -1542,12 +1647,24 @@ export async function executeVirtualTrade(
   side: 'YES' | 'NO',
   amount: number,
   amountType: 'tokens' | 'shares',
+  maxCost?: number,
 ): Promise<VirtualTradeResult> {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
-    // 1. Lock pool row
+    // 1. Lock market row and verify it's open for trading
+    const marketResult = await client.query(
+      'SELECT status, lock_time, b_parameter, play_tokens FROM custom_markets WHERE id = $1 FOR UPDATE',
+      [marketId],
+    )
+    const market = marketResult.rows[0]
+    if (!market) throw new Error('Market not found')
+    if (market.status !== 'open') throw new Error('Market is not open for trading')
+    if (market.lock_time && new Date(market.lock_time) <= new Date()) throw new Error('Market is locked')
+    const b = parseFloat(market.b_parameter)
+
+    // 2. Lock pool row
     const poolResult = await client.query(
       'SELECT * FROM custom_market_word_pools WHERE word_id = $1 FOR UPDATE',
       [wordId],
@@ -1557,15 +1674,6 @@ export async function executeVirtualTrade(
 
     const yesQty = parseFloat(poolRow.yes_qty)
     const noQty = parseFloat(poolRow.no_qty)
-
-    // 2. Get market for b_parameter and play_tokens
-    const marketResult = await client.query(
-      'SELECT b_parameter, play_tokens FROM custom_markets WHERE id = $1',
-      [marketId],
-    )
-    const market = marketResult.rows[0]
-    if (!market) throw new Error('Market not found')
-    const b = parseFloat(market.b_parameter)
 
     // 3. Get or create balance (lazy creation with FOR UPDATE)
     let balanceResult = await client.query(
@@ -1616,6 +1724,15 @@ export async function executeVirtualTrade(
       if (shares > held + 0.000001) throw new Error('Insufficient shares')
       shares = Math.min(shares, held)
       cost = virtualSellReturn(yesQty, noQty, side, shares, b)
+    }
+
+    // Minimum trade size guards
+    if (shares < 0.001) throw new Error('Trade too small')
+    if (action === 'buy' && cost < 0.01) throw new Error('Trade too small')
+
+    // Slippage protection
+    if (action === 'buy' && maxCost !== undefined && cost > maxCost) {
+      throw new Error('Slippage exceeded')
     }
 
     // 6. Update pool quantities

@@ -6,6 +6,15 @@ import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 
+const RATE_LIMIT_MS = 10_000
+const lastUpdate = new Map<string, number>()
+setInterval(() => {
+  const cutoff = Date.now() - 60_000
+  for (const [key, ts] of lastUpdate) {
+    if (ts < cutoff) lastUpdate.delete(key)
+  }
+}, 600_000)
+
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get('wallet')
   if (!wallet) {
@@ -45,6 +54,13 @@ export async function PUT(req: NextRequest) {
   if (!wallet) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
+
+  const now = Date.now()
+  const last = lastUpdate.get(wallet) ?? 0
+  if (now - last < RATE_LIMIT_MS) {
+    return NextResponse.json({ error: 'Slow down' }, { status: 429 })
+  }
+  lastUpdate.set(wallet, now)
 
   const body = await req.json()
   const { username } = body as { username?: string }
@@ -94,6 +110,13 @@ export async function PATCH(req: NextRequest) {
   if (!wallet) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
+
+  const now = Date.now()
+  const last = lastUpdate.get(wallet) ?? 0
+  if (now - last < RATE_LIMIT_MS) {
+    return NextResponse.json({ error: 'Slow down' }, { status: 429 })
+  }
+  lastUpdate.set(wallet, now)
 
   const body = await req.json()
   const { pfpEmoji } = body as { pfpEmoji?: string | null }
