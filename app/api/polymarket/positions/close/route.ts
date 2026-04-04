@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
-import { awardHoldPoints } from '@/lib/points'
-import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function DELETE(req: NextRequest) {
@@ -50,21 +48,5 @@ export async function DELETE(req: NextRequest) {
 
   const data = await res.json()
 
-  // Award hold points (fire-and-forget)
-  if (marketId) {
-    awardHoldPoints(ownerPubkey, positionPubkey, marketId).catch((err) =>
-      console.error('Points award error (close):', err)
-    )
-  }
-
-  // Achievement (collect result for toast)
-  const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
-  try {
-    const ach = await tryUnlockAchievement(ownerPubkey, 'lose_trade')
-    if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
-  } catch (err) {
-    console.error('Achievement error (close):', err)
-  }
-
-  return NextResponse.json({ ...data, newAchievements })
+  return NextResponse.json({ ...data, newAchievements: [] })
 }
