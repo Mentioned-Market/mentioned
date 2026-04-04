@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, getProfile } from '@/lib/db'
+import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, getProfile, backfillAchievementPoints } from '@/lib/db'
 import { verifyDiscordState } from '@/lib/walletAuth'
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
@@ -74,6 +74,9 @@ export async function GET(req: NextRequest) {
     // Link Discord to wallet
     await linkDiscord(wallet, discordId, discordUsername)
 
+    // Retroactively award points for any achievements earned this week before Discord was linked
+    backfillAchievementPoints(wallet).catch(err => console.error('Achievement backfill error:', err))
+
     // Assign "verified" role in the Discord server
     if (DISCORD_GUILD_ID && process.env.DISCORD_BOT_TOKEN) {
       const botHeaders = {
@@ -120,14 +123,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Prefer username in redirect URL
-    const userProfile = await getProfile(wallet)
-    const profileSlug = userProfile?.username && userProfile.username !== wallet ? userProfile.username : wallet
+    const html = `<!DOCTYPE html><html><head><title>Discord Linked</title>
+<style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;font-family:-apple-system,sans-serif;color:#fff;}
+.box{text-align:center;padding:2rem;}.emoji{font-size:3rem;margin-bottom:1rem;}.title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;}.sub{font-size:.85rem;color:#737373;}</style>
+</head><body><div class="box"><div class="emoji">✅</div><div class="title">Discord linked!</div><div class="sub">You can close this tab.</div></div>
+<script>
+  try { window.opener && window.opener.postMessage({ type: 'discord_linked' }, '*'); } catch(e) {}
+  setTimeout(function(){ window.close(); }, 1500);
+</script></body></html>`
 
-    const response = NextResponse.redirect(`${BASE_URL}/profile/${profileSlug}?discord=linked`)
+    const response = new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
     // Clear referral cookie after applying
     if (refCode) {
-      response.cookies.set('ref', '', { maxAge: 0, path: '/' })
+      response.headers.append('Set-Cookie', 'ref=; Max-Age=0; Path=/')
     }
     return response
   } catch (err) {
