@@ -907,35 +907,72 @@ export async function getBulkPointTotals(
 
 // ── Achievements ─────────────────────────────────────
 
+/** Returns the ISO Monday of the current UTC week as a YYYY-MM-DD string. */
+function getWeekStart(): string {
+  const now = new Date()
+  const day = now.getUTCDay() // 0=Sun, 1=Mon, ...
+  const diff = (day === 0 ? -6 : 1 - day) // days to subtract to get to Monday
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff))
+  return monday.toISOString().slice(0, 10)
+}
+
 /**
- * Insert an achievement unlock. Returns true if newly inserted (not a dupe).
+ * Insert an achievement unlock for the current week.
+ * Returns true if newly inserted (not a dupe for this week).
  */
 export async function unlockAchievement(
   wallet: string,
   achievementId: string,
   points: number,
 ): Promise<boolean> {
+  const weekStart = getWeekStart()
   const result = await pool.query(
-    `INSERT INTO user_achievements (wallet, achievement_id, points_awarded)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (wallet, achievement_id) DO NOTHING
+    `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, week_start)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (wallet, achievement_id, week_start) DO NOTHING
      RETURNING id`,
-    [wallet, achievementId, points],
+    [wallet, achievementId, points, weekStart],
   )
   return (result.rowCount ?? 0) > 0
 }
 
 /**
- * Get all unlocked achievements for a wallet.
+ * Get achievements unlocked this week for a wallet (for PFP unlock validation).
  */
 export async function getUnlockedAchievements(
   wallet: string,
 ): Promise<{ achievement_id: string; unlocked_at: string }[]> {
+  const weekStart = getWeekStart()
   const result = await pool.query(
-    `SELECT achievement_id, unlocked_at FROM user_achievements WHERE wallet = $1`,
-    [wallet],
+    `SELECT achievement_id, unlocked_at FROM user_achievements WHERE wallet = $1 AND week_start = $2`,
+    [wallet, weekStart],
   )
   return result.rows
+}
+
+/**
+ * Award points for any this-week achievements that were earned before Discord was linked.
+ * Safe to call after linkDiscord — insertPointEvent deduplicates via ON CONFLICT.
+ */
+export async function backfillAchievementPoints(wallet: string): Promise<void> {
+  const weekStart = getWeekStart()
+  const result = await pool.query(
+    `SELECT ua.achievement_id, ua.points_awarded
+     FROM user_achievements ua
+     WHERE ua.wallet = $1
+       AND ua.week_start = $2
+       AND ua.points_awarded > 0
+       AND NOT EXISTS (
+         SELECT 1 FROM point_events pe
+         WHERE pe.wallet = $1
+           AND pe.action = 'achievement'
+           AND pe.ref_id = 'ach:' || ua.achievement_id
+       )`,
+    [wallet, weekStart],
+  )
+  for (const row of result.rows) {
+    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}`)
+  }
 }
 
 // ── Achievement count helpers ────────────────────────
