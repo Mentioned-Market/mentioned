@@ -24,6 +24,9 @@ class ChatStreamManager {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 5000
 
+  /** Tracks latest global chat message ID in memory (0 = not yet seeded) */
+  private _latestGlobalId = 0
+
   async connect(): Promise<void> {
     if (this.client || this.connecting) return
     this.connecting = true
@@ -48,6 +51,10 @@ class ChatStreamManager {
         if (msg.channel !== 'chat_new' || !msg.payload) return
         try {
           const data = JSON.parse(msg.payload) as ChatNotification
+          // Track latest global chat ID in memory
+          if (data.channel === 'global' && data.id > this._latestGlobalId) {
+            this._latestGlobalId = data.id
+          }
           const callbacks = this.listeners.get(data.channel)
           if (callbacks) {
             for (const cb of callbacks) {
@@ -109,6 +116,16 @@ class ChatStreamManager {
         if (s.size === 0) this.listeners.delete(channel)
       }
     }
+  }
+
+  /** Latest global chat message ID (0 if not yet seeded — caller should fall back to DB) */
+  get latestGlobalId(): number {
+    return this._latestGlobalId
+  }
+
+  /** Seed the in-memory ID from a DB value (call once on first request) */
+  seedLatestGlobalId(id: number): void {
+    if (id > this._latestGlobalId) this._latestGlobalId = id
   }
 
   /** Number of active subscriptions across all channels */
