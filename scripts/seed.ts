@@ -23,21 +23,25 @@ const USERS = [
   {
     wallet: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
     username: 'cryptowizard',
+    pfpEmoji: '🏆',
     joinedDaysAgo: 45,
   },
   {
     wallet: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH',
     username: 'moonbetter',
+    pfpEmoji: '🎮',
     joinedDaysAgo: 30,
   },
   {
     wallet: '9WzDXwBMT6XuaTHM4KvXRhbhLs1nYXENAuvgKNNBYRRh',
     username: 'tradingpete',
+    pfpEmoji: null,
     joinedDaysAgo: 14,
   },
   {
     wallet: '6sp2ZFAjNYGbHnMtFJB3yGvdq8x7KjLwCfPeS4mNDAKT',
     username: 'mentioned_fan',
+    pfpEmoji: null,
     joinedDaysAgo: 7,
   },
 ]
@@ -75,10 +79,10 @@ async function seed() {
     for (const u of USERS) {
       const joinedAt = daysAgo(u.joinedDaysAgo)
       await client.query(
-        `INSERT INTO user_profiles (wallet, username, created_at, updated_at)
-         VALUES ($1, $2, $3, $3)
+        `INSERT INTO user_profiles (wallet, username, pfp_emoji, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $4)
          ON CONFLICT (wallet) DO NOTHING`,
-        [u.wallet, u.username, joinedAt],
+        [u.wallet, u.username, u.pfpEmoji, joinedAt],
       )
     }
 
@@ -177,37 +181,61 @@ async function seed() {
     }
 
     // ── User achievements ────────────────────────────────────────────────────
+    // IDs must match lib/achievements.ts (current week's set).
+    // week_start is the Monday of the current ISO week (UTC) — matches getWeekStart().
     console.log('  Seeding achievements...')
     const achievements = [
-      // cryptowizard: active user, many achievements
-      { wallet: USERS[0].wallet, id: 'set_nickname',    pts: 75,  hoursAgo: 200 },
-      { wallet: USERS[0].wallet, id: 'first_trade',     pts: 150, hoursAgo: 180 },
-      { wallet: USERS[0].wallet, id: 'first_chat',      pts: 50,  hoursAgo: 170 },
-      { wallet: USERS[0].wallet, id: '10_trades',       pts: 100, hoursAgo: 100 },
-      { wallet: USERS[0].wallet, id: 'win_trade',       pts: 225, hoursAgo: 80  },
-      { wallet: USERS[0].wallet, id: 'first_free_trade', pts: 75, hoursAgo: 50  },
+      // cryptowizard: active user, many achievements this week
+      { wallet: USERS[0].wallet, id: 'set_profile',    pts: 40,  hoursAgo: 60 },
+      { wallet: USERS[0].wallet, id: 'send_chat',      pts: 40,  hoursAgo: 50 },
+      { wallet: USERS[0].wallet, id: 'free_trade',     pts: 60,  hoursAgo: 48 },
+      { wallet: USERS[0].wallet, id: 'win_free_trade', pts: 100, hoursAgo: 20 },
+      { wallet: USERS[0].wallet, id: 'daily_login_3',  pts: 50,  hoursAgo: 10 },
       // moonbetter: some achievements
-      { wallet: USERS[1].wallet, id: 'set_nickname',    pts: 75,  hoursAgo: 150 },
-      { wallet: USERS[1].wallet, id: 'first_trade',     pts: 150, hoursAgo: 140 },
-      { wallet: USERS[1].wallet, id: 'win_trade',       pts: 225, hoursAgo: 60  },
-      { wallet: USERS[1].wallet, id: '3_wins',          pts: 150, hoursAgo: 40  },
-      { wallet: USERS[1].wallet, id: 'first_free_trade', pts: 75, hoursAgo: 30  },
+      { wallet: USERS[1].wallet, id: 'set_profile',    pts: 40,  hoursAgo: 70 },
+      { wallet: USERS[1].wallet, id: 'send_chat',      pts: 40,  hoursAgo: 65 },
+      { wallet: USERS[1].wallet, id: 'free_trade',     pts: 60,  hoursAgo: 40 },
+      { wallet: USERS[1].wallet, id: 'daily_login_3',  pts: 50,  hoursAgo: 15 },
       // tradingpete: new, few achievements
-      { wallet: USERS[2].wallet, id: 'set_nickname',    pts: 75,  hoursAgo: 80  },
-      { wallet: USERS[2].wallet, id: 'first_trade',     pts: 150, hoursAgo: 70  },
+      { wallet: USERS[2].wallet, id: 'set_profile',    pts: 40,  hoursAgo: 80 },
+      { wallet: USERS[2].wallet, id: 'send_chat',      pts: 40,  hoursAgo: 30 },
       // mentioned_fan: just started
-      { wallet: USERS[3].wallet, id: 'first_trade',     pts: 150, hoursAgo: 20  },
-      { wallet: USERS[3].wallet, id: 'first_free_trade', pts: 75, hoursAgo: 15  },
-      { wallet: USERS[3].wallet, id: 'free_market_win', pts: 150, hoursAgo: 10  },
+      { wallet: USERS[3].wallet, id: 'set_profile',    pts: 40,  hoursAgo: 25 },
+      { wallet: USERS[3].wallet, id: 'free_trade',     pts: 60,  hoursAgo: 15 },
+      { wallet: USERS[3].wallet, id: 'win_free_trade', pts: 100, hoursAgo: 10 },
     ]
 
     for (const a of achievements) {
       const ts = hoursAgo(a.hoursAgo)
       await client.query(
-        `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, unlocked_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (wallet, achievement_id) DO NOTHING`,
+        `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, unlocked_at, week_start)
+         VALUES ($1, $2, $3, $4, date_trunc('week', NOW())::date)
+         ON CONFLICT (wallet, achievement_id, week_start) DO NOTHING`,
         [a.wallet, a.id, a.pts, ts],
+      )
+    }
+
+    // ── User visit logs (for login streak achievements) ─────────────────────
+    console.log('  Seeding user visit logs...')
+    // cryptowizard: visited every day this week so far (first 3 days → daily_login_3 unlocked)
+    // moonbetter: visited 3 of the last 3 days
+    // tradingpete: visited yesterday only
+    const visitLogs = [
+      { wallet: USERS[0].wallet, daysAgo: 0 },
+      { wallet: USERS[0].wallet, daysAgo: 1 },
+      { wallet: USERS[0].wallet, daysAgo: 2 },
+      { wallet: USERS[1].wallet, daysAgo: 0 },
+      { wallet: USERS[1].wallet, daysAgo: 1 },
+      { wallet: USERS[1].wallet, daysAgo: 2 },
+      { wallet: USERS[2].wallet, daysAgo: 1 },
+    ]
+    for (const v of visitLogs) {
+      const visitDate = daysAgo(v.daysAgo)
+      await client.query(
+        `INSERT INTO user_visit_logs (wallet, visit_date, week_start)
+         VALUES ($1, $2::date, date_trunc('week', $2::date)::date)
+         ON CONFLICT (wallet, visit_date) DO NOTHING`,
+        [v.wallet, visitDate],
       )
     }
 
@@ -235,42 +263,45 @@ async function seed() {
 
     // Market 1: Open, active trading
     const { rows: [fm1] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, created_at)
-       VALUES ($1, $2, 'open', 100, 1000, $3, $4)
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at)
+       VALUES ($1, $2, 'open', 100, 1000, $3, $4, $5)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [
         'Will "GG" be said in the T1 vs Gen.G post-match interview?',
         'Predict which words or phrases will be mentioned during the post-match interview. Market locks 5 minutes before the interview starts.',
         hoursAgo(-48), // lock_time 48 hours from now
+        't1-gen-g-seed01',
         daysAgo(3),
       ],
     )
 
     // Market 2: Open, fresh (no trades yet)
     const { rows: [fm2] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, created_at)
-       VALUES ($1, $2, 'open', 150, 500, $3, $4)
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at)
+       VALUES ($1, $2, 'open', 150, 500, $3, $4, $5)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [
         'NaVi vs Vitality — caster word bingo',
         'Which words will the casters say during the grand final? Trade on your predictions before the match starts.',
         hoursAgo(-72), // lock_time 72 hours from now
+        'navi-vitality-seed02',
         daysAgo(1),
       ],
     )
 
     // Market 3: Resolved
     const { rows: [fm3] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, created_at)
-       VALUES ($1, $2, 'resolved', 100, 1000, $3, $4)
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at)
+       VALUES ($1, $2, 'resolved', 100, 1000, $3, $4, $5)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [
         'Cloud9 vs FaZe — analyst desk predictions',
         'Which phrases will the analyst desk use when breaking down this match?',
         daysAgo(1), // already past
+        'c9-faze-seed03',
         daysAgo(5),
       ],
     )
@@ -460,7 +491,7 @@ async function seed() {
     const freeMarketCount = [fm1, fm2, fm3].filter(Boolean).length
 
     await client.query('COMMIT')
-    console.log(`  Done. Seeded ${USERS.length} users, ${trades.length} trades, ${points.length + freePoints.length} point events, ${achievements.length} achievements, ${chats.length} chat messages, ${freeMarketCount} free markets.`)
+    console.log(`  Done. Seeded ${USERS.length} users, ${trades.length} trades, ${points.length + freePoints.length} point events, ${achievements.length} achievements, ${visitLogs.length} visit logs, ${chats.length} chat messages, ${freeMarketCount} free markets.`)
   } catch (err) {
     await client.query('ROLLBACK')
     throw err

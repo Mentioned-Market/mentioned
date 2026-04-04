@@ -991,27 +991,27 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 </button>
               )}
 
-              {/* Price chart — matches polymarket event chart with legend + timeframes */}
-              {loading || chartLoading ? (
-                <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
-                  <MentionedSpinner className="" />
-                </div>
-              ) : chartMarkets.length > 0 && (
-                <div className="mb-5">
-                  <EventPriceChart
-                    eventId={`custom_${marketId}`}
-                    markets={chartMarkets}
-                    selectedMarketId={selectedWordId ? String(selectedWordId) : null}
-                    hoveredMarketId={hoveredWordId ? String(hoveredWordId) : null}
-                    preloadedSeries={chartSeriesForChart.length > 0 ? chartSeriesForChart : undefined}
-                  />
-                </div>
-              )}
-
               {/* Two-column layout */}
               <div className="flex gap-6">
                 {/* Left Column */}
                 <div className="flex-1 min-w-0">
+                  {/* Price chart — matches polymarket event chart with legend + timeframes */}
+                  {loading || chartLoading ? (
+                    <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
+                      <MentionedSpinner className="" />
+                    </div>
+                  ) : chartMarkets.length > 0 && (
+                    <div className="mb-5">
+                      <EventPriceChart
+                        eventId={`custom_${marketId}`}
+                        markets={chartMarkets}
+                        selectedMarketId={selectedWordId ? String(selectedWordId) : null}
+                        hoveredMarketId={hoveredWordId ? String(hoveredWordId) : null}
+                        preloadedSeries={chartSeriesForChart.length > 0 ? chartSeriesForChart : undefined}
+                      />
+                    </div>
+                  )}
+
                   {/* Words table */}
                   <div className="mb-6" data-tutorial="words-table">
                     <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
