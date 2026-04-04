@@ -3,6 +3,14 @@ import { extractTradeEvents } from '@/lib/tradeParser'
 import { insertTradeEvent } from '@/lib/db'
 
 export async function POST(req: NextRequest) {
+  const secret = process.env.HELIUS_WEBHOOK_SECRET
+  if (secret) {
+    const auth = req.headers.get('authorization')
+    if (auth !== secret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   const body = await req.json()
 
   // Helius sends an array of transactions

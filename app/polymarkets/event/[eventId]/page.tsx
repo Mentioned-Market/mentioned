@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -348,8 +349,6 @@ export default function PolymarketEventPage() {
   useEffect(() => {
     setOrderbook(null)
     fetchOrderbook()
-    const interval = setInterval(fetchOrderbook, 15_000)
-    return () => clearInterval(interval)
   }, [fetchOrderbook])
 
   // ── Fetch user positions ──────────────────────────────────
@@ -370,12 +369,6 @@ export default function PolymarketEventPage() {
       }
     } catch { /* ignore */ }
   }, [publicKey, event])
-
-  useEffect(() => {
-    fetchPositions()
-    const interval = setInterval(fetchPositions, 30_000)
-    return () => clearInterval(interval)
-  }, [fetchPositions])
 
   // ── Fetch user orders ───────────────────────────────────────
 
@@ -398,12 +391,15 @@ export default function PolymarketEventPage() {
     } catch { /* ignore */ }
   }, [publicKey, event])
 
-  useEffect(() => {
+  // Combined polling — one interval, pauses when tab hidden
+  const pollTick = useRef(0)
+  useVisibleInterval(() => {
+    const tick = pollTick.current++
+    // Orderbook: every tick (10s), positions: every 3rd tick (30s), orders: every tick (10s)
+    fetchOrderbook()
     fetchOrders()
-    // Poll faster (10s) so user sees status changes quickly
-    const interval = setInterval(fetchOrders, 10_000)
-    return () => clearInterval(interval)
-  }, [fetchOrders])
+    if (tick % 3 === 0) fetchPositions()
+  }, 10_000)
 
   // ── Close position ─────────────────────────────────────────
 
