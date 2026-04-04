@@ -305,6 +305,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           (p: CustomPosition) => p.yes_shares >= 0.01 || p.no_shares >= 0.01
         )
         customPositionCache.current.set(wallet, positions)
+        if (customPositionCache.current.size > 200) customPositionCache.current.clear()
         setHoverCustomPositions(positions)
       } catch {
         setHoverCustomPositions([])
@@ -326,6 +327,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           (p: any) => marketIdSet.has(p.marketId)
         )
         positionCache.current.set(wallet, positions)
+        if (positionCache.current.size > 200) positionCache.current.clear()
         setHoverPositions(positions)
       } catch {
         setHoverPositions([])

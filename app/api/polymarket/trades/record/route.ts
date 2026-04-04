@@ -4,11 +4,27 @@ import { awardPoints, checkAndAwardFirstTrade, POINT_CONFIG } from '@/lib/points
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
+const RATE_LIMIT_MS = 1000
+const lastRecord = new Map<string, number>()
+setInterval(() => {
+  const cutoff = Date.now() - 60_000
+  for (const [key, ts] of lastRecord) {
+    if (ts < cutoff) lastRecord.delete(key)
+  }
+}, 600_000)
+
 export async function POST(req: NextRequest) {
   const wallet = getVerifiedWallet(req)
   if (!wallet) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
+
+  const now = Date.now()
+  const last = lastRecord.get(wallet) ?? 0
+  if (now - last < RATE_LIMIT_MS) {
+    return NextResponse.json({ error: 'Slow down' }, { status: 429 })
+  }
+  lastRecord.set(wallet, now)
 
   try {
     const body = await req.json()

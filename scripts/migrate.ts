@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_created ON chat_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_wallet ON chat_messages(wallet);
 
 CREATE TABLE IF NOT EXISTS polymarket_trades (
   id            SERIAL PRIMARY KEY,
@@ -307,6 +308,17 @@ DROP TRIGGER IF EXISTS trg_event_chat_messages_notify ON event_chat_messages;
 CREATE TRIGGER trg_event_chat_messages_notify
   AFTER INSERT ON event_chat_messages
   FOR EACH ROW EXECUTE FUNCTION notify_chat_insert();
+
+-- Admin audit log
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id SERIAL PRIMARY KEY,
+  wallet TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at DESC);
 `
 
 async function main() {

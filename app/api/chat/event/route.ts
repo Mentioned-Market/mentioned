@@ -9,6 +9,13 @@ const MAX_LENGTH = 200
 const RATE_LIMIT_MS = 500
 const lastSent = new Map<string, number>()
 
+setInterval(() => {
+  const cutoff = Date.now() - 60_000
+  for (const [key, ts] of lastSent) {
+    if (ts < cutoff) lastSent.delete(key)
+  }
+}, 600_000)
+
 export async function GET(req: NextRequest) {
   const eventId = req.nextUrl.searchParams.get('eventId')
   if (!eventId) {
