@@ -309,6 +309,18 @@ CREATE TRIGGER trg_event_chat_messages_notify
   AFTER INSERT ON event_chat_messages
   FOR EACH ROW EXECUTE FUNCTION notify_chat_insert();
 
+-- Daily visit tracking for login streak achievements
+CREATE TABLE IF NOT EXISTS user_visit_logs (
+  id         SERIAL PRIMARY KEY,
+  wallet     TEXT NOT NULL,
+  visit_date DATE NOT NULL,
+  week_start DATE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (wallet, visit_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_visit_logs_wallet_week ON user_visit_logs(wallet, week_start);
+
 -- Admin audit log
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id SERIAL PRIMARY KEY,

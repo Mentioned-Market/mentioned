@@ -1,6 +1,7 @@
 'use client'
 
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 import ConnectModal from '@/components/ConnectModal'
 import PrivyFundsModal from '@/components/PrivyFundsModal'
 import Image from 'next/image'
@@ -9,6 +10,7 @@ import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
   const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType } = useWallet()
+  const { showAchievementToast } = useAchievements()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
@@ -16,6 +18,7 @@ export default function Header() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const discordTooltipRef = useRef<HTMLDivElement>(null)
+  const visitTrackedRef = useRef(false)
 
   const formatAddress = (pubKey: string | null) => {
     if (!pubKey) return ''
@@ -43,6 +46,22 @@ export default function Header() {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [dropdownOpen, mobileMenuOpen, showDiscordTooltip])
+
+  // Track daily visit once per session when wallet connects
+  useEffect(() => {
+    if (!connected || !publicKey || visitTrackedRef.current) return
+    visitTrackedRef.current = true
+
+    fetch('/api/visit', { method: 'POST' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.newAchievements?.length) return
+        for (const ach of data.newAchievements) {
+          showAchievementToast(ach)
+        }
+      })
+      .catch(() => {})
+  }, [connected, publicKey, showAchievementToast])
 
   return (
     <>

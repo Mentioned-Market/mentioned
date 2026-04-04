@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JUP_API_KEY, JUP_BASE, getForwardHeaders } from '@/lib/jupiterApi'
-import { awardPoints, awardHoldPoints } from '@/lib/points'
-import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export async function POST(req: NextRequest) {
@@ -50,25 +48,5 @@ export async function POST(req: NextRequest) {
 
   const data = await res.json()
 
-  // Award points (fire-and-forget)
-  const pointsWork: Promise<unknown>[] = [
-    awardPoints(ownerPubkey, 'claim_won', positionPubkey),
-  ]
-  if (marketId) {
-    pointsWork.push(awardHoldPoints(ownerPubkey, positionPubkey, marketId))
-  }
-  Promise.all(pointsWork).catch((err) => console.error('Points award error (claim):', err))
-
-  // Achievements (collect results for toast)
-  const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
-  try {
-    const push = (a: Awaited<ReturnType<typeof tryUnlockAchievement>>) => {
-      if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
-    }
-    push(await tryUnlockAchievement(ownerPubkey, 'win_trade'))
-  } catch (err) {
-    console.error('Achievement error (claim):', err)
-  }
-
-  return NextResponse.json({ ...data, newAchievements })
+  return NextResponse.json({ ...data, newAchievements: [] })
 }

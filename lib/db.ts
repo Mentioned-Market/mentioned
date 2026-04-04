@@ -800,44 +800,11 @@ export async function getChatPointsCountToday(wallet: string): Promise<number> {
   return parseInt(result.rows[0]?.cnt ?? '0', 10)
 }
 
-/**
- * Count trade_placed point events for a wallet since UTC midnight today.
- */
-export async function getTradePointsCountToday(wallet: string): Promise<number> {
-  const result = await pool.query(
-    `SELECT COUNT(*) as cnt FROM point_events
-     WHERE wallet = $1
-       AND action = 'trade_placed'
-       AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')`,
-    [wallet],
-  )
-  return parseInt(result.rows[0]?.cnt ?? '0', 10)
-}
-
-/**
- * Get the earliest trade time for a wallet+marketId combination from polymarket_trades.
- */
-export async function getEarliestTradeTime(
-  wallet: string,
-  marketId: string,
-): Promise<Date | null> {
-  const result = await pool.query(
-    `SELECT MIN(created_at) as earliest FROM polymarket_trades
-     WHERE wallet = $1 AND market_id = $2`,
-    [wallet, marketId],
-  )
-  const ts = result.rows[0]?.earliest
-  return ts ? new Date(ts) : null
-}
-
 export interface PointTotalsRow {
   wallet: string
   all_time: number
   weekly: number
-  trade_count: number
-  win_count: number
   chat_count: number
-  hold_count: number
 }
 
 /**
@@ -877,10 +844,7 @@ export async function getBulkPointTotals(
        wallet,
        COALESCE(SUM(points), 0)::int AS all_time,
        COALESCE(SUM(points) FILTER (WHERE created_at >= $2), 0)::int AS weekly,
-       COALESCE(COUNT(*) FILTER (WHERE action = 'trade_placed'), 0)::int AS trade_count,
-       COALESCE(COUNT(*) FILTER (WHERE action = 'claim_won'), 0)::int AS win_count,
-       COALESCE(COUNT(*) FILTER (WHERE action = 'chat_message'), 0)::int AS chat_count,
-       COALESCE(COUNT(*) FILTER (WHERE action IN ('hold_1h', 'hold_4h', 'hold_24h')), 0)::int AS hold_count
+       COALESCE(COUNT(*) FILTER (WHERE action = 'chat_message'), 0)::int AS chat_count
      FROM point_events
      WHERE wallet = ANY($1)
      GROUP BY wallet`,
@@ -928,15 +892,6 @@ export async function getUnlockedAchievements(
 export async function getPolymarketTradeCount(wallet: string): Promise<number> {
   const r = await pool.query(
     `SELECT COUNT(*)::int AS c FROM polymarket_trades WHERE wallet = $1`,
-    [wallet],
-  )
-  return r.rows[0]?.c ?? 0
-}
-
-/** Count polymarket wins (claims) for a wallet */
-export async function getPolymarketWinCount(wallet: string): Promise<number> {
-  const r = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM point_events WHERE wallet = $1 AND action = 'claim_won'`,
     [wallet],
   )
   return r.rows[0]?.c ?? 0
@@ -1809,6 +1764,41 @@ export async function executeVirtualTrade(
   } finally {
     client.release()
   }
+}
+
+// ── Visit tracking ───────────────────────────────────────
+
+/**
+ * Record a visit for today. Idempotent — UNIQUE (wallet, visit_date) prevents duplicates.
+ * Returns the number of distinct days visited this week (Mon–Sun UTC).
+ */
+export async function recordVisitAndGetWeekCount(wallet: string): Promise<number> {
+  const now = new Date()
+
+  // ISO week starts Monday
+  const day = now.getUTCDay() // 0=Sun
+  const diffToMonday = day === 0 ? 6 : day - 1
+  const monday = new Date(now)
+  monday.setUTCDate(now.getUTCDate() - diffToMonday)
+  monday.setUTCHours(0, 0, 0, 0)
+  const weekStart = monday.toISOString().slice(0, 10)
+  const todayStr = now.toISOString().slice(0, 10)
+
+  await pool.query(
+    `INSERT INTO user_visit_logs (wallet, visit_date, week_start)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (wallet, visit_date) DO NOTHING`,
+    [wallet, todayStr, weekStart],
+  )
+
+  const result = await pool.query<{ count: string }>(
+    `SELECT COUNT(DISTINCT visit_date) AS count
+     FROM user_visit_logs
+     WHERE wallet = $1 AND week_start = $2`,
+    [wallet, weekStart],
+  )
+
+  return parseInt(result.rows[0].count, 10)
 }
 
 export { pool }
