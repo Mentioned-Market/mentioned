@@ -19,6 +19,51 @@ pool.on('connect', (client) => {
   client.query('SET statement_timeout = 30000').catch(() => {})
 })
 
+// ── TTL Cache ────────────────────────────────────────────
+interface CacheEntry<T> { value: T; expires: number }
+
+class TtlCache<T> {
+  private store = new Map<string, CacheEntry<T>>()
+  private defaultTtlMs: number
+
+  constructor(defaultTtlMs: number) {
+    this.defaultTtlMs = defaultTtlMs
+    // Sweep expired entries every 60s
+    setInterval(() => {
+      const now = Date.now()
+      for (const [key, entry] of this.store) {
+        if (entry.expires <= now) this.store.delete(key)
+      }
+    }, 60_000)
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.store.get(key)
+    if (!entry) return undefined
+    if (entry.expires <= Date.now()) { this.store.delete(key); return undefined }
+    return entry.value
+  }
+
+  set(key: string, value: T, ttlMs?: number): void {
+    this.store.set(key, { value, expires: Date.now() + (ttlMs ?? this.defaultTtlMs) })
+  }
+
+  delete(key: string): void { this.store.delete(key) }
+
+  deleteByPrefix(prefix: string): void {
+    for (const key of this.store.keys()) {
+      if (key.startsWith(prefix)) this.store.delete(key)
+    }
+  }
+}
+
+const discordCache = new TtlCache<boolean>(15 * 60_000)  // 15 min for linked
+const DISCORD_UNLINKED_TTL = 10_000                       // 10s for unlinked
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const marketCache = new TtlCache<any>(15_000)             // 15s
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const wordsCache = new TtlCache<any>(15_000)              // 15s
+
 export interface TradeRow {
   id: number
   signature: string
@@ -322,6 +367,7 @@ export async function linkDiscord(
        updated_at = NOW()`,
     [wallet, discordId, discordUsername],
   )
+  discordCache.set(wallet, true)
 }
 
 export async function unlinkDiscord(wallet: string): Promise<void> {
@@ -329,6 +375,7 @@ export async function unlinkDiscord(wallet: string): Promise<void> {
     `UPDATE user_profiles SET discord_id = NULL, discord_username = NULL, updated_at = NOW() WHERE wallet = $1`,
     [wallet],
   )
+  discordCache.set(wallet, false, DISCORD_UNLINKED_TTL)
 }
 
 export async function getWalletByDiscordId(discordId: string): Promise<string | null> {
@@ -718,11 +765,16 @@ export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl
  * Check if a wallet has a linked Discord account.
  */
 export async function hasDiscordLinked(wallet: string): Promise<boolean> {
+  const cached = discordCache.get(wallet)
+  if (cached !== undefined) return cached
+
   const result = await pool.query(
     `SELECT 1 FROM user_profiles WHERE wallet = $1 AND discord_id IS NOT NULL`,
     [wallet],
   )
-  return result.rows.length > 0
+  const linked = result.rows.length > 0
+  discordCache.set(wallet, linked, linked ? undefined : DISCORD_UNLINKED_TTL)
+  return linked
 }
 
 const REFERRAL_BONUS_RATE = 0.10 // 10% mutual bonus
@@ -918,6 +970,15 @@ export async function getCustomMarketTradeCount(wallet: string): Promise<number>
   return r.rows[0]?.c ?? 0
 }
 
+/** Count recent custom market trades for a wallet within a time window */
+export async function getRecentCustomTradeCount(wallet: string, windowSeconds: number): Promise<number> {
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM custom_market_trades WHERE wallet = $1 AND created_at > NOW() - make_interval(secs => $2)`,
+    [wallet, windowSeconds],
+  )
+  return r.rows[0]?.c ?? 0
+}
+
 // -- Wallet-level free market aggregates --
 
 export async function getWalletFreeMarketPositions(wallet: string): Promise<
@@ -1106,6 +1167,7 @@ export async function updateCustomMarket(
     `UPDATE custom_markets SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
     values,
   )
+  marketCache.delete(String(id))
   return result.rows[0] || null
 }
 
@@ -1114,6 +1176,8 @@ export async function deleteCustomMarket(id: number): Promise<boolean> {
     `DELETE FROM custom_markets WHERE id = $1`,
     [id],
   )
+  marketCache.delete(String(id))
+  wordsCache.delete(String(id))
   return (result.rowCount ?? 0) > 0
 }
 
@@ -1127,6 +1191,7 @@ export async function updateCustomMarketStatus(
     : `UPDATE custom_markets SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`
   const params = expectedCurrentStatus ? [status, id, expectedCurrentStatus] : [status, id]
   const result = await pool.query(query, params)
+  marketCache.delete(String(id))
   return result.rows[0] || null
 }
 
@@ -1140,15 +1205,22 @@ export async function lockCustomMarket(id: number): Promise<CustomMarketRow | nu
      RETURNING *`,
     [id],
   )
+  marketCache.delete(String(id))
   return result.rows[0] || null
 }
 
 export async function getCustomMarket(id: number): Promise<CustomMarketRow | null> {
+  const key = String(id)
+  const cached = marketCache.get(key)
+  if (cached !== undefined) return cached
+
   const result = await pool.query(
     `SELECT * FROM custom_markets WHERE id = $1`,
     [id],
   )
-  return result.rows[0] || null
+  const market = result.rows[0] || null
+  marketCache.set(key, market)
+  return market
 }
 
 export async function getCustomMarketBySlug(slug: string): Promise<CustomMarketRow | null> {
@@ -1281,6 +1353,7 @@ export async function addCustomMarketWords(
       )
     }
     await client.query('COMMIT')
+    wordsCache.delete(String(marketId))
     return result.rows
   } catch (err) {
     await client.query('ROLLBACK')
@@ -1291,10 +1364,15 @@ export async function addCustomMarketWords(
 }
 
 export async function getCustomMarketWords(marketId: number): Promise<CustomMarketWordRow[]> {
+  const key = String(marketId)
+  const cached = wordsCache.get(key)
+  if (cached !== undefined) return cached
+
   const result = await pool.query(
     `SELECT * FROM custom_market_words WHERE market_id = $1 ORDER BY id`,
     [marketId],
   )
+  wordsCache.set(key, result.rows)
   return result.rows
 }
 
@@ -1303,6 +1381,7 @@ export async function removeCustomMarketWord(marketId: number, wordId: number): 
     `DELETE FROM custom_market_words WHERE id = $1 AND market_id = $2`,
     [wordId, marketId],
   )
+  wordsCache.delete(String(marketId))
   return (result.rowCount ?? 0) > 0
 }
 
@@ -1682,8 +1761,8 @@ export async function executeVirtualTrade(
     }
 
     // Minimum trade size guards
-    if (shares < 0.001) throw new Error('Trade too small')
-    if (action === 'buy' && cost < 0.01) throw new Error('Trade too small')
+    if (shares < 0.01) throw new Error('Trade too small')
+    if (action === 'buy' && cost < 1) throw new Error('Trade too small')
 
     // Slippage protection
     if (action === 'buy' && maxCost !== undefined && cost > maxCost) {

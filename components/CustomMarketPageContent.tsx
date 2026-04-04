@@ -407,6 +407,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const handleTrade = async () => {
     if (!publicKey || !market || !selectedWord) return
     if (amountNum <= 0) return
+    if (tradeMode === 'buy' && amountNum < 1) return
     if (discordLinked !== true) return
 
     setTrading(true)
@@ -690,7 +691,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       ) : connected ? (
         <button
           onClick={handleTrade}
-          disabled={!amount || amountNum <= 0 || trading}
+          disabled={!amount || amountNum <= 0 || (tradeMode === 'buy' && amountNum < 1) || trading}
           className={`w-full py-3.5 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
             side === 'YES'
               ? 'bg-apple-green hover:bg-apple-green/90'
