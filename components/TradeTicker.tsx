@@ -18,6 +18,7 @@ interface TradeItem {
   type: 'polymarket' | 'free'
   wordLabel?: string | null
   cost?: number | string | null
+  slug?: string | null
 }
 
 function formatAmount(microUsd: string): string {
@@ -74,7 +75,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
     : 'text-neutral-400'
 
   const isFree = trade.type === 'free'
-  const href = isFree ? `/free/${trade.marketId}` : `/polymarkets/event/${trade.eventId}`
+  const href = isFree ? `/free/${trade.slug || trade.marketId}` : `/polymarkets/event/${trade.eventId}`
 
   return (
     <div
