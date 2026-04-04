@@ -475,6 +475,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (pubkey) fetchProfile(pubkey)
   }, [pubkey, fetchProfile])
 
+  // ── Discord popup message listener ─────────────────────
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'discord_linked') {
+        if (pubkey) fetchProfile(pubkey)
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [pubkey, fetchProfile])
+
   // ── Session establishment ───────────────────────────────
 
   useEffect(() => {
