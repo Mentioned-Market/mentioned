@@ -17,8 +17,13 @@ async function fetchFromJupiter(category: string, headers: Record<string, string
   return res.json()
 }
 
+const ALLOWED_CATEGORIES = new Set(['mentions', 'sports', 'crypto', 'politics', 'culture', 'news'])
+
 export async function GET(req: NextRequest) {
   const category = req.nextUrl.searchParams.get('category') || 'mentions'
+  if (!ALLOWED_CATEGORIES.has(category)) {
+    return NextResponse.json({ error: 'Invalid category' }, { status: 400 })
+  }
   const key = `polymarket:${category}`
   const now = Date.now()
   const entry = cache[key]
