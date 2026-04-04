@@ -33,7 +33,7 @@ app/
 ├── polymarkets/          # Polymarket pages (event listing + event detail trading)
 ├── markets/              # Market listing (paid on-chain + free markets with filter tabs)
 ├── market/[id]/          # On-chain market detail (trading, chart, admin)
-├── custom/[id]/          # Free market detail (virtual LMSR trading, chart, positions)
+├── free/[slug]/          # Free market detail (virtual LMSR trading, chart, positions)
 ├── customadmin/          # Free market admin (create, manage, resolve)
 ├── positions/            # User positions/orders/history tabs
 ├── leaderboard/          # Weekly rankings + points leaderboard
@@ -97,8 +97,8 @@ specs/                    # Feature specifications
 ### 3. Free Markets (Virtual LMSR)
 - Same LMSR math as on-chain markets, but with virtual play tokens
 - No real money — profit converts to platform points at 0.5x
-- **Discord required to trade.** Users can view free markets but must link Discord before placing trades. Enforced both client-side (UI gate in `/custom/[id]`) and server-side (403 from `/api/custom/[id]/trade`).
-- Pages: `/custom/[id]`, `/customadmin`
+- **Discord required to trade.** Users can view free markets but must link Discord before placing trades. Enforced both client-side (UI gate in `/free/[slug]`) and server-side (403 from `/api/custom/[id]/trade`).
+- Pages: `/free/[slug]` (resolves slug → id via `/api/custom/by-slug/[slug]`), `/customadmin`
 - API: `/api/custom/*`
 - Full spec: `specs/custom_free_market_spec.md`
 - Key files: `lib/virtualLmsr.ts`, `lib/customScoring.ts`, `lib/customMarketUtils.ts`
@@ -189,7 +189,7 @@ The homepage (`app/page.tsx`) uses a scroll-driven slideshow architecture:
 
 ## Achievements System (Weekly Rotation)
 
-Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` as the `ACHIEVEMENTS` array. To rotate: clear the `user_achievements` table, update the array, and redeploy. Achievement points count toward the weekly leaderboard.
+Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` as the `ACHIEVEMENTS` array. The `user_achievements` table self-rotates via a `week_start` column (unique on `wallet + achievement_id + week_start`), so the same achievement ID can be unlocked again in a new week without manual table cleanup. Achievement points count toward the weekly leaderboard.
 
 **Current week's achievements:**
 
@@ -206,7 +206,9 @@ Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` 
 
 **Toast handling**: All endpoints that unlock achievements return `newAchievements` in the JSON response. Frontend pages/components that make these API calls check for `data.newAchievements?.length` and loop through calling `showAchievementToast()`. This includes: polymarket event page, positions page, profile page, custom market page, GlobalChat, and EventChat.
 
-**Weekly reset process**: Clear `user_achievements` table, update `ACHIEVEMENTS` array in `lib/achievements.ts` with new set, update trigger locations in API routes if new achievement IDs differ, redeploy.
+**Weekly reset process**: Update the `ACHIEVEMENTS` array in `lib/achievements.ts` with the new set, update trigger locations in API routes if new achievement IDs differ, redeploy. Do NOT clear `user_achievements` — the `week_start` column handles rotation automatically and historical rows should be preserved. Week boundary is UTC Monday (see `getWeekStart()` in `lib/db.ts` and `lib/points.ts`).
+
+**Discord-link backfill**: When a user links Discord, `backfillAchievementPoints(wallet)` awards points for any current-week achievements they unlocked before linking. Dedup is handled by `insertPointEvent`'s `ON CONFLICT (wallet, action, ref_id)`, so calling it again is safe.
 
 ## Performance Patterns
 

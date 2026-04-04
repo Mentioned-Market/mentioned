@@ -18,6 +18,7 @@ export interface RecentTradeItem {
   // free market extras
   wordLabel?: string
   cost?: number
+  slug?: string | null
 }
 
 export async function GET() {
@@ -35,7 +36,8 @@ export async function GET() {
        pt.created_at         AS "createdAt",
        'polymarket'          AS type,
        NULL::text            AS "wordLabel",
-       NULL::numeric         AS cost
+       NULL::numeric         AS cost,
+       NULL::text            AS slug
      FROM polymarket_trades pt
      LEFT JOIN user_profiles up ON up.wallet = pt.wallet
 
@@ -54,7 +56,8 @@ export async function GET() {
        cmt.created_at           AS "createdAt",
        'free'                   AS type,
        cmw.word                 AS "wordLabel",
-       cmt.cost                 AS cost
+       cmt.cost                 AS cost,
+       cm.slug                  AS slug
      FROM custom_market_trades cmt
      LEFT JOIN user_profiles up ON up.wallet = cmt.wallet
      JOIN custom_markets cm ON cm.id = cmt.market_id
