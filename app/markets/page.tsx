@@ -276,32 +276,39 @@ type MarketFilter = 'all' | 'paid' | 'free'
 export default function MarketsPage() {
   const [events, setEvents] = useState<PolyEvent[]>([])
   const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
-  const [polyLoading, setPolyLoading] = useState(true)
+  const [polyLoading, setPolyLoading] = useState(false)
   const [customLoading, setCustomLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<MarketFilter>('all')
   const [showResolved, setShowResolved] = useState(false)
+  const [paidExpanded, setPaidExpanded] = useState(false)
+  const polyFetchedRef = useRef(false)
 
+  // Fetch free markets on mount
   useEffect(() => {
     let cancelled = false
-
     fetch('/api/custom')
       .then(res => res.ok ? res.json() : { markets: [] })
       .then(data => { if (!cancelled) setCustomMarkets(data.markets || []) })
       .catch(() => {})
       .finally(() => { if (!cancelled) setCustomLoading(false) })
+    return () => { cancelled = true }
+  }, [])
 
+  // Fetch paid markets only when requested
+  const fetchPaidMarkets = () => {
+    if (polyFetchedRef.current) return
+    polyFetchedRef.current = true
+    setPolyLoading(true)
     fetch('/api/polymarket?category=mentions')
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch events')
         return res.json()
       })
-      .then(data => { if (!cancelled) setEvents(data.data || []) })
-      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Something went wrong') })
-      .finally(() => { if (!cancelled) setPolyLoading(false) })
-
-    return () => { cancelled = true }
-  }, [])
+      .then(data => setEvents(data.data || []))
+      .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
+      .finally(() => setPolyLoading(false))
+  }
 
   const activeEvents = events.filter(e => e.isActive)
   const liveEvents = activeEvents.filter(e => e.isLive)
@@ -320,7 +327,10 @@ export default function MarketsPage() {
                   {(['all', 'paid', 'free'] as const).map(f => (
                     <button
                       key={f}
-                      onClick={() => setFilter(f)}
+                      onClick={() => {
+                        setFilter(f)
+                        if (f === 'paid') fetchPaidMarkets()
+                      }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                         filter === f
                           ? 'bg-white/10 text-white'
@@ -367,56 +377,92 @@ export default function MarketsPage() {
                   </section>
                 )}
 
-                {/* Paid Prediction Markets — always visible, skeleton while loading */}
+                {/* Paid Prediction Markets — collapsible on All tab, always shown on Paid tab */}
                 {filter !== 'free' && (
                   <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
-                      <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
-                    </div>
-                    {polyLoading ? (
-                      <MentionedSpinner />
-                    ) : error ? (
-                      <div className="flex flex-col items-start gap-2 py-4">
-                        <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
-                        <button
-                          onClick={() => window.location.reload()}
-                          className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
-                        >
-                          Retry
-                        </button>
-                      </div>
+                    {filter === 'all' ? (
+                      <button
+                        onClick={() => {
+                          const next = !paidExpanded
+                          setPaidExpanded(next)
+                          if (next) fetchPaidMarkets()
+                        }}
+                        className="flex items-center gap-2 w-full mb-4 group"
+                      >
+                        <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase shrink-0">Paid</span>
+                        <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
+                        <div className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors ${paidExpanded ? 'bg-white/10' : 'bg-apple-blue/20'}`}>
+                          <svg
+                            className={`w-3.5 h-3.5 transition-transform duration-200 ${paidExpanded ? 'rotate-180 text-neutral-400' : 'text-apple-blue'}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2.5}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                        {!paidExpanded && (
+                          <span className="text-neutral-500 text-xs group-hover:text-neutral-300 transition-colors">View paid markets</span>
+                        )}
+                      </button>
                     ) : (
-                      <>
-                        {liveEvents.length > 0 && (
-                          <div className="mb-6">
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                              <h3 className="text-white text-base font-semibold">Live Now</h3>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              {liveEvents.map(event => (
-                                <EventCard key={event.eventId} event={event} />
-                              ))}
-                            </div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
+                        <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
+                      </div>
+                    )}
+                    {(filter === 'paid' || paidExpanded) && (
+                      <div>
+                        {polyLoading ? (
+                          <MentionedSpinner />
+                        ) : error ? (
+                          <div className="flex flex-col items-start gap-2 py-4">
+                            <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
+                            <button
+                              onClick={() => {
+                                polyFetchedRef.current = false
+                                setError(null)
+                                fetchPaidMarkets()
+                              }}
+                              className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
+                            >
+                              Retry
+                            </button>
                           </div>
-                        )}
-                        {upcomingEvents.length > 0 && (
-                          <div>
+                        ) : (
+                          <>
                             {liveEvents.length > 0 && (
-                              <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>
+                              <div className="mb-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                                  <h3 className="text-white text-base font-semibold">Live Now</h3>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {liveEvents.map(event => (
+                                    <EventCard key={event.eventId} event={event} />
+                                  ))}
+                                </div>
+                              </div>
                             )}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              {upcomingEvents.map(event => (
-                                <EventCard key={event.eventId} event={event} />
-                              ))}
-                            </div>
-                          </div>
+                            {upcomingEvents.length > 0 && (
+                              <div>
+                                {liveEvents.length > 0 && (
+                                  <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {upcomingEvents.map(event => (
+                                    <EventCard key={event.eventId} event={event} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {activeEvents.length === 0 && (
+                              <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
+                            )}
+                          </>
                         )}
-                        {activeEvents.length === 0 && (
-                          <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
-                        )}
-                      </>
+                      </div>
                     )}
                   </section>
                 )}
