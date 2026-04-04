@@ -43,6 +43,7 @@ module.exports = {
         'ticker': 'ticker 150s linear infinite',
         'achievement-in': 'achievementIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
         'achievement-emoji': 'achievementEmoji 0.8s ease-in-out 0.3s both',
+        'confetti-fall': 'confettiFall var(--confetti-duration, 1.4s) ease-in var(--confetti-delay, 0s) both',
       },
       keyframes: {
         fadeIn: {
@@ -67,6 +68,10 @@ module.exports = {
           '50%': { transform: 'scale(1.3) rotate(10deg)' },
           '75%': { transform: 'scale(1.1) rotate(-5deg)' },
           '100%': { transform: 'scale(1) rotate(0deg)' },
+        },
+        confettiFall: {
+          '0%': { transform: 'translateY(-20px) rotate(0deg)', opacity: '1' },
+          '100%': { transform: 'translateY(340px) rotate(720deg)', opacity: '0' },
         },
       },
       boxShadow: {
