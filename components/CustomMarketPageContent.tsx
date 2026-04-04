@@ -189,6 +189,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
   // Mobile trade sheet
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
+  const [previewDetailsOpen, setPreviewDetailsOpen] = useState(false)
 
   const [showTutorial, setShowTutorial] = useState(false)
   useEffect(() => {
@@ -687,27 +688,48 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
       {/* Cost breakdown */}
       {preview && amountNum > 0 && tradeMode === 'buy' && (
-        <div className="mb-5 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-neutral-400 cursor-help" title="The average cost per share for this order. Larger orders move the price, so the average may be higher than the current price.">Avg Price</span>
-            <span className="text-white font-medium">{preview.shares > 0 ? Math.round((preview.cost / preview.shares) * 100) : 0}¢</span>
+        <div className="mb-5">
+          {/* Hero payout + profit */}
+          <div className="rounded-xl bg-white/5 border border-white/10 p-4 mb-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-neutral-400 text-xs uppercase tracking-wide" title="If your prediction is correct, each share pays out 1 token.">Payout if correct</span>
+              <span className="text-white font-bold text-2xl leading-none">{preview.payout.toFixed(1)} <span className="text-base font-medium text-neutral-300">tokens</span></span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-neutral-400 text-xs uppercase tracking-wide" title="Payout minus your cost.">Profit</span>
+              <span className="text-apple-green font-bold text-2xl leading-none">+{preview.profit.toFixed(1)} <span className="text-base font-medium text-apple-green/80">tokens</span></span>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span className="text-neutral-400 cursor-help" title="The number of shares you'll receive. Each share pays out 1 token if the outcome is correct.">Shares</span>
-            <span className="text-white font-medium">{preview.shares.toFixed(1)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-neutral-400 cursor-help" title="If your prediction is correct, each share pays out 1 token. This is the total you'd receive at resolution.">Payout if correct</span>
-            <span className="text-white font-medium">{preview.payout.toFixed(1)} tokens</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-neutral-400 cursor-help" title="Payout minus your cost. This is how many tokens you'd gain if your prediction is correct.">Profit</span>
-            <span className="text-apple-green font-semibold">+{preview.profit.toFixed(1)} tokens</span>
-          </div>
-          <div className="flex justify-between pt-1 border-t border-white/5">
+
+          {/* Points earned */}
+          <div className="flex justify-between text-sm px-1 py-2">
             <span className="text-neutral-400 cursor-help" title="Profit from free markets converts to platform points at a 0.5x rate. Points count toward the leaderboard.">Points earned</span>
             <span className="text-apple-blue font-semibold">+{Math.floor(preview.profit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} pts</span>
           </div>
+
+          {/* Collapsible details */}
+          <button
+            type="button"
+            onClick={() => setPreviewDetailsOpen(v => !v)}
+            className="w-full flex items-center justify-between text-xs text-neutral-500 hover:text-neutral-300 transition-colors px-1 py-1.5"
+          >
+            <span>Details</span>
+            <svg className={`w-3 h-3 transition-transform ${previewDetailsOpen ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none">
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {previewDetailsOpen && (
+            <div className="space-y-2 text-sm px-1 pt-1">
+              <div className="flex justify-between">
+                <span className="text-neutral-400 cursor-help" title="The average cost per share for this order. Larger orders move the price, so the average may be higher than the current price.">Avg Price</span>
+                <span className="text-white font-medium">{preview.shares > 0 ? Math.round((preview.cost / preview.shares) * 100) : 0}¢</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400 cursor-help" title="The number of shares you'll receive. Each share pays out 1 token if the outcome is correct.">Shares</span>
+                <span className="text-white font-medium">{preview.shares.toFixed(1)}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
