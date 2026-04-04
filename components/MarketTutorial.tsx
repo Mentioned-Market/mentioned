@@ -35,7 +35,7 @@ const STEPS: Step[] = [
 
 interface Rect    { x: number; y: number; w: number; h: number }
 interface CardPos { left: number; top: number }
-interface Props   { onClose: () => void }
+interface Props   { onClose: () => void; onStepChange?: (step: number) => void }
 
 const CARD_HEIGHT_EST = 160
 const EXIT_MS        = 180  // exit animation duration
@@ -69,7 +69,7 @@ function computeCardPos(spotlight: Rect | null, cardSide: 'below' | 'left', winW
   return { left: winW / 2 - cw / 2, top: winH / 2 - CARD_HEIGHT_EST / 2 }
 }
 
-export default function MarketTutorial({ onClose }: Props) {
+export default function MarketTutorial({ onClose, onStepChange }: Props) {
   const [step, setStep]           = useState(0)
   const [shown, setShown]         = useState(0)          // content currently rendered (lags step during exit)
   const [phase, setPhase]         = useState<'in' | 'out'>('out')
@@ -97,6 +97,8 @@ export default function MarketTutorial({ onClose }: Props) {
   useEffect(() => {
     lockRef.current = true
     setPhase('out')  // trigger exit animation — content (shown) stays on old step
+
+    onStepChange?.(step)
 
     const selector = STEPS[step].targetSelector
     if (selector) {

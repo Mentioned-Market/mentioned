@@ -90,12 +90,16 @@ interface WalletContextType {
   username: string | null
   /** Cached profile emoji (fetched once on connect) */
   pfpEmoji: string | null
-  /** Whether the user has linked their Discord account */
-  discordLinked: boolean
+  /** Whether the user has linked their Discord account. null = not yet fetched. */
+  discordLinked: boolean | null
+  /** True while profile is being fetched */
+  profileLoading: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
   refreshProfile: () => void
   /** Whether the session has been verified server-side */
   authenticated: boolean
+  /** True once wallet connection state has been determined (safe to render connected/login UI) */
+  walletReady: boolean
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -235,7 +239,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Cached profile data (fetched once per wallet connection)
   const [username, setUsername] = useState<string | null>(null)
   const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
-  const [discordLinked, setDiscordLinked] = useState(false)
+  const [discordLinked, setDiscordLinked] = useState<boolean | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [walletReady, setWalletReady] = useState(false)
   const profileFetchedForRef = useRef<string | null>(null)
 
   const walletRef = useRef<Wallet | null>(null)
@@ -271,6 +277,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setConnected(true)
       setSigner(buildPhantomSigner(wallet, account))
       setWalletType('phantom')
+      setProfileLoading(true)
     },
     []
   )
@@ -283,7 +290,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWalletType(null)
     setUsername(null)
     setPfpEmoji(null)
-    setDiscordLinked(false)
+    setDiscordLinked(null)
+    setProfileLoading(false)
     setAuthenticated(false)
     profileFetchedForRef.current = null
     authInFlightRef.current = null
@@ -302,6 +310,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       if (wallet.accounts.length > 0) {
         applyPhantomAccount(wallet, wallet.accounts[0])
+        setWalletReady(true)
       } else {
         const connectFeat = wallet.features[
           FEAT_CONNECT
@@ -314,6 +323,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
                 applyPhantomAccount(wallet, accounts[0])
             })
             .catch(() => {})
+            .finally(() => setWalletReady(true))
+        } else {
+          setWalletReady(true)
         }
       }
 
@@ -332,7 +344,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
 
     const existing = findPhantomWallet(get())
-    if (existing) setup(existing)
+    if (existing) {
+      setup(existing)
+    } else {
+      // No Phantom wallet detected yet; mark ready after a short window
+      // in case it registers late, then flip back if it does register
+      const readyTimer = setTimeout(() => setWalletReady(true), 500)
+      const unsub2 = on('register', (...newWallets: Wallet[]) => {
+        if (walletRef.current) return
+        const found = findPhantomWallet(newWallets)
+        if (found) {
+          clearTimeout(readyTimer)
+          setWalletReady(false)
+          setup(found)
+        }
+      })
+      return () => { clearTimeout(readyTimer); unsub2() }
+    }
 
     const unsub = on('register', (...newWallets: Wallet[]) => {
       if (walletRef.current) return
@@ -352,6 +380,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!privyAuthenticated) {
       if (walletType === 'privy') clearState()
       disconnectingRef.current = false
+      setWalletReady(true)
       return
     }
 
@@ -373,6 +402,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setPubkey(addr)
     setConnected(true)
     setWalletType('privy')
+    setProfileLoading(true)
 
     const encoder = getTransactionEncoder()
     const privySigner: TransactionSendingSigner = {
@@ -392,6 +422,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       },
     }
     setSigner(privySigner)
+    setWalletReady(true)
   }, [
     privyAuthenticated,
     privyReady,
@@ -425,15 +456,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // ── Profile cache ─────────────────────────────────────
 
   const fetchProfile = useCallback((wallet: string) => {
+    setProfileLoading(true)
     fetch(`/api/profile?wallet=${wallet}`)
       .then(r => r.json())
       .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null); setDiscordLinked(!!d.discordId) })
-      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(false) })
+      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(null) })
+      .finally(() => setProfileLoading(false))
     profileFetchedForRef.current = wallet
   }, [])
 
   useEffect(() => {
-    if (!pubkey) { setUsername(null); setPfpEmoji(null); setDiscordLinked(false); profileFetchedForRef.current = null; return }
+    if (!pubkey) { setUsername(null); setPfpEmoji(null); setDiscordLinked(null); setProfileLoading(false); profileFetchedForRef.current = null; return }
     if (profileFetchedForRef.current === pubkey) return
     fetchProfile(pubkey)
   }, [pubkey, fetchProfile])
@@ -597,6 +630,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         username,
         pfpEmoji,
         discordLinked,
+        profileLoading,
+        walletReady,
         refreshProfile,
         authenticated,
       }}
