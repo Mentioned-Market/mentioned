@@ -309,24 +309,6 @@ CREATE TRIGGER trg_event_chat_messages_notify
   AFTER INSERT ON event_chat_messages
   FOR EACH ROW EXECUTE FUNCTION notify_chat_insert();
 
--- Revert integer columns back to NUMERIC(18,6) (float approach kept for now)
-ALTER TABLE custom_market_balances
-  ALTER COLUMN balance TYPE NUMERIC(18,6) USING balance::NUMERIC;
-
-ALTER TABLE custom_market_positions
-  ALTER COLUMN yes_shares       TYPE NUMERIC(18,6) USING yes_shares::NUMERIC,
-  ALTER COLUMN no_shares        TYPE NUMERIC(18,6) USING no_shares::NUMERIC,
-  ALTER COLUMN tokens_spent     TYPE NUMERIC(18,6) USING tokens_spent::NUMERIC,
-  ALTER COLUMN tokens_received  TYPE NUMERIC(18,6) USING tokens_received::NUMERIC;
-
-ALTER TABLE custom_market_word_pools
-  ALTER COLUMN yes_qty TYPE NUMERIC(18,6) USING yes_qty::NUMERIC,
-  ALTER COLUMN no_qty  TYPE NUMERIC(18,6) USING no_qty::NUMERIC;
-
-ALTER TABLE custom_market_trades
-  ALTER COLUMN shares TYPE NUMERIC(18,6) USING shares::NUMERIC,
-  ALTER COLUMN cost   TYPE NUMERIC(18,6) USING cost::NUMERIC;
-
 -- Daily visit tracking for login streak achievements
 CREATE TABLE IF NOT EXISTS user_visit_logs (
   id         SERIAL PRIMARY KEY,
