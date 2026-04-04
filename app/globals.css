@@ -187,3 +187,6 @@ html {
   display: none !important;
 }
 
+
+/* Mentioned spinner arc */
+@keyframes ms-spin { to { transform: rotate(360deg); } }

@@ -6,6 +6,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import InfoTooltip from '@/components/InfoTooltip'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -275,9 +276,7 @@ export default function LeaderboardPage() {
               {tab === 'points' && (
                 <>
                   {pointsLoading && (
-                    <div className="flex items-center justify-center py-24">
-                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    </div>
+                    <MentionedSpinner className="py-24" />
                   )}
 
                   {!pointsLoading && pointsEntries.length === 0 && (
@@ -376,9 +375,7 @@ export default function LeaderboardPage() {
               {tab === 'trading' && (
                 <>
                   {loading && (
-                    <div className="flex items-center justify-center py-24">
-                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    </div>
+                    <MentionedSpinner className="py-24" />
                   )}
 
                   {!loading && sorted.length === 0 && (

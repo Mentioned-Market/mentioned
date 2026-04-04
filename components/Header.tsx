@@ -152,7 +152,7 @@ export default function Header() {
               onClick={connect}
               className="h-8 md:h-9 px-4 md:px-5 bg-white text-black text-xs md:text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button"
             >
-              Connect Wallet
+              Login
             </button>
           )}
 

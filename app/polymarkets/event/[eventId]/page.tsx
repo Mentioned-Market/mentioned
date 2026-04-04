@@ -11,6 +11,7 @@ import EventPriceChart from '@/components/EventPriceChart'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -179,11 +180,7 @@ function timeUntil(isoTime: string): string {
 
 function OrderbookPanel({ orderbook }: { orderbook: OrderbookData | null }) {
   if (!orderbook) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-      </div>
-    )
+    return <MentionedSpinner className="py-8" />
   }
 
   const yesOrders = orderbook.yes.slice(0, 8)
@@ -711,9 +708,9 @@ export default function PolymarketEventPage() {
           ) : (
             <button
               onClick={connect}
-              className="w-full py-3.5 bg-apple-green hover:bg-apple-green/90 text-white font-semibold text-base rounded-xl transition-all duration-200"
+              className="w-full py-3.5 bg-white hover:bg-neutral-100 text-black font-semibold text-base rounded-xl transition-all duration-200"
             >
-              Connect wallet to trade
+              Login to trade
             </button>
           )}
 
@@ -842,9 +839,7 @@ export default function PolymarketEventPage() {
             <main className="py-4 md:py-6 flex-1">
               {/* Loading */}
               {loading && (
-                <div className="flex items-center justify-center py-32">
-                  <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                </div>
+                <MentionedSpinner className="py-32" />
               )}
 
               {/* Error */}
