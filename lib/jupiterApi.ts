@@ -8,16 +8,29 @@ export function getForwardHeaders(_req: NextRequest): Record<string, string> {
   return {}
 }
 
-export async function jupFetch(path: string, init?: RequestInit, forwardHeaders?: Record<string, string>) {
-  const res = await fetch(`${JUP_BASE}${path}`, {
-    cache: 'no-store',
-    ...init,
-    headers: {
-      'x-api-key': JUP_API_KEY,
-      ...forwardHeaders,
-      ...init?.headers,
-    },
-  })
+export async function jupFetch(path: string, init?: RequestInit, forwardHeaders?: Record<string, string>, timeoutMs = 8000) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  let res: Response
+  try {
+    res = await fetch(`${JUP_BASE}${path}`, {
+      cache: 'no-store',
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'x-api-key': JUP_API_KEY,
+        ...forwardHeaders,
+        ...init?.headers,
+      },
+    })
+  } catch (err: unknown) {
+    clearTimeout(timeout)
+    if (err instanceof Error && err.name === 'AbortError') {
+      return NextResponse.json({ error: 'Jupiter API timeout' }, { status: 504 })
+    }
+    throw err
+  }
+  clearTimeout(timeout)
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     return NextResponse.json(

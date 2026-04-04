@@ -7,6 +7,13 @@ import { getVerifiedWallet } from '@/lib/walletAuth'
 const RATE_LIMIT_MS = 500
 const lastTrade = new Map<string, number>()
 
+setInterval(() => {
+  const cutoff = Date.now() - 60_000
+  for (const [key, ts] of lastTrade) {
+    if (ts < cutoff) lastTrade.delete(key)
+  }
+}, 600_000)
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -23,12 +30,13 @@ export async function POST(
   }
 
   const body = await req.json()
-  const { word_id, action, side, amount, amount_type } = body as {
+  const { word_id, action, side, amount, amount_type, max_cost } = body as {
     word_id?: number
     action?: string
     side?: string
     amount?: number
     amount_type?: string
+    max_cost?: number
   }
 
   if (word_id === undefined || !action || !side || amount === undefined) {
@@ -95,6 +103,7 @@ export async function POST(
   try {
     const result = await executeVirtualTrade(
       marketId, word_id, wallet, action, side as 'YES' | 'NO', amount, amountType,
+      max_cost,
     )
     // Free market achievements (fire-and-forget)
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []

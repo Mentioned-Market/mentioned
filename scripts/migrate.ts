@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_created ON chat_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_wallet ON chat_messages(wallet);
 
 CREATE TABLE IF NOT EXISTS polymarket_trades (
   id            SERIAL PRIMARY KEY,
@@ -337,6 +338,17 @@ CREATE TABLE IF NOT EXISTS user_visit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_visit_logs_wallet_week ON user_visit_logs(wallet, week_start);
+
+-- Admin audit log
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id SERIAL PRIMARY KEY,
+  wallet TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at DESC);
 `
 
 async function main() {
