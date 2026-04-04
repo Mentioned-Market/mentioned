@@ -103,7 +103,7 @@ function formatCloseTime(isoTime: string): string {
 
 // ── How It Works Tooltip ───────────────────────────────
 
-function HowItWorks() {
+function HowItWorks({ onRerunTutorial, upward }: { onRerunTutorial?: () => void; upward?: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -112,18 +112,14 @@ function HowItWorks() {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-apple-blue/10 border border-apple-blue/20 text-xs text-apple-blue hover:bg-apple-blue/15 transition-colors"
       >
-        <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <circle cx="12" cy="12" r="10" />
-          <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
+        <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-[13px] font-bold leading-none">?</span>
         <span className="font-medium">How does this work?</span>
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-neutral-900 border border-white/10 rounded-xl p-4 shadow-xl animate-scale-in">
+          <div className={`absolute left-0 right-0 z-50 bg-neutral-900 border border-white/10 rounded-xl p-4 shadow-xl animate-scale-in ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-white">How it works</span>
               <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white">
@@ -146,6 +142,14 @@ function HowItWorks() {
                 <span className="text-white font-medium">Profit becomes points.</span> Every token of profit earns 0.5 platform points toward the weekly leaderboard.
               </p>
             </div>
+            {onRerunTutorial && (
+              <button
+                onClick={() => { setOpen(false); onRerunTutorial() }}
+                className="mt-3 w-full text-center text-[11px] text-apple-blue hover:text-apple-blue/80 transition-colors"
+              >
+                Rerun tutorial
+              </button>
+            )}
           </div>
         </>
       )}
@@ -156,7 +160,7 @@ function HowItWorks() {
 // ── Main Page ──────────────────────────────────────────
 
 export default function CustomMarketPageContent({ marketId, onLoaded }: { marketId: number; onLoaded?: () => void }) {
-  const { connected, connect, publicKey, discordLinked } = useWallet()
+  const { connected, connect, publicKey, discordLinked, profileLoading } = useWallet()
   const { showAchievementToast } = useAchievements()
   const [contentVisible, setContentVisible] = useState(false)
 
@@ -185,21 +189,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
   const [showTutorial, setShowTutorial] = useState(false)
   useEffect(() => {
-    // Fast path: localStorage cache means we definitely skip
-    if (localStorage.getItem('mentioned_free_tutorial_seen')) return
-    if (connected && publicKey) {
-      // Wallet connected — verify against DB
-      fetch(`/api/profile?wallet=${publicKey}`)
-        .then(r => r.json())
-        .then((data: { tutorialFlags?: Record<string, boolean> }) => {
-          if (!data.tutorialFlags?.free_market) setShowTutorial(true)
-        })
-        .catch(() => setShowTutorial(true))
-    } else {
-      // Guest — localStorage is the only source of truth
-      setShowTutorial(true)
-    }
-  }, [connected, publicKey])
+    const seen = document.cookie.split(';').some(c => c.trim().startsWith('mentioned_free_tutorial_seen='))
+    if (!seen) setShowTutorial(true)
+  }, [])
 
   // ── Fetch data ──────────────────────────────────────
 
@@ -415,7 +407,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const handleTrade = async () => {
     if (!publicKey || !market || !selectedWord) return
     if (amountNum <= 0) return
-    if (!discordLinked) return
+    if (discordLinked !== true) return
 
     setTrading(true)
     setTradeStatus(null)
@@ -469,7 +461,10 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const tradingPanel = selectedWord ? (
     <>
       {/* How it works */}
-      <HowItWorks />
+      <HowItWorks onRerunTutorial={() => {
+        document.cookie = 'mentioned_free_tutorial_seen=; Max-Age=0; path=/'
+        setShowTutorial(true)
+      }} />
 
       {/* Balance bar + points info */}
       {connected && (
@@ -678,7 +673,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
         <button disabled className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed">
           {market?.status === 'resolved' ? 'Market Resolved' : market?.status === 'locked' ? 'Market Locked' : 'Market Closed'}
         </button>
-      ) : connected && !discordLinked ? (
+      ) : connected && discordLinked === false ? (
         <div className="space-y-2">
           <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
             <p className="font-medium mb-1">Discord required to trade</p>
@@ -1086,21 +1081,27 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40">
         {mobileTradeOpen ? (
           <>
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileTradeOpen(false)} />
-            <div className="relative z-50 bg-neutral-900 border-t border-white/10 rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto animate-slide-up">
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => { if (!showTutorial) setMobileTradeOpen(false) }} />
+            <div className="relative z-50 bg-neutral-900 border-t border-white/10 rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto animate-slide-up" data-tutorial="trading-panel-mobile">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-sm font-semibold text-white">Trade</span>
-                <button onClick={() => setMobileTradeOpen(false)} className="text-neutral-400 hover:text-white">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                {!showTutorial && (
+                  <button onClick={() => setMobileTradeOpen(false)} className="text-neutral-400 hover:text-white">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
               </div>
               {tradingPanel}
             </div>
           </>
         ) : (
-          <div className="bg-neutral-900/95 backdrop-blur-md border-t border-white/10 px-4 py-3 safe-pb" data-tutorial="trading-panel-mobile">
+          <div className="bg-neutral-900/95 backdrop-blur-md border-t border-white/10 px-4 pt-2 pb-3 safe-pb" data-tutorial="trading-panel-mobile">
+            <HowItWorks upward onRerunTutorial={() => {
+              document.cookie = 'mentioned_free_tutorial_seen=; Max-Age=0; path=/'
+              setShowTutorial(true)
+            }} />
             <button
               onClick={() => setMobileTradeOpen(true)}
               className={`w-full py-3 font-semibold text-white rounded-xl transition-all ${
@@ -1115,17 +1116,22 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
       {/* Tutorial overlay — shown after initial data load */}
       {showTutorial && !loading && (
-        <MarketTutorial onClose={() => {
-          localStorage.setItem('mentioned_free_tutorial_seen', '1')
-          setShowTutorial(false)
-          if (connected && publicKey) {
-            fetch('/api/profile/tutorial', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ wallet: publicKey, flag: 'free_market' }),
-            }).catch(() => {})
-          }
-        }} />
+        <MarketTutorial
+          onClose={() => {
+            document.cookie = 'mentioned_free_tutorial_seen=1; Max-Age=31536000; path=/; SameSite=Lax'
+            setShowTutorial(false)
+            setMobileTradeOpen(false)
+          }}
+          onStepChange={(step) => {
+            if (window.innerWidth >= 1024) return
+            // Steps 2 and 3 (0-indexed) highlight the trading panel — open the sheet on mobile
+            if (step === 2 || step === 3) {
+              setMobileTradeOpen(true)
+            } else {
+              setMobileTradeOpen(false)
+            }
+          }}
+        />
       )}
     </div>
   )

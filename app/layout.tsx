@@ -5,6 +5,7 @@ import WalletProviderWrapper from '@/components/WalletProviderWrapper'
 import GlobalChat from '@/components/GlobalChat'
 import BugReportButton from '@/components/BugReportButton'
 import TradeTicker from '@/components/TradeTicker'
+import CookieBanner from '@/components/CookieBanner'
 import { faqSchema, webApplicationSchema } from '@/lib/seo-schemas'
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -205,6 +206,7 @@ export default function RootLayout({
           {children}
           <GlobalChat />
           <BugReportButton />
+          <CookieBanner />
         </WalletProviderWrapper>
       </body>
     </html>
