@@ -250,6 +250,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_discord_id ON user_profiles(discor
 -- Referral system
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referred_by TEXT;
+
+-- Tutorial flags (tracks which onboarding tutorials the user has seen)
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS tutorial_flags JSONB NOT NULL DEFAULT '{}';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_referral_code ON user_profiles(referral_code) WHERE referral_code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_profile_referred_by ON user_profiles(referred_by) WHERE referred_by IS NOT NULL;
 

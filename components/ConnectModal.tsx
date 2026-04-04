@@ -37,7 +37,7 @@ export default function ConnectModal() {
     >
       <div className="w-full max-w-sm mx-4 bg-neutral-900 rounded-2xl border border-white/10 shadow-2xl animate-scale-in overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-6 pb-2">
-          <h2 className="text-lg font-semibold text-white">Connect Wallet</h2>
+          <h2 className="text-lg font-semibold text-white">Login</h2>
           <button
             onClick={() => setShowConnectModal(false)}
             className="text-neutral-500 hover:text-white transition-colors"

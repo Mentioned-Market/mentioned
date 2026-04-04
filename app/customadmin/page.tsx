@@ -6,6 +6,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { getStatusColor, getStatusLabel, isValidStatusTransition } from '@/lib/customMarketUtils'
 import type { CustomMarketRow, CustomMarketWordRow } from '@/lib/db'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 interface MarketWithWords extends CustomMarketRow {
   words: CustomMarketWordRow[]
@@ -279,7 +280,7 @@ export default function CustomAdminPage() {
             <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
               <Header />
               <main className="flex-1 flex items-center justify-center">
-                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <MentionedSpinner className="" />
               </main>
             </div>
           </div>
@@ -438,9 +439,7 @@ export default function CustomAdminPage() {
             </h2>
 
             {loading && (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-              </div>
+              <MentionedSpinner />
             )}
 
             {!loading && markets.length === 0 && (

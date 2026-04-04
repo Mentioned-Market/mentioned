@@ -119,7 +119,7 @@ function useSlideLoop(durations: number[], visible: boolean) {
 }
 
 /* ───────────────────────────────────────────────
-   Animated mini chart (canvas) — timer-driven
+   Animated mini chart (canvas) - timer-driven
    All durations at 1.25x speed (÷1.25)
    ─────────────────────────────────────────────── */
 function AnimatedChart({ play }: { play: boolean }) {
@@ -357,7 +357,7 @@ function MockClaimPanel({ play }: { play: boolean }) {
       <div className="mb-4 p-3 rounded-xl" style={{ background: `rgba(52,199,89,${resolveT * 0.08})`, border: `1px solid rgba(52,199,89,${resolveT * 0.2})` }}>
         <div className="flex items-center gap-2 mb-1">
           <div className="w-2 h-2 rounded-full" style={{ background: `rgb(${lerp(82, 52, resolveT)},${lerp(82, 199, resolveT)},${lerp(82, 89, resolveT)})` }} />
-          <p className="text-xs font-semibold" style={{ color: resolved ? '#34C759' : '#a3a3a3' }}>{resolved ? 'Resolved — YES ✓' : 'Awaiting resolution...'}</p>
+          <p className="text-xs font-semibold" style={{ color: resolved ? '#34C759' : '#a3a3a3' }}>{resolved ? 'Resolved: YES ✓' : 'Awaiting resolution...'}</p>
         </div>
         <p className="text-neutral-500 text-[10px] ml-4">{resolved ? '"GG" was said during the broadcast' : 'Transcript will be checked after the event'}</p>
       </div>
@@ -379,7 +379,7 @@ function MockClaimPanel({ play }: { play: boolean }) {
 }
 
 /* ───────────────────────────────────────────────
-   Mock Chart Section — self-contained auto-play
+   Mock Chart Section - self-contained auto-play
    ─────────────────────────────────────────────── */
 function MockChartSection({ play }: { play: boolean }) {
   const p = useAutoPlay(play, 4200)
@@ -388,7 +388,7 @@ function MockChartSection({ play }: { play: boolean }) {
     <div className="w-full max-w-2xl mx-auto">
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <div><p className="text-white text-sm font-semibold">&quot;GG&quot; — YES price</p><p className="text-neutral-500 text-xs">VCT Masters — Grand Final</p></div>
+          <div><p className="text-white text-sm font-semibold">&quot;GG&quot; YES price</p><p className="text-neutral-500 text-xs">VCT Masters: Grand Final</p></div>
           <div className="flex items-center gap-1"><span className="text-green-400 text-lg font-mono font-bold">{Math.round(lerp(32, 85, ease(p)))}¢</span><span className="text-green-400 text-[10px]">▲</span></div>
         </div>
         <div className="h-48 md:h-56"><AnimatedChart play={play} /></div>
@@ -508,11 +508,11 @@ function MockPointsBreakdown() {
    SLIDE DEFINITIONS
    ═══════════════════════════════════════════════ */
 const SLIDES = [
-  { step: 1, label: 'The trade flow', title: 'Pick a market', desc: 'Every market is tied to a live event — a stream, a podcast, a tournament. Each one has a set of words you can trade on.' },
+  { step: 1, label: 'The trade flow', title: 'Pick a market', desc: 'Every market is tied to a live event: a stream, a podcast, a tournament. Each one has a set of words you can trade on.' },
   { step: 2, label: 'The trade flow', title: 'Browse the words', desc: 'Each market has a list of words with live prices. YES means you think it\'ll be said. Prices move with the crowd.' },
   { step: 3, label: 'The trade flow', title: 'Place your trade', desc: 'Pick YES or NO, enter your amount, and see exactly what you\'ll win before you confirm.' },
-  { step: 4, label: 'The trade flow', title: 'Watch prices move', desc: 'Prices update in real time as the event unfolds. Sell anytime to lock in profit — or hold until resolution.' },
-  { step: 5, label: 'The trade flow', title: 'Collect your winnings', desc: 'Event ends, transcript is checked. If your word was said and you held YES — you win. One click to claim.' },
+  { step: 4, label: 'The trade flow', title: 'Watch prices move', desc: 'Prices update in real time as the event unfolds. Sell anytime to lock in profit, or hold until resolution.' },
+  { step: 5, label: 'The trade flow', title: 'Collect your winnings', desc: 'Event ends, transcript is checked. If your word was said and you held YES, you win. One click to claim.' },
 ]
 
 
@@ -549,7 +549,7 @@ export default function Home() {
         <div className="w-full max-w-7xl"><Header /></div>
       </div>
 
-      {/* Hero — normal flow */}
+      {/* Hero */}
       <section className="min-h-[85vh] flex flex-col items-center justify-center text-center px-4 md:px-10">
         <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
         <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
@@ -564,14 +564,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Auto-playing slideshow — loops through all 5 steps */}
-      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '80vh' }}>
+      {/* Auto-playing slideshow */}
+      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '100vh', marginTop: '-15vh' }}>
         {SLIDES.map((slide, i) => {
           const isActive = activeSlide === i
           return (
             <div
               key={i}
-              className="absolute inset-0 flex flex-col items-center justify-center px-4 md:px-10 py-16 md:py-20"
+              className="absolute inset-0 flex flex-col items-center justify-center px-4 md:px-10 py-12"
               style={{
                 opacity: isActive ? 1 : 0,
                 transition: `opacity ${CROSSFADE_MS}ms ease-in-out`,
@@ -579,8 +579,8 @@ export default function Home() {
               }}
             >
               <div className="w-full max-w-5xl mx-auto">
-                <div className="text-center mb-4 md:mb-6">
-                  <div className="relative inline-flex items-center gap-2 mb-1 md:mb-2">
+                <div className="text-center mb-5 md:mb-8">
+                  <div className="relative inline-flex items-center gap-2 mb-2">
                     <span className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">{slide.label}</span>
                     <span className="text-neutral-700 text-[10px]">{slide.step} / 5</span>
                     <svg width="16" height="16" viewBox="0 0 28 28" className="rotate-[-90deg] absolute -right-7 top-1/2 -translate-y-1/2">
@@ -593,15 +593,15 @@ export default function Home() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-xl md:text-4xl font-bold text-white mb-1.5 md:mb-2">{slide.title}</h2>
-                  <p className="text-neutral-400 text-xs md:text-base max-w-xl mx-auto">{slide.desc}</p>
+                  <h2 className="text-2xl md:text-4xl font-bold text-white mb-2 md:mb-3">{slide.title}</h2>
+                  <p className="text-neutral-400 text-sm md:text-base max-w-xl mx-auto">{slide.desc}</p>
                 </div>
 
                 {i === 0 && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
-                    <MockMarketCard play={isActive} delay={0.05} selected title="VCT Masters — Grand Final" emoji="🎮" words={[{ word: 'GG', price: 0.42 }, { word: 'nerf', price: 0.35 }, { word: 'clutch', price: 0.61 }, { word: 'ace', price: 0.28 }]} />
+                    <MockMarketCard play={isActive} delay={0.05} selected title="VCT Masters: Grand Final" emoji="🎮" words={[{ word: 'GG', price: 0.42 }, { word: 'nerf', price: 0.35 }, { word: 'clutch', price: 0.61 }, { word: 'ace', price: 0.28 }]} />
                     <div className="hidden md:block"><MockMarketCard play={isActive} delay={0.15} title="Joe Rogan #2189" emoji="🎙️" words={[{ word: 'simulation', price: 0.55 }, { word: 'DMT', price: 0.72 }, { word: 'aliens', price: 0.38 }]} /></div>
-                    <div className="hidden md:block"><MockMarketCard play={isActive} delay={0.25} title="League Worlds — Semifinals" emoji="⚔️" words={[{ word: 'pentakill', price: 0.15 }, { word: 'baron', price: 0.82 }, { word: 'backdoor', price: 0.22 }]} /></div>
+                    <div className="hidden md:block"><MockMarketCard play={isActive} delay={0.25} title="League Worlds: Semifinals" emoji="⚔️" words={[{ word: 'pentakill', price: 0.15 }, { word: 'baron', price: 0.82 }, { word: 'backdoor', price: 0.22 }]} /></div>
                   </div>
                 )}
                 {i === 1 && <div className="flex justify-center"><MockWordList play={isActive} /></div>}
@@ -613,8 +613,8 @@ export default function Home() {
           )
         })}
 
-        {/* Step navigation — arrows + clickable dots */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10">
+        {/* Step navigation - arrows + clickable dots */}
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10">
           <button onClick={prev} className="p-1.5 rounded-full hover:bg-white/10 transition-colors" aria-label="Previous slide">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-400"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
@@ -649,11 +649,6 @@ export default function Home() {
               </div>
               <div className="reveal reveal-up stagger-1 grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-4xl"><MockPointsBreakdown /><MockLeaderboard /></div>
               <div className="reveal reveal-up stagger-2 grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-4xl"><MockAchievements /><MockChat /></div>
-              <div className="reveal reveal-up stagger-3 grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-4xl">
-                {[{ icon: '📊', stat: '10+', label: 'Points per trade' }, { icon: '🏅', stat: '15+', label: 'Achievements' }, { icon: '📈', stat: 'Weekly', label: 'Leaderboard resets' }, { icon: '💬', stat: 'Live', label: 'Market chat' }].map((s) => (
-                  <div key={s.label} className="glass rounded-xl p-5 text-center"><div className="text-2xl mb-2">{s.icon}</div><p className="text-white text-lg font-bold font-mono">{s.stat}</p><p className="text-neutral-500 text-[10px] uppercase tracking-wider mt-1">{s.label}</p></div>
-                ))}
-              </div>
             </div>
           </section>
           <section className="py-24 md:py-32 border-t border-white/10">
@@ -665,19 +660,18 @@ export default function Home() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-3xl">
                 <div className="reveal reveal-left glass rounded-2xl p-7 text-left">
                   <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center"><span className="text-base">⛓️</span></div><h3 className="text-white text-base font-semibold">On-chain markets</h3></div>
-                  <p className="text-neutral-400 text-sm mb-3">Real SOL. Every trade is on Solana. Connect your Phantom wallet and trade with real stakes.</p>
-                  <div className="flex gap-2"><span className="text-[10px] bg-white/5 text-neutral-400 px-2 py-1 rounded-md">Solana</span><span className="text-[10px] bg-white/5 text-neutral-400 px-2 py-1 rounded-md">Real SOL</span><span className="text-[10px] bg-white/5 text-neutral-400 px-2 py-1 rounded-md">Verifiable</span></div>
+                  <p className="text-neutral-400 text-sm">Real USDC. Trade on Polymarket&apos;s mention markets, powered by Solana. Connect your Phantom wallet and trade with real stakes.</p>
                 </div>
                 <div className="reveal reveal-right glass rounded-2xl p-7 text-left">
                   <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center"><span className="text-base">🎮</span></div><h3 className="text-white text-base font-semibold">Free markets</h3></div>
-                  <p className="text-neutral-400 text-sm mb-3">Play tokens, no money needed. Same trading mechanics. Profit converts to platform points and leaderboard rank.</p>
-                  <div className="flex gap-2"><span className="text-[10px] bg-white/5 text-neutral-400 px-2 py-1 rounded-md">Free</span><span className="text-[10px] bg-white/5 text-neutral-400 px-2 py-1 rounded-md">Play tokens</span><span className="text-[10px] bg-white/5 text-neutral-400 px-2 py-1 rounded-md">Points</span></div>
+                  <p className="text-neutral-400 text-sm">Play tokens, no money needed. Same trading mechanics. Profit converts to platform points and leaderboard rank.</p>
                 </div>
               </div>
             </div>
           </section>
           <section className="py-24 md:py-32 border-t border-white/10">
             <div className="reveal reveal-scale flex flex-col items-center text-center">
+              <Image src="/src/img/White Icon.svg" alt="Mentioned" width={48} height={48} className="h-10 w-auto mb-6" />
               <h2 className="text-2xl md:text-4xl font-bold text-white mb-3">Markets are live.</h2>
               <p className="text-neutral-400 text-base mb-8">Now you know how it works. Jump in.</p>
               <div className="flex items-center gap-3">

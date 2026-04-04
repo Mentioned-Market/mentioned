@@ -7,6 +7,7 @@ import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -525,12 +526,12 @@ export default function PositionsPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
                     </svg>
                   </div>
-                  <span className="text-neutral-400 text-base font-medium">Connect your wallet to view positions</span>
+                  <span className="text-neutral-400 text-base font-medium">Login to view your positions</span>
                   <button
                     onClick={connect}
                     className="mt-2 px-6 py-3 bg-white text-black text-sm font-semibold rounded-xl hover:bg-neutral-100 transition-all duration-200"
                   >
-                    Connect Wallet
+                    Login
                   </button>
                 </div>
               ) : (
@@ -608,9 +609,7 @@ export default function PositionsPage() {
                   {/* ── Free Market Positions Tab ─────────────────── */}
                   <div style={{ display: marketMode === 'free' && tab === 'positions' ? undefined : 'none' }}>
                     {loadingFree ? (
-                      <div className="flex items-center justify-center py-16">
-                        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      </div>
+                      <MentionedSpinner className="py-16" />
                     ) : freePositions.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-16 gap-2">
                         <span className="text-neutral-500 text-sm">No open free market positions</span>
@@ -685,9 +684,7 @@ export default function PositionsPage() {
                   {/* ── Free Market History Tab ────────────────────── */}
                   <div style={{ display: marketMode === 'free' && tab === 'history' ? undefined : 'none' }}>
                     {loadingFree ? (
-                      <div className="flex items-center justify-center py-16">
-                        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      </div>
+                      <MentionedSpinner className="py-16" />
                     ) : freeTrades.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-16 gap-2">
                         <span className="text-neutral-500 text-sm">No free market trade history yet</span>
@@ -753,9 +750,7 @@ export default function PositionsPage() {
                   {/* ── Positions Tab ──────────────────────────────── */}
                   <div style={{ display: marketMode === 'paid' && tab === 'positions' ? undefined : 'none' }}>
                       {loadingPositions ? (
-                        <div className="flex items-center justify-center py-16">
-                          <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        </div>
+                        <MentionedSpinner className="py-16" />
                       ) : positions.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 gap-2">
                           <span className="text-neutral-500 text-sm">No open positions</span>
@@ -908,9 +903,7 @@ export default function PositionsPage() {
                   {/* ── Open Orders Tab ────────────────────────────── */}
                   <div style={{ display: marketMode === 'paid' && tab === 'orders' ? undefined : 'none' }}>
                       {loadingOrders ? (
-                        <div className="flex items-center justify-center py-16">
-                          <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        </div>
+                        <MentionedSpinner className="py-16" />
                       ) : openOrders.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 gap-2">
                           <span className="text-neutral-500 text-sm">No open orders</span>
@@ -983,9 +976,7 @@ export default function PositionsPage() {
                   {/* ── History Tab ─────────────────────────────────── */}
                   <div style={{ display: marketMode === 'paid' && tab === 'history' ? undefined : 'none' }}>
                       {loadingHistory ? (
-                        <div className="flex items-center justify-center py-16">
-                          <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        </div>
+                        <MentionedSpinner className="py-16" />
                       ) : history.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 gap-2">
                           <span className="text-neutral-500 text-sm">No trade history yet</span>

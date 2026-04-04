@@ -6,9 +6,11 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
+import LoadingScreen from '@/components/LoadingScreen'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -426,7 +428,7 @@ function DiscordIcon({ className }: { className?: string }) {
 // ── Spinner ────────────────────────────────────────────────
 
 function Spinner() {
-  return <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+  return <MentionedSpinner className="" />
 }
 
 // ── Page ───────────────────────────────────────────────────
@@ -899,9 +901,7 @@ export default function ProfilePage() {
     </div>
   )
 
-  if (loading) return shell(
-    <div className="flex items-center justify-center py-32"><Spinner /></div>
-  )
+  if (loading) return <LoadingScreen />
 
   if (notFound || !profile) return shell(
     <div className="flex flex-col items-center justify-center py-32 gap-3">
@@ -1347,8 +1347,8 @@ export default function ProfilePage() {
                 {referralCode && (
                   <div className="hidden md:block mb-4 rounded-xl overflow-hidden border border-white/5 relative">
                     {/* Loading spinner — hidden once image loads */}
-                    <div id="og-spinner" className="flex items-center justify-center py-16 bg-black/50">
-                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    <div id="og-spinner" className="bg-black/50">
+                      <MentionedSpinner className="py-16" />
                     </div>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img

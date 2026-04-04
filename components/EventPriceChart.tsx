@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import MentionedSpinner from '@/components/MentionedSpinner'
 import {
   createChart,
   type IChartApi,
@@ -402,7 +403,7 @@ export default function EventPriceChart({
   if (loading) {
     return (
       <div className="w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
-        <div className="w-5 h-5 border-2 border-neutral-600 border-t-white rounded-full animate-spin" />
+        <MentionedSpinner className="" />
       </div>
     )
   }

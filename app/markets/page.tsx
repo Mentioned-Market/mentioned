@@ -7,6 +7,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import CustomEventCard from '@/components/CustomEventCard'
 import InfoTooltip from '@/components/InfoTooltip'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 interface Pricing {
   buyYesPriceUsd: number
@@ -302,8 +303,6 @@ export default function MarketsPage() {
     return () => { cancelled = true }
   }, [])
 
-  const loading = polyLoading && customLoading
-
   const activeEvents = events.filter(e => e.isActive)
   const liveEvents = activeEvents.filter(e => e.isLive)
   const upcomingEvents = activeEvents.filter(e => !e.isLive)
@@ -344,122 +343,85 @@ export default function MarketsPage() {
                 )}
               </div>
 
-              {/* Full loading state — only when both are still loading */}
-              {loading && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="rounded-2xl glass animate-pulse">
-                      <div className="h-[140px] bg-neutral-800 rounded-t-2xl" />
-                      <div className="p-4 space-y-3">
-                        <div className="h-4 bg-neutral-800 rounded w-3/4" />
-                        <div className="h-8 bg-neutral-800 rounded" />
-                        <div className="h-3 bg-neutral-800 rounded w-1/2" />
-                      </div>
+              <div className="space-y-8">
+
+                {/* Free Prediction Markets — always visible, skeleton while loading */}
+                {filter !== 'paid' && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
+                      <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
+                      <InfoTooltip>
+                        Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
+                      </InfoTooltip>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Error state */}
-              {error && !polyLoading && events.length === 0 && customMarkets.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20">
-                  <p className="text-apple-red text-sm font-medium mb-2">Failed to load markets</p>
-                  <p className="text-neutral-500 text-xs">{error}</p>
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="mt-4 px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-
-              {!loading && (
-                <div className="space-y-8 animate-fade-in">
-                  {/* Free markets */}
-                  {filter !== 'paid' && !customLoading && customMarkets.filter(m => showResolved || m.status !== 'resolved').length > 0 && (
-                    <section>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
-                        <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
-                        <InfoTooltip>
-                          Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
-                        </InfoTooltip>
-                      </div>
+                    {customLoading ? (
+                      <MentionedSpinner />
+                    ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {customMarkets.filter(m => showResolved || m.status !== 'resolved').map(market => (
                           <CustomEventCard key={`custom-${market.id}`} market={market} />
                         ))}
                       </div>
-                    </section>
-                  )}
+                    )}
+                  </section>
+                )}
 
-                  {/* Paid markets */}
-                  {filter !== 'free' && (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
-                        <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
-                      </div>
-
-                      {polyLoading && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {Array.from({ length: 3 }).map((_, i) => (
-                            <div key={i} className="rounded-2xl glass animate-pulse">
-                              <div className="h-[140px] bg-neutral-800 rounded-t-2xl" />
-                              <div className="p-4 space-y-3">
-                                <div className="h-4 bg-neutral-800 rounded w-3/4" />
-                                <div className="h-8 bg-neutral-800 rounded" />
-                                <div className="h-3 bg-neutral-800 rounded w-1/2" />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {!polyLoading && activeEvents.length > 0 && (
-                        <>
-                          {/* Live events */}
-                          {liveEvents.length > 0 && (
-                            <section>
-                              <div className="flex items-center gap-2 mb-4">
-                                <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                                <h2 className="text-white text-lg font-semibold">Live Now</h2>
-                              </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {liveEvents.map(event => (
-                                  <EventCard key={event.eventId} event={event} />
-                                ))}
-                              </div>
-                            </section>
-                          )}
-
-                          {/* Upcoming events */}
-                          {upcomingEvents.length > 0 && (
-                            <section>
-                              {liveEvents.length > 0 && (
-                                <h2 className="text-white text-lg font-semibold mb-4">Upcoming</h2>
-                              )}
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {upcomingEvents.map(event => (
-                                  <EventCard key={event.eventId} event={event} />
-                                ))}
-                              </div>
-                            </section>
-                          )}
-                        </>
-                      )}
-                    </>
-                  )}
-
-                  {/* Empty state */}
-                  {!polyLoading && !customLoading && activeEvents.length === 0 && customMarkets.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-20">
-                      <p className="text-neutral-400 text-sm">No markets available right now</p>
+                {/* Paid Prediction Markets — always visible, skeleton while loading */}
+                {filter !== 'free' && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
+                      <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
                     </div>
-                  )}
-                </div>
-              )}
+                    {polyLoading ? (
+                      <MentionedSpinner />
+                    ) : error ? (
+                      <div className="flex flex-col items-start gap-2 py-4">
+                        <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {liveEvents.length > 0 && (
+                          <div className="mb-6">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                              <h3 className="text-white text-base font-semibold">Live Now</h3>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {liveEvents.map(event => (
+                                <EventCard key={event.eventId} event={event} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {upcomingEvents.length > 0 && (
+                          <div>
+                            {liveEvents.length > 0 && (
+                              <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {upcomingEvents.map(event => (
+                                <EventCard key={event.eventId} event={event} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {activeEvents.length === 0 && (
+                          <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
+                        )}
+                      </>
+                    )}
+                  </section>
+                )}
+
+              </div>
             </main>
             <Footer />
           </div>

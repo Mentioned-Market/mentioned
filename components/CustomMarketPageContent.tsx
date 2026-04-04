@@ -7,6 +7,7 @@ import Footer from '@/components/Footer'
 import EventChat from '@/components/EventChat'
 import EventPriceChart from '@/components/EventPriceChart'
 import FlashValue from '@/components/FlashValue'
+import MarketTutorial from '@/components/MarketTutorial'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { getStatusLabel } from '@/lib/customMarketUtils'
@@ -124,7 +125,7 @@ function HowItWorks() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-neutral-900 border border-white/10 rounded-xl p-4 shadow-xl animate-scale-in">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-white">Free Prediction Market</span>
+              <span className="text-xs font-semibold text-white">How it works</span>
               <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white">
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -133,19 +134,16 @@ function HowItWorks() {
             </div>
             <div className="space-y-2 text-[11px] text-neutral-400 leading-relaxed">
               <p>
-                <span className="text-white font-medium">You start with play tokens</span> — virtual currency to practice trading. No real money involved.
+                <span className="text-white font-medium">Free to play.</span> You get play tokens to trade with. No real money.
               </p>
               <p>
-                <span className="text-white font-medium">Buy YES or NO shares</span> on words you think will (or won&apos;t) be mentioned. Prices move as people trade — buy early for better prices.
+                <span className="text-white font-medium">Pick YES or NO</span> on words you think will or won&apos;t be said. Prices shift as people trade.
               </p>
               <p>
-                <span className="text-white font-medium">When the market resolves</span>, correct shares pay out 1 token each. Wrong shares pay nothing.
+                <span className="text-white font-medium">Get it right, get paid.</span> Correct shares pay out 1 token each. Wrong shares pay nothing.
               </p>
               <p>
-                <span className="text-white font-medium">Your profit earns points</span> — every token of profit converts to 0.5 platform points. Unspent tokens don&apos;t count.
-              </p>
-              <p className="text-neutral-500">
-                This works exactly like the real mention markets on Mentioned, just with play tokens instead of SOL.
+                <span className="text-white font-medium">Profit becomes points.</span> Every token of profit earns 0.5 platform points toward the weekly leaderboard.
               </p>
             </div>
           </div>
@@ -157,9 +155,10 @@ function HowItWorks() {
 
 // ── Main Page ──────────────────────────────────────────
 
-export default function CustomMarketPageContent({ marketId }: { marketId: number }) {
+export default function CustomMarketPageContent({ marketId, onLoaded }: { marketId: number; onLoaded?: () => void }) {
   const { connected, connect, publicKey, discordLinked } = useWallet()
   const { showAchievementToast } = useAchievements()
+  const [contentVisible, setContentVisible] = useState(false)
 
   const [market, setMarket] = useState<CustomMarket | null>(null)
   const [words, setWords] = useState<MarketWord[]>([])
@@ -183,6 +182,24 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
 
   // Mobile trade sheet
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
+
+  const [showTutorial, setShowTutorial] = useState(false)
+  useEffect(() => {
+    // Fast path: localStorage cache means we definitely skip
+    if (localStorage.getItem('mentioned_free_tutorial_seen')) return
+    if (connected && publicKey) {
+      // Wallet connected — verify against DB
+      fetch(`/api/profile?wallet=${publicKey}`)
+        .then(r => r.json())
+        .then((data: { tutorialFlags?: Record<string, boolean> }) => {
+          if (!data.tutorialFlags?.free_market) setShowTutorial(true)
+        })
+        .catch(() => setShowTutorial(true))
+    } else {
+      // Guest — localStorage is the only source of truth
+      setShowTutorial(true)
+    }
+  }, [connected, publicKey])
 
   // ── Fetch data ──────────────────────────────────────
 
@@ -700,9 +717,9 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
       ) : (
         <button
           onClick={connect}
-          className="w-full py-3.5 bg-apple-green hover:bg-apple-green/90 text-white font-semibold text-base rounded-xl transition-all duration-200"
+          className="w-full py-3.5 bg-white hover:bg-neutral-100 text-black font-semibold text-base rounded-xl transition-all duration-200"
         >
-          Connect wallet to trade
+          Login to trade
         </button>
       )}
 
@@ -755,21 +772,17 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
 
   // ── Render ──────────────────────────────────────────
 
-  if (loading) {
-    return (
-      <div className="relative flex min-h-screen w-full flex-col bg-black">
-        <div className="flex h-full grow flex-col">
-          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
-            <div className="flex flex-col w-full max-w-7xl flex-1">
-              <Header />
-              <div className="flex items-center justify-center py-32">
-                <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
+  // Tell the parent overlay to fade out, then fade in our content
+  useEffect(() => {
+    if (!loading && market) {
+      onLoaded?.()
+      requestAnimationFrame(() => setContentVisible(true))
+    }
+  }, [loading, market, onLoaded])
+
+  // Return nothing while loading — parent overlay covers the page
+  if (loading || !market) {
+    if (error) { /* fall through to error render below */ } else return null
   }
 
   if (error || !market) {
@@ -793,7 +806,10 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
   }
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col bg-black">
+    <div
+      className="relative flex min-h-screen w-full flex-col bg-black"
+      style={{ opacity: contentVisible ? 1 : 0, transition: 'opacity 0.45s ease' }}
+    >
       <div className="flex h-full grow flex-col">
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="flex flex-col w-full max-w-7xl flex-1">
@@ -925,10 +941,10 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
                 {/* Left Column */}
                 <div className="flex-1 min-w-0">
                   {/* Words table */}
-                  <div className="mb-6">
+                  <div className="mb-6" data-tutorial="words-table">
                     <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
                       <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Word</span>
-                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1">Chance</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1" data-tutorial="chance-column">Chance</span>
                       <span className="text-xs md:text-sm text-neutral-400 font-medium text-right w-[180px] md:w-[240px]">Trade</span>
                     </div>
 
@@ -1045,7 +1061,7 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
                 {/* Right Column — Trading Panel (desktop) */}
                 <div className="w-[340px] flex-shrink-0 hidden lg:block">
                   <div className="sticky top-24">
-                    <div className="glass rounded-2xl p-5">
+                    <div className="glass rounded-2xl p-5" data-tutorial="trading-panel">
                       {tradingPanel}
                     </div>
 
@@ -1084,7 +1100,7 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
             </div>
           </>
         ) : (
-          <div className="bg-neutral-900/95 backdrop-blur-md border-t border-white/10 px-4 py-3 safe-pb">
+          <div className="bg-neutral-900/95 backdrop-blur-md border-t border-white/10 px-4 py-3 safe-pb" data-tutorial="trading-panel-mobile">
             <button
               onClick={() => setMobileTradeOpen(true)}
               className={`w-full py-3 font-semibold text-white rounded-xl transition-all ${
@@ -1096,6 +1112,21 @@ export default function CustomMarketPageContent({ marketId }: { marketId: number
           </div>
         )}
       </div>
+
+      {/* Tutorial overlay — shown after initial data load */}
+      {showTutorial && !loading && (
+        <MarketTutorial onClose={() => {
+          localStorage.setItem('mentioned_free_tutorial_seen', '1')
+          setShowTutorial(false)
+          if (connected && publicKey) {
+            fetch('/api/profile/tutorial', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ wallet: publicKey, flag: 'free_market' }),
+            }).catch(() => {})
+          }
+        }} />
+      )}
     </div>
   )
 }

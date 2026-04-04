@@ -250,14 +250,25 @@ export interface ProfileRow {
   pfp_emoji: string | null
   discord_id: string | null
   discord_username: string | null
+  tutorial_flags: Record<string, boolean>
 }
 
 export async function getProfile(wallet: string): Promise<ProfileRow | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, discord_id, discord_username FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, discord_id, discord_username, COALESCE(tutorial_flags, '{}') AS tutorial_flags FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
+}
+
+export async function setTutorialFlag(wallet: string, flag: string): Promise<void> {
+  await pool.query(
+    `UPDATE user_profiles
+     SET tutorial_flags = COALESCE(tutorial_flags, '{}') || jsonb_build_object($2::text, true),
+         updated_at = NOW()
+     WHERE wallet = $1`,
+    [wallet, flag],
+  )
 }
 
 export async function getProfileByUsername(username: string): Promise<(ProfileRow & { created_at: string }) | null> {

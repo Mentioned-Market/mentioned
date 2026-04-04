@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
+import MentionedSpinner from '@/components/MentionedSpinner'
 
 interface StreamEntry {
   eventId: string
@@ -106,7 +107,7 @@ export default function PolyAdminPage() {
             <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
               <Header />
               <main className="flex-1 flex items-center justify-center">
-                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <MentionedSpinner className="" />
               </main>
             </div>
           </div>
@@ -188,9 +189,7 @@ export default function PolyAdminPage() {
             </h2>
 
             {loading && (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-              </div>
+              <MentionedSpinner />
             )}
 
             {!loading && streams.length === 0 && (
