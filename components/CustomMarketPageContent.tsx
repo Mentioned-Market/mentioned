@@ -12,6 +12,7 @@ import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { getStatusLabel } from '@/lib/customMarketUtils'
 import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
+import MentionedSpinner from '@/components/MentionedSpinner'
 // Points multiplier — matches lib/customScoring.ts constant
 const VIRTUAL_MARKET_POINTS_MULTIPLIER = 0.5
 
