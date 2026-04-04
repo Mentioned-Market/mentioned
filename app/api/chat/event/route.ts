@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRecentEventChatMessages, insertEventChatMessage, getProfile, getChatPointsCountToday } from '@/lib/db'
+import { getRecentEventChatMessages, getEventChatMessagesBefore, insertEventChatMessage, getProfile, getChatPointsCountToday } from '@/lib/db'
 import { awardPoints, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { checkSlurs } from '@/lib/chatFilter'
@@ -15,6 +15,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'eventId required' }, { status: 400 })
   }
 
+  // Backward pagination: older messages before a given id
+  const beforeParam = req.nextUrl.searchParams.get('before')
+  if (beforeParam) {
+    const beforeId = parseInt(beforeParam, 10)
+    if (isNaN(beforeId) || beforeId < 0) {
+      return NextResponse.json({ error: 'Invalid before parameter' }, { status: 400 })
+    }
+    const result = await getEventChatMessagesBefore(eventId, beforeId, 50)
+    return NextResponse.json(result)
+  }
+
+  // Forward polling: new messages after a given id
   const afterId = req.nextUrl.searchParams.get('after')
   const messages = await getRecentEventChatMessages(
     eventId,
