@@ -230,7 +230,7 @@ export default function EventPriceChart({
       },
       timeScale: {
         borderVisible: false,
-        timeVisible: false,
+        timeVisible: true,
         secondsVisible: false,
         fixLeftEdge: true,
         fixRightEdge: true,
