@@ -178,6 +178,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
   // Trading state
   const [selectedWordId, setSelectedWordId] = useState<number | null>(null)
+  const [hoveredWordId, setHoveredWordId] = useState<number | null>(null)
   const [side, setSide] = useState<'YES' | 'NO'>('YES')
   const [tradeMode, setTradeMode] = useState<'buy' | 'sell'>('buy')
   const [amount, setAmount] = useState('')
@@ -927,6 +928,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     eventId={`custom_${marketId}`}
                     markets={chartMarkets}
                     selectedMarketId={selectedWordId ? String(selectedWordId) : null}
+                    hoveredMarketId={hoveredWordId ? String(hoveredWordId) : null}
                     preloadedSeries={chartSeriesForChart.length > 0 ? chartSeriesForChart : undefined}
                   />
                 </div>
@@ -959,6 +961,8 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                         <button
                           key={word.id}
                           onClick={() => handleWordClick(word.id)}
+                          onMouseEnter={() => setHoveredWordId(word.id)}
+                          onMouseLeave={() => setHoveredWordId(null)}
                           className={`w-full flex items-center justify-between px-3 md:px-4 py-3 md:py-4 border-b border-white/5 transition-all duration-200 hover:bg-white/[0.03] ${
                             isSelected ? 'bg-white/[0.05]' : ''
                           }`}

@@ -30,6 +30,7 @@ interface EventPriceChartProps {
   eventId: string
   markets: { marketId: string; title: string; currentPrice: number }[]
   selectedMarketId: string | null
+  hoveredMarketId?: string | null
   preloadedSeries?: { marketId: string; title: string; currentPrice: number; data: PricePoint[] }[]
 }
 
@@ -65,6 +66,7 @@ export default function EventPriceChart({
   eventId,
   markets,
   selectedMarketId,
+  hoveredMarketId,
   preloadedSeries,
 }: EventPriceChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null)
@@ -365,7 +367,7 @@ export default function EventPriceChart({
 
   useEffect(() => {
     if (!chartRef.current) return
-    const activeId = hoveredSeries || selectedMarketId
+    const activeId = hoveredSeries || hoveredMarketId || selectedMarketId
     const hasActive = !!activeId
 
     visibleSeries.forEach(s => {
@@ -396,7 +398,7 @@ export default function EventPriceChart({
         }
       }
     })
-  }, [hoveredSeries, selectedMarketId, visibleSeries, colorMap])
+  }, [hoveredSeries, hoveredMarketId, selectedMarketId, visibleSeries, colorMap])
 
   // ── Loading state ────────────────────────────────────────
 
