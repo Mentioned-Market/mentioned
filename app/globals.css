@@ -216,3 +216,15 @@ html {
     animation-range: 0 75vh;
   }
 }
+
+/* Pause the background market column animations once the hero bg has faded out */
+.bg-paused .bg-col-anim {
+  animation-play-state: paused !important;
+}
+
+/* Respect user's reduced-motion preference — stop the decorative scrolling bg entirely */
+@media (prefers-reduced-motion: reduce) {
+  .bg-col-anim {
+    animation: none !important;
+  }
+}
