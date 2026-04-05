@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import Header from '@/components/Header'
@@ -559,7 +559,7 @@ const BG_IMG_EXT: Record<string, string> = {
   'ufc-cage': 'png',
 }
 
-function FakeMarketCard({ market }: { market: FakeMarket }) {
+const FakeMarketCard = memo(function FakeMarketCard({ market }: { market: FakeMarket }) {
   const badgeClass =
     market.badge === 'LIVE' ? 'bg-apple-red/90' :
     market.badge === 'LOCKED' ? 'bg-orange-500/80' :
@@ -599,9 +599,9 @@ function FakeMarketCard({ market }: { market: FakeMarket }) {
       </div>
     </div>
   )
-}
+})
 
-function ScrollingColumn({ markets, direction, duration }: { markets: FakeMarket[]; direction: 'up' | 'down'; duration: number }) {
+const ScrollingColumn = memo(function ScrollingColumn({ markets, direction, duration }: { markets: FakeMarket[]; direction: 'up' | 'down'; duration: number }) {
   const copyRef = useRef<HTMLDivElement>(null)
   const [copyHeight, setCopyHeight] = useState(0)
 
@@ -625,6 +625,7 @@ function ScrollingColumn({ markets, direction, duration }: { markets: FakeMarket
       style={{
         animation: copyHeight ? `bg-scroll-${direction} ${duration}s linear infinite` : undefined,
         willChange: 'transform',
+        contain: 'layout paint',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ['--scroll-dist' as any]: `${distance}px`,
       }}
@@ -635,32 +636,49 @@ function ScrollingColumn({ markets, direction, duration }: { markets: FakeMarket
       <div className="flex flex-col gap-4" aria-hidden>
         {markets.map((m, i) => <FakeMarketCard key={`b${i}`} market={m} />)}
       </div>
+      <div className="flex flex-col gap-4" aria-hidden>
+        {markets.map((m, i) => <FakeMarketCard key={`c${i}`} market={m} />)}
+      </div>
     </div>
   )
-}
+})
 
-function HeroBackground() {
+const HeroBackground = memo(function HeroBackground() {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    // Prefer native CSS scroll-driven animation if supported.
+    if (typeof CSS !== 'undefined' && CSS.supports('animation-timeline: scroll()')) {
+      el.classList.add('hero-bg-scroll-fade')
+      return
+    }
+    // JS fallback: rAF loop while in fade zone.
     let rafId = 0
-    let ticking = false
-    const update = () => {
-      ticking = false
+    let running = true
+    const loop = () => {
+      if (!running) return
       const fade = window.innerHeight * 0.75
       const o = Math.max(0, 1 - window.scrollY / fade)
-      el.style.opacity = String(o)
+      el.style.opacity = o.toFixed(3)
+      if (o > 0) {
+        rafId = requestAnimationFrame(loop)
+      } else {
+        running = false
+      }
     }
-    const handler = () => {
-      if (ticking) return
-      ticking = true
-      rafId = requestAnimationFrame(update)
+    const resume = () => {
+      if (running) return
+      if (window.scrollY < window.innerHeight * 0.75) {
+        running = true
+        rafId = requestAnimationFrame(loop)
+      }
     }
-    update()
-    window.addEventListener('scroll', handler, { passive: true })
+    rafId = requestAnimationFrame(loop)
+    window.addEventListener('scroll', resume, { passive: true })
     return () => {
-      window.removeEventListener('scroll', handler)
+      running = false
+      window.removeEventListener('scroll', resume)
       cancelAnimationFrame(rafId)
     }
   }, [])
@@ -669,8 +687,8 @@ function HeroBackground() {
     <div
       ref={ref}
       aria-hidden
-      className="fixed left-0 right-0 bottom-0 top-[40px] pointer-events-none overflow-hidden z-0"
-      style={{ opacity: 1, willChange: 'opacity' }}
+      className="absolute inset-x-0 top-0 pointer-events-none overflow-hidden z-0"
+      style={{ height: '100vh' }}
     >
       <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 opacity-[0.5]">
         {BG_COLUMNS.map((col, i) => (
@@ -692,7 +710,7 @@ function HeroBackground() {
       />
     </div>
   )
-}
+})
 
 
 /* ═══════════════════════════════════════════════
@@ -744,7 +762,7 @@ export default function Home() {
       </div>
 
       {/* Hero */}
-      <section className="relative z-10 min-h-[85vh] flex flex-col items-center justify-center text-center px-4 md:px-10">
+      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center text-center px-4 md:px-10">
         <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
         <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
         <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
