@@ -249,6 +249,22 @@ export default function CustomAdminPage() {
     }
   }
 
+  async function handleSetFeatured(marketId: number, featured: boolean) {
+    if (!publicKey) return
+    try {
+      const res = await fetch(`/api/custom/${marketId}/featured`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featured }),
+      })
+      if (!res.ok) throw new Error('Failed to update featured status')
+      show(featured ? 'Market set as featured' : 'Featured status removed')
+      fetchMarkets()
+    } catch (err: any) {
+      show(err.message, 'error')
+    }
+  }
+
   async function handleDelete(marketId: number) {
     if (!publicKey || !confirm('Delete this market? This cannot be undone.')) return
     try {
@@ -461,6 +477,11 @@ export default function CustomAdminPage() {
                         <span className={`text-xs font-semibold ${getStatusColor(market.status)}`}>
                           {getStatusLabel(market.status)}
                         </span>
+                        {market.is_featured && (
+                          <span className="px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 text-[10px] font-bold uppercase tracking-wide">
+                            ★ Featured
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-xs text-neutral-500">
                         <span>{market.words.length} words</span>
@@ -626,6 +647,21 @@ export default function CustomAdminPage() {
                         <div>
                           <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Actions</h3>
                           <div className="flex flex-wrap gap-2">
+                            {market.is_featured ? (
+                              <button
+                                onClick={() => handleSetFeatured(market.id, false)}
+                                className="px-4 py-2 bg-yellow-500/20 text-yellow-400 text-xs font-semibold rounded-lg hover:bg-yellow-500/30 transition-colors"
+                              >
+                                ★ Unset Featured
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSetFeatured(market.id, true)}
+                                className="px-4 py-2 bg-yellow-500/10 text-yellow-500 text-xs font-semibold rounded-lg hover:bg-yellow-500/20 transition-colors"
+                              >
+                                ☆ Set as Featured
+                              </button>
+                            )}
                             {market.status === 'draft' && (
                               <button
                                 onClick={() => handleStatusChange(market.id, market.status, 'open')}

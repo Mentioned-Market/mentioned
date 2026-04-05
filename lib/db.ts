@@ -1094,6 +1094,7 @@ export interface CustomMarketRow {
   b_parameter: number
   play_tokens: number
   slug: string
+  is_featured: boolean
   created_at: string
   updated_at: string
 }
@@ -1244,6 +1245,33 @@ export async function lockCustomMarket(id: number): Promise<CustomMarketRow | nu
   )
   marketCache.delete(String(id))
   return result.rows[0] || null
+}
+
+/**
+ * Set one market as featured (and unset all others atomically).
+ * Passing featured=false just unsets the flag for this market.
+ */
+export async function setCustomMarketFeatured(id: number, featured: boolean): Promise<boolean> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    if (featured) {
+      // Clear any existing featured market first
+      await client.query(`UPDATE custom_markets SET is_featured = FALSE WHERE is_featured = TRUE`)
+    }
+    const result = await client.query(
+      `UPDATE custom_markets SET is_featured = $1, updated_at = NOW() WHERE id = $2`,
+      [featured, id],
+    )
+    await client.query('COMMIT')
+    marketCache.delete(String(id))
+    return (result.rowCount ?? 0) > 0
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 export async function getCustomMarket(id: number): Promise<CustomMarketRow | null> {
