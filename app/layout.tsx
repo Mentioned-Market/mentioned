@@ -58,8 +58,6 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: '/src/img/White Icon.svg',
-    shortcut: '/src/img/White Icon.svg',
     apple: '/src/img/White Icon.svg',
   },
   manifest: '/manifest.json',
@@ -149,6 +147,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <head>
+        {/* Light mode tabs: use black icon so it shows on white tab backgrounds */}
+        <link rel="icon" href="/src/img/Black Icon.svg" media="(prefers-color-scheme: light)" />
+        {/* Dark mode tabs: use white icon */}
+        <link rel="icon" href="/src/img/White Icon.svg" media="(prefers-color-scheme: dark)" />
         <link
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
           rel="stylesheet"
