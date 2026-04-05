@@ -549,17 +549,27 @@ const BG_COLUMNS: FakeMarket[][] = [
   [FAKE_MARKETS[4], FAKE_MARKETS[9], FAKE_MARKETS[14], FAKE_MARKETS[0], FAKE_MARKETS[11]],
 ]
 
+// Seeds with non-.jpg extensions on disk; everything else defaults to .jpg
+const BG_IMG_EXT: Record<string, string> = {
+  'ai-brain': 'jpeg',
+  'all-in-pod': 'png',
+  'bitcoin-crypto': 'jpeg',
+  'ceo-interview': 'jpeg',
+  'concert-lights': 'jpeg',
+  'ufc-cage': 'png',
+}
+
 function FakeMarketCard({ market }: { market: FakeMarket }) {
   const badgeClass =
     market.badge === 'LIVE' ? 'bg-apple-red/90' :
     market.badge === 'LOCKED' ? 'bg-orange-500/80' :
     'bg-apple-green/90'
-  const imgUrl = `https://picsum.photos/seed/${market.seed}/400/200`
+  const ext = BG_IMG_EXT[market.seed] ?? 'jpg'
+  const imgUrl = `/img/bg-markets/${market.seed}.${ext}`
   return (
     <div className="rounded-2xl glass overflow-hidden">
       <div className="h-[90px] bg-neutral-900 relative overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imgUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+        <Image src={imgUrl} alt="" fill sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw" className="object-cover" />
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40" />
         <div className="absolute top-2 left-2 flex gap-1">
           <span className={`px-2 py-0.5 rounded-full ${badgeClass} text-white text-[9px] font-bold uppercase tracking-wide backdrop-blur-sm`}>{market.badge}</span>
@@ -634,14 +644,25 @@ function HeroBackground() {
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const handler = () => {
+    let rafId = 0
+    let ticking = false
+    const update = () => {
+      ticking = false
       const fade = window.innerHeight * 0.75
       const o = Math.max(0, 1 - window.scrollY / fade)
       el.style.opacity = String(o)
     }
-    handler()
+    const handler = () => {
+      if (ticking) return
+      ticking = true
+      rafId = requestAnimationFrame(update)
+    }
+    update()
     window.addEventListener('scroll', handler, { passive: true })
-    return () => window.removeEventListener('scroll', handler)
+    return () => {
+      window.removeEventListener('scroll', handler)
+      cancelAnimationFrame(rafId)
+    }
   }, [])
 
   return (
@@ -649,7 +670,7 @@ function HeroBackground() {
       ref={ref}
       aria-hidden
       className="fixed left-0 right-0 bottom-0 top-[40px] pointer-events-none overflow-hidden z-0"
-      style={{ opacity: 1, transition: 'opacity 120ms linear' }}
+      style={{ opacity: 1, willChange: 'opacity' }}
     >
       <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 opacity-[0.5]">
         {BG_COLUMNS.map((col, i) => (
@@ -666,7 +687,7 @@ function HeroBackground() {
         className="absolute inset-0"
         style={{
           background:
-            'radial-gradient(ellipse 60% 55% at center, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.7) 35%, rgba(0,0,0,0.25) 65%, rgba(0,0,0,0) 100%)',
+            'radial-gradient(ellipse 77% 71% at center, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.8) 38%, rgba(0,0,0,0.3) 62%, rgba(0,0,0,0) 90%)',
         }}
       />
     </div>
