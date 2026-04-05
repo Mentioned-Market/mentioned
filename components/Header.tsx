@@ -4,6 +4,7 @@ import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import ConnectModal from '@/components/ConnectModal'
 import PrivyFundsModal from '@/components/PrivyFundsModal'
+import HowItWorksModal from '@/components/HowItWorksModal'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
@@ -13,6 +14,7 @@ export default function Header() {
   const { showAchievementToast } = useAchievements()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
   const [showFundsModal, setShowFundsModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -83,6 +85,17 @@ export default function Header() {
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
+          {/* How it works button — desktop only */}
+          <button
+            onClick={() => setShowHowItWorks(true)}
+            className="hidden md:flex items-center gap-1.5 h-8 md:h-9 px-3 md:px-4 rounded-lg text-sm font-medium text-neutral-400 hover:text-white hover:bg-white/10 transition-all duration-200 border border-transparent hover:border-white/10"
+          >
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            How it works
+          </button>
+
           {walletReady && connected && discordLinked === false && (
             <div className="relative" ref={discordTooltipRef}>
               <button
@@ -123,7 +136,12 @@ export default function Header() {
               >
                 {pfpEmoji && <span className="text-base">{pfpEmoji}</span>}
                 {username
-                  ? <span className="text-sm font-medium">{username}</span>
+                  ? (
+                    <>
+                      <span className="text-sm font-medium md:hidden">{username.length > 3 ? username.slice(0, 3) + '…' : username}</span>
+                      <span className="text-sm font-medium hidden md:inline">{username}</span>
+                    </>
+                  )
                   : <span className="font-mono text-xs">{formatAddress(publicKey)}</span>
                 }
                 <svg
@@ -205,6 +223,18 @@ export default function Header() {
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
                 <div className="border-t border-white/10"></div>
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false)
+                    setShowHowItWorks(true)
+                  }}
+                  className="w-full text-left px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200 flex items-center gap-2"
+                >
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className="shrink-0">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  How it works
+                </button>
                 {publicKey && (
                   <Link
                     href={username ? `/profile/${username}` : `/profile/${publicKey}`}
@@ -231,6 +261,7 @@ export default function Header() {
       </header>
       <ConnectModal />
       <PrivyFundsModal open={showFundsModal} onClose={() => setShowFundsModal(false)} />
+      <HowItWorksModal open={showHowItWorks} onClose={() => setShowHowItWorks(false)} />
     </>
   )
 }
