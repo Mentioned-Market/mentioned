@@ -188,7 +188,7 @@ export function AchievementProvider({ children }: { children: ReactNode }) {
       {current && (
         <div
           onClick={dismiss}
-          className={`fixed inset-0 z-[9999] flex items-end sm:items-center justify-center cursor-pointer pb-16 sm:pb-0 transition-opacity duration-300 ${
+          className={`fixed inset-0 z-[9999] flex items-center justify-center cursor-pointer transition-opacity duration-300 ${
             visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >

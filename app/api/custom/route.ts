@@ -80,5 +80,32 @@ export async function POST(req: NextRequest) {
     marketWords = await addCustomMarketWords(market.id, words)
   }
 
+  // Fire-and-forget: notify Discord new-markets channel
+  const webhookUrl = process.env.DISCORD_NEW_MARKET_WEBHOOK_URL
+  if (webhookUrl) {
+    const wordList = marketWords.length > 0
+      ? marketWords.map((w: { word: string }) => `\`${w.word}\``).join(', ')
+      : '_No words added yet_'
+    const marketUrl = `https://mentioned.market/custom/${market.slug}`
+    const embed = {
+      title: `🆕 New Market: ${market.title}`,
+      description: market.description ?? undefined,
+      url: marketUrl,
+      color: 0x007AFF,
+      fields: [
+        { name: 'Words', value: wordList, inline: false },
+        { name: 'Play Tokens', value: String(tokens), inline: true },
+        ...(market.lock_time ? [{ name: 'Locks At', value: new Date(market.lock_time).toUTCString(), inline: false }] : []),
+      ],
+      timestamp: new Date().toISOString(),
+    }
+    fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ embeds: [embed] }),
+    }).catch((err) => console.error('New market Discord notification failed:', err))
+  }
+
   return NextResponse.json({ market, words: marketWords }, { status: 201 })
 }
