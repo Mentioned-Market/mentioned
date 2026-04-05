@@ -552,11 +552,9 @@ const BG_COLUMNS: FakeMarket[][] = [
 // Seeds with non-.jpg extensions on disk; everything else defaults to .jpg
 const BG_IMG_EXT: Record<string, string> = {
   'ai-brain': 'jpeg',
-  'all-in-pod': 'png',
   'bitcoin-crypto': 'jpeg',
   'ceo-interview': 'jpeg',
   'concert-lights': 'jpeg',
-  'ufc-cage': 'png',
 }
 
 const FakeMarketCard = memo(function FakeMarketCard({ market }: { market: FakeMarket }) {
@@ -567,12 +565,21 @@ const FakeMarketCard = memo(function FakeMarketCard({ market }: { market: FakeMa
   const ext = BG_IMG_EXT[market.seed] ?? 'jpg'
   const imgUrl = `/img/bg-markets/${market.seed}.${ext}`
   return (
-    <div className="rounded-2xl glass overflow-hidden">
+    <div className="rounded-2xl overflow-hidden bg-white/[0.04] border border-white/10">
       <div className="h-[90px] bg-neutral-900 relative overflow-hidden">
-        <Image src={imgUrl} alt="" fill sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw" className="object-cover" />
+        <Image
+          src={imgUrl}
+          alt=""
+          fill
+          sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw"
+          className="object-cover"
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
+        />
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40" />
         <div className="absolute top-2 left-2 flex gap-1">
-          <span className={`px-2 py-0.5 rounded-full ${badgeClass} text-white text-[9px] font-bold uppercase tracking-wide backdrop-blur-sm`}>{market.badge}</span>
+          <span className={`px-2 py-0.5 rounded-full ${badgeClass} text-white text-[9px] font-bold uppercase tracking-wide`}>{market.badge}</span>
         </div>
         <div className="absolute top-2 right-2">
           <span className="text-base drop-shadow-md">{market.emoji}</span>
@@ -621,7 +628,7 @@ const ScrollingColumn = memo(function ScrollingColumn({ markets, direction, dura
 
   return (
     <div
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-4 bg-col-anim"
       style={{
         animation: copyHeight ? `bg-scroll-${direction} ${duration}s linear infinite` : undefined,
         willChange: 'transform',
@@ -648,10 +655,29 @@ const HeroBackground = memo(function HeroBackground() {
   useEffect(() => {
     const el = ref.current
     if (!el) return
+
+    // Toggle paused class when the bg has faded out or the tab is hidden, so
+    // column animations stop consuming compositor work while invisible.
+    let paused = false
+    const updatePaused = () => {
+      const shouldPause =
+        document.hidden || window.scrollY >= window.innerHeight * 0.75
+      if (shouldPause !== paused) {
+        paused = shouldPause
+        el.classList.toggle('bg-paused', paused)
+      }
+    }
+    window.addEventListener('scroll', updatePaused, { passive: true })
+    document.addEventListener('visibilitychange', updatePaused)
+    updatePaused()
+
     // Prefer native CSS scroll-driven animation if supported.
     if (typeof CSS !== 'undefined' && CSS.supports('animation-timeline: scroll()')) {
       el.classList.add('hero-bg-scroll-fade')
-      return
+      return () => {
+        window.removeEventListener('scroll', updatePaused)
+        document.removeEventListener('visibilitychange', updatePaused)
+      }
     }
     // JS fallback: rAF loop while in fade zone.
     let rafId = 0
@@ -679,6 +705,8 @@ const HeroBackground = memo(function HeroBackground() {
     return () => {
       running = false
       window.removeEventListener('scroll', resume)
+      window.removeEventListener('scroll', updatePaused)
+      document.removeEventListener('visibilitychange', updatePaused)
       cancelAnimationFrame(rafId)
     }
   }, [])
