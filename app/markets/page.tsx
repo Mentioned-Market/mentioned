@@ -9,6 +9,8 @@ import CustomEventCard from '@/components/CustomEventCard'
 import InfoTooltip from '@/components/InfoTooltip'
 import MentionedSpinner from '@/components/MentionedSpinner'
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
 interface Pricing {
   buyYesPriceUsd: number
   sellYesPriceUsd: number
@@ -46,6 +48,42 @@ interface PolyEvent {
   volumeUsd: string
 }
 
+interface CustomMarketSummary {
+  id: number
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  status: string
+  lock_time: string | null
+  slug: string
+  is_featured: boolean
+  word_count: number
+  trader_count: number
+  words_prices: { word_id: number; word: string; yes_price: number; no_price: number }[]
+}
+
+interface TopTrader {
+  wallet: string
+  username: string | null
+  pfpEmoji: string | null
+  weeklyPoints: number
+}
+
+interface TrendingWord {
+  word: string
+  market_title: string
+  slug: string
+  trade_count: number
+}
+
+interface SidebarData {
+  topTraders: TopTrader[]
+  trendingWords: TrendingWord[]
+  weekStart: string
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 const SUBCATEGORY_LABELS: Record<string, string> = {
   lol: 'League of Legends',
   val: 'Valorant',
@@ -68,21 +106,42 @@ function formatVolume(volumeUsd: string): string {
 
 function formatCloseTime(isoTime: string): string {
   const d = new Date(isoTime)
-  const now = new Date()
-  const diff = d.getTime() - now.getTime()
-
+  const diff = d.getTime() - Date.now()
   if (diff <= 0) return 'Closed'
-
   const hours = Math.floor(diff / (1000 * 60 * 60))
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-
   if (hours > 24) {
     const days = Math.floor(hours / 24)
     return `${days}d ${hours % 24}h`
   }
-
   return `${hours}h ${minutes}m`
 }
+
+function truncateWallet(w: string) {
+  return `${w.slice(0, 4)}...${w.slice(-4)}`
+}
+
+function getMsUntilNextMonday(): number {
+  const now = new Date()
+  const day = now.getUTCDay() // 0=Sun 1=Mon
+  const daysUntilMonday = day === 0 ? 1 : 8 - day
+  const nextMonday = new Date(now)
+  nextMonday.setUTCDate(now.getUTCDate() + daysUntilMonday)
+  nextMonday.setUTCHours(0, 0, 0, 0)
+  return nextMonday.getTime() - now.getTime()
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '0h 0m'
+  const totalSeconds = Math.floor(ms / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  return `${hours}h ${minutes}m`
+}
+
+// ── Subcomponents ──────────────────────────────────────────────────────────
 
 const VISIBLE_COUNT = 5
 
@@ -118,25 +177,14 @@ function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: s
       raf = requestAnimationFrame(step)
     }
 
-    pauseTimer = setTimeout(() => {
-      paused = false
-      raf = requestAnimationFrame(step)
-    }, 1500)
-
-    return () => {
-      cancelAnimationFrame(raf)
-      clearTimeout(pauseTimer)
-    }
+    pauseTimer = setTimeout(() => { paused = false; raf = requestAnimationFrame(step) }, 1500)
+    return () => { cancelAnimationFrame(raf); clearTimeout(pauseTimer) }
   }, [needsScroll, markets])
 
   const fixedHeight = VISIBLE_COUNT * 30 + (VISIBLE_COUNT - 1) * 6
 
   return (
-    <div
-      ref={outerRef}
-      className="overflow-hidden"
-      style={{ height: needsScroll ? fixedHeight : undefined }}
-    >
+    <div ref={outerRef} className="overflow-hidden" style={{ height: needsScroll ? fixedHeight : undefined }}>
       <div ref={innerRef} className="flex flex-col gap-1.5">
         {markets.map(m => {
           const noPriceRaw = 1_000_000 - (m.pricing.buyYesPriceUsd ?? 0)
@@ -159,15 +207,12 @@ function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: s
 
 function EventCard({ event }: { event: PolyEvent }) {
   const [imgError, setImgError] = useState(false)
-
   const teamMarkets = event.markets.filter(m => m.metadata.isTeamMarket)
   const hasTeams = teamMarkets.length === 2
-
   const team1 = hasTeams ? teamMarkets[0] : null
   const team2 = hasTeams ? teamMarkets[1] : null
   const team1Pct = team1 ? team1.pricing.buyYesPriceUsd / 10_000 : 50
   const team2Pct = team2 ? team2.pricing.buyYesPriceUsd / 10_000 : 50
-
   const eventUrl = `/polymarkets/event/${event.eventId}`
 
   return (
@@ -189,44 +234,29 @@ function EventCard({ event }: { event: PolyEvent }) {
         )}
         <div className="absolute top-3 left-3 flex items-center gap-2">
           {event.isLive && (
-            <span className="px-2 py-0.5 rounded-full bg-apple-red/90 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
-              Live
-            </span>
+            <span className="px-2 py-0.5 rounded-full bg-apple-red/90 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Live</span>
           )}
           <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-300 text-[10px] font-medium backdrop-blur-sm">
             {SUBCATEGORY_LABELS[event.subcategory] || event.subcategory}
           </span>
         </div>
       </Link>
-
       <div className="p-4 flex flex-col gap-3">
         <Link href={eventUrl}>
           <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem] hover:text-neutral-200 transition-colors">
             {event.metadata.title}
           </h3>
         </Link>
-
         {hasTeams && team1 && team2 ? (
           <Link href={eventUrl} className="flex flex-col gap-2">
             <div className="flex w-full h-8 rounded-lg overflow-hidden">
-              <div
-                className="flex items-center justify-center bg-apple-blue/80 transition-all duration-500"
-                style={{ width: `${team1Pct}%` }}
-              >
-                <span className="text-white text-[11px] font-bold truncate px-2">
-                  {team1Pct.toFixed(0)}%
-                </span>
+              <div className="flex items-center justify-center bg-apple-blue/80 transition-all duration-500" style={{ width: `${team1Pct}%` }}>
+                <span className="text-white text-[11px] font-bold truncate px-2">{team1Pct.toFixed(0)}%</span>
               </div>
-              <div
-                className="flex items-center justify-center bg-apple-red/80 transition-all duration-500"
-                style={{ width: `${team2Pct}%` }}
-              >
-                <span className="text-white text-[11px] font-bold truncate px-2">
-                  {team2Pct.toFixed(0)}%
-                </span>
+              <div className="flex items-center justify-center bg-apple-red/80 transition-all duration-500" style={{ width: `${team2Pct}%` }}>
+                <span className="text-white text-[11px] font-bold truncate px-2">{team2Pct.toFixed(0)}%</span>
               </div>
             </div>
-
             <div className="flex justify-between items-start gap-2">
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-white text-xs font-medium truncate">{team1.metadata.title}</span>
@@ -241,50 +271,206 @@ function EventCard({ event }: { event: PolyEvent }) {
         ) : (
           <ScrollingWordList markets={event.markets} eventId={event.eventId} />
         )}
-
         <Link href={eventUrl} className="flex items-center gap-2 pt-2 border-t border-white/5">
-          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-            {formatVolume(event.volumeUsd)} vol
-          </span>
-          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-            {formatCloseTime(event.metadata.closeTime)}
-          </span>
-          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-            {event.markets.length} words
-          </span>
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">{formatVolume(event.volumeUsd)} vol</span>
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">{formatCloseTime(event.metadata.closeTime)}</span>
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">{event.markets.length} words</span>
         </Link>
       </div>
     </div>
   )
 }
 
-interface CustomMarketSummary {
-  id: number
-  title: string
-  description: string | null
-  cover_image_url: string | null
-  status: string
-  lock_time: string | null
-  slug: string
-  word_count: number
-  trader_count: number
-  words_prices: { word_id: number; word: string; yes_price: number; no_price: number }[]
+// Featured market — large hero card for one free market
+function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
+  const [imgError, setImgError] = useState(false)
+  const url = `/free/${market.slug}`
+
+  const topWords = market.words_prices.slice(0, 4)
+
+  return (
+    <Link href={url} className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift mb-6">
+      <div className="relative overflow-hidden" style={{ height: '220px' }}>
+        {market.cover_image_url && !imgError ? (
+          <img
+            src={market.cover_image_url}
+            alt={market.title}
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-neutral-800 to-neutral-900 flex items-center justify-center">
+            <span className="text-neutral-500 text-4xl">🎯</span>
+          </div>
+        )}
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+        {/* Badges */}
+        <div className="absolute top-3 left-3 flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-full bg-apple-green/90 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Free</span>
+          {market.status === 'open' && (
+            <span className="px-2 py-0.5 rounded-full bg-green-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
+          )}
+          <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-medium backdrop-blur-sm">Featured</span>
+        </div>
+
+        {/* Title overlaid at bottom of image */}
+        <div className="absolute bottom-0 left-0 right-0 p-4">
+          <h2 className="text-white text-lg font-bold leading-snug line-clamp-2 drop-shadow">
+            {market.title}
+          </h2>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="text-neutral-300 text-xs">{market.trader_count} trader{market.trader_count !== 1 ? 's' : ''}</span>
+            <span className="text-neutral-500 text-xs">·</span>
+            <span className="text-neutral-300 text-xs">{market.word_count} words</span>
+            {market.lock_time && market.status === 'open' && (
+              <>
+                <span className="text-neutral-500 text-xs">·</span>
+                <span className="text-neutral-300 text-xs">Closes {formatCloseTime(market.lock_time)}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Word grid */}
+      {topWords.length > 0 && (
+        <div className="p-4 grid grid-cols-2 gap-2">
+          {topWords.map(w => {
+            const yesPct = Math.round(w.yes_price * 100)
+            const noPct = 100 - yesPct
+            return (
+              <div key={w.word_id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5">
+                <span className="text-white text-xs font-medium truncate flex-1">{w.word}</span>
+                <span className="text-apple-green text-[11px] font-semibold tabular-nums">{yesPct}c</span>
+                <span className="text-neutral-600 text-[10px]">/</span>
+                <span className="text-apple-red text-[11px] font-semibold tabular-nums">{noPct}c</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Link>
+  )
 }
 
-type MarketFilter = 'all' | 'paid' | 'free'
+// ── Sidebar Widgets ────────────────────────────────────────────────────────
+
+function WeekCycleBanner({ countdown }: { countdown: string }) {
+  return (
+    <div className="rounded-2xl glass p-4 mb-4">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="w-2 h-2 rounded-full bg-apple-green animate-pulse" />
+        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Week Cycle</span>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-neutral-400 text-xs mb-0.5">Resets in</p>
+          <p className="text-apple-green text-xl font-bold tabular-nums">{countdown}</p>
+        </div>
+        <Link
+          href="/leaderboard"
+          className="px-3 py-2 rounded-xl bg-apple-green/15 text-apple-green text-xs font-semibold hover:bg-apple-green/25 transition-colors whitespace-nowrap"
+        >
+          View Leaderboard
+        </Link>
+      </div>
+      <p className="text-neutral-500 text-[11px] mt-2">Top 5 this week share the USDC prize pool</p>
+    </div>
+  )
+}
+
+function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
+  if (words.length === 0) return null
+  return (
+    <div className="rounded-2xl glass overflow-hidden p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Trending Words</span>
+        <span className="text-neutral-600 text-[10px]">7d</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {words.map((w, i) => (
+          <Link
+            key={`${w.word}-${i}`}
+            href={`/free/${w.slug}`}
+            className="flex items-center gap-3 group"
+          >
+            <span className="text-neutral-600 text-xs font-bold w-4 text-right tabular-nums shrink-0">#{i + 1}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-xs font-semibold truncate group-hover:text-apple-green transition-colors">{w.word}</p>
+              <p className="text-neutral-500 text-[10px] truncate">{w.market_title}</p>
+            </div>
+            <span className="text-neutral-400 text-[10px] tabular-nums shrink-0">{w.trade_count} trades</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: boolean }) {
+  if (traders.length === 0) return null
+  const medalColors = ['text-yellow-400', 'text-neutral-300', 'text-orange-400', 'text-neutral-500', 'text-neutral-500']
+  const medals = ['🥇', '🥈', '🥉', null, null]
+
+  return (
+    <div className={`rounded-2xl glass p-4 ${grow ? 'flex-1' : 'mb-4'}`}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Top Traders</span>
+        <Link href="/leaderboard" className="text-apple-green text-[10px] font-medium hover:underline">
+          Full rankings
+        </Link>
+      </div>
+      <div className="flex flex-col gap-3">
+        {traders.map((t, i) => (
+          <Link
+            key={t.wallet}
+            href={`/profile/${t.username ?? t.wallet}`}
+            className="flex items-center gap-3 group"
+          >
+            <span className="text-sm w-5 text-center shrink-0">
+              {medals[i] ?? <span className={`text-xs font-bold tabular-nums ${medalColors[i]}`}>{i + 1}</span>}
+            </span>
+            <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-sm shrink-0">
+              {t.pfpEmoji ?? '👤'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-xs font-semibold truncate group-hover:text-apple-green transition-colors">
+                {t.username ? `@${t.username}` : truncateWallet(t.wallet)}
+              </p>
+            </div>
+            <span className="text-apple-green text-xs font-bold tabular-nums shrink-0">
+              +{t.weeklyPoints.toLocaleString()} pts
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function MarketsPage() {
   const [events, setEvents] = useState<PolyEvent[]>([])
   const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
+  const [sidebarData, setSidebarData] = useState<SidebarData | null>(null)
   const [polyLoading, setPolyLoading] = useState(false)
   const [customLoading, setCustomLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<MarketFilter>('all')
-  const [showResolved, setShowResolved] = useState(false)
-  const [paidExpanded, setPaidExpanded] = useState(false)
+  const [countdown, setCountdown] = useState('')
   const polyFetchedRef = useRef(false)
 
-  // Fetch free markets on mount
+  // Live countdown
+  useEffect(() => {
+    const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
+    tick()
+    const id = setInterval(tick, 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Fetch free markets
   useEffect(() => {
     let cancelled = false
     fetch('/api/custom')
@@ -295,24 +481,32 @@ export default function MarketsPage() {
     return () => { cancelled = true }
   }, [])
 
-  // Fetch paid markets only when requested
-  const fetchPaidMarkets = () => {
+  // Fetch sidebar data
+  useEffect(() => {
+    fetch('/api/markets/sidebar')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setSidebarData(data) })
+      .catch(() => {})
+  }, [])
+
+  // Fetch paid markets on mount
+  useEffect(() => {
     if (polyFetchedRef.current) return
     polyFetchedRef.current = true
     setPolyLoading(true)
     fetch('/api/polymarket?category=mentions')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch events')
-        return res.json()
-      })
+      .then(res => { if (!res.ok) throw new Error('Failed to fetch events'); return res.json() })
       .then(data => setEvents(data.data || []))
       .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
       .finally(() => setPolyLoading(false))
-  }
+  }, [])
 
   const activeEvents = events.filter(e => e.isActive)
   const liveEvents = activeEvents.filter(e => e.isLive)
   const upcomingEvents = activeEvents.filter(e => !e.isLive)
+
+  const featuredMarket = customMarkets.find(m => m.is_featured) ?? null
+  const remainingMarkets = customMarkets.filter(m => featuredMarket ? m.id !== featuredMarket.id : true)
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -321,153 +515,124 @@ export default function MarketsPage() {
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
             <main className="flex-1 pt-6 pb-4">
-              {/* Filter tabs */}
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-1">
-                  {(['all', 'paid', 'free'] as const).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => {
-                        setFilter(f)
-                        if (f === 'paid') fetchPaidMarkets()
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        filter === f
-                          ? 'bg-white/10 text-white'
-                          : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
-                      }`}
-                    >
-                      {f === 'all' ? 'All' : f === 'paid' ? 'Paid' : 'Free'}
-                    </button>
-                  ))}
-                </div>
-                {filter !== 'paid' && (
-                  <button
-                    onClick={() => setShowResolved(v => !v)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                      showResolved ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
-                    }`}
-                  >
-                    {showResolved ? 'Hide Resolved' : 'Show Resolved'}
-                  </button>
-                )}
+
+              {/* Free section heading — full width, above the two-column layout */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
+                <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
+                <InfoTooltip>
+                  Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
+                </InfoTooltip>
               </div>
 
-              <div className="space-y-8">
+              {/* Free markets + sidebar — two columns, sidebar ends with free markets */}
+              <div className="flex gap-6 items-stretch mb-8">
 
-                {/* Free Prediction Markets — always visible, skeleton while loading */}
-                {filter !== 'paid' && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
-                      <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
-                      <InfoTooltip>
-                        Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
-                      </InfoTooltip>
-                    </div>
-                    {customLoading ? (
-                      <MentionedSpinner />
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {customMarkets.filter(m => showResolved || m.status !== 'resolved').map(market => (
-                          <CustomEventCard key={`custom-${market.id}`} market={market} />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-
-                {/* Paid Prediction Markets — collapsible on All tab, always shown on Paid tab */}
-                {filter !== 'free' && (
-                  <section>
-                    {filter === 'all' ? (
-                      <button
-                        onClick={() => {
-                          const next = !paidExpanded
-                          setPaidExpanded(next)
-                          if (next) fetchPaidMarkets()
-                        }}
-                        className="flex items-center gap-2 w-full mb-4 group"
-                      >
-                        <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase shrink-0">Paid</span>
-                        <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
-                        <div className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors ${paidExpanded ? 'bg-white/10' : 'bg-apple-blue/20'}`}>
-                          <svg
-                            className={`w-3.5 h-3.5 transition-transform duration-200 ${paidExpanded ? 'rotate-180 text-neutral-400' : 'text-apple-blue'}`}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2.5}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                          </svg>
+                {/* Free markets */}
+                <div className="flex-1 min-w-0">
+                  {customLoading ? (
+                    <MentionedSpinner />
+                  ) : (
+                    <>
+                      {featuredMarket && <FeaturedMarket market={featuredMarket} />}
+                      {remainingMarkets.filter(m => m.status !== 'resolved').length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                          {remainingMarkets
+                            .filter(m => m.status !== 'resolved')
+                            .map(market => (
+                              <CustomEventCard key={`custom-${market.id}`} market={market} />
+                            ))}
                         </div>
-                        {!paidExpanded && (
-                          <span className="text-neutral-500 text-xs group-hover:text-neutral-300 transition-colors">View paid markets</span>
-                        )}
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
-                        <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
-                      </div>
-                    )}
-                    {(filter === 'paid' || paidExpanded) && (
-                      <div>
-                        {polyLoading ? (
-                          <MentionedSpinner />
-                        ) : error ? (
-                          <div className="flex flex-col items-start gap-2 py-4">
-                            <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
-                            <button
-                              onClick={() => {
-                                polyFetchedRef.current = false
-                                setError(null)
-                                fetchPaidMarkets()
-                              }}
-                              className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
-                            >
-                              Retry
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            {liveEvents.length > 0 && (
-                              <div className="mb-6">
-                                <div className="flex items-center gap-2 mb-4">
-                                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                                  <h3 className="text-white text-base font-semibold">Live Now</h3>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                  {liveEvents.map(event => (
-                                    <EventCard key={event.eventId} event={event} />
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {upcomingEvents.length > 0 && (
-                              <div>
-                                {liveEvents.length > 0 && (
-                                  <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>
-                                )}
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                  {upcomingEvents.map(event => (
-                                    <EventCard key={event.eventId} event={event} />
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {activeEvents.length === 0 && (
-                              <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </section>
-                )}
+                      )}
+                      {customMarkets.filter(m => m.status !== 'resolved').length === 0 && (
+                        <p className="text-neutral-500 text-sm py-4">No free markets available right now</p>
+                      )}
+                    </>
+                  )}
+                </div>
 
+                {/* Sidebar — stretches to match free markets height only */}
+                <aside className="hidden lg:flex lg:flex-col w-72 shrink-0">
+                  <WeekCycleBanner countdown={countdown} />
+                  {sidebarData ? (
+                    <>
+                      <TrendingWordsWidget words={sidebarData.trendingWords} />
+                      <TopTradersWidget traders={sidebarData.topTraders} grow />
+                    </>
+                  ) : (
+                    <div className="rounded-2xl glass flex-1 flex items-center justify-center">
+                      <MentionedSpinner />
+                    </div>
+                  )}
+                </aside>
               </div>
+
+              {/* Paid Markets — full width below */}
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
+                  <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
+                </div>
+                {polyLoading ? (
+                  <MentionedSpinner />
+                ) : error ? (
+                  <div className="flex flex-col items-start gap-2 py-4">
+                    <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
+                    <button
+                      onClick={() => {
+                        polyFetchedRef.current = false
+                        setError(null)
+                        setPolyLoading(true)
+                        fetch('/api/polymarket?category=mentions')
+                          .then(res => { if (!res.ok) throw new Error('Failed'); return res.json() })
+                          .then(data => setEvents(data.data || []))
+                          .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
+                          .finally(() => setPolyLoading(false))
+                      }}
+                      className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {liveEvents.length > 0 && (
+                      <div className="mb-6">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                          <h3 className="text-white text-base font-semibold">Live Now</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {liveEvents.map(event => <EventCard key={event.eventId} event={event} />)}
+                        </div>
+                      </div>
+                    )}
+                    {upcomingEvents.length > 0 && (
+                      <div>
+                        {liveEvents.length > 0 && <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {upcomingEvents.map(event => <EventCard key={event.eventId} event={event} />)}
+                        </div>
+                      </div>
+                    )}
+                    {activeEvents.length === 0 && !polyLoading && (
+                      <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
+                    )}
+                  </>
+                )}
+              </section>
+
+              {/* Mobile sidebar widgets — stacked below main content */}
+              <div className="lg:hidden mt-8 space-y-4">
+                <WeekCycleBanner countdown={countdown} />
+                {sidebarData && (
+                  <>
+                    <TrendingWordsWidget words={sidebarData.trendingWords} />
+                    <TopTradersWidget traders={sidebarData.topTraders} />
+                  </>
+                )}
+              </div>
+
             </main>
             <Footer />
           </div>
