@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { getWeekStart } from '@/lib/points'
 
+export const dynamic = 'force-dynamic'
+
 // 5-minute cache — sidebar data doesn't need to be real-time
 let cachedData: unknown = null
 let cacheExpires = 0
