@@ -505,6 +505,176 @@ function MockPointsBreakdown() {
 
 
 /* ═══════════════════════════════════════════════
+   BACKGROUND: scrolling columns of fake markets
+   ═══════════════════════════════════════════════ */
+interface FakeMarket {
+  title: string
+  emoji: string
+  seed: string
+  badge: 'LIVE' | 'FREE' | 'LOCKED'
+  words: { word: string; yes: number }[]
+  traders: number
+  duration: string
+}
+
+const FAKE_MARKETS: FakeMarket[] = [
+  { title: 'Joe Rogan #2210: Elon Musk', emoji: '🎙️', seed: 'podcast-mic', badge: 'LIVE', traders: 847, duration: '2h 14m', words: [{ word: 'Mars', yes: 0.72 }, { word: 'simulation', yes: 0.58 }, { word: 'Neuralink', yes: 0.81 }, { word: 'aliens', yes: 0.31 }] },
+  { title: 'VCT Masters: Grand Final', emoji: '🎮', seed: 'esports-arena', badge: 'LIVE', traders: 1240, duration: '4h 02m', words: [{ word: 'clutch', yes: 0.67 }, { word: 'ace', yes: 0.29 }, { word: 'GG', yes: 0.91 }, { word: 'nerf', yes: 0.22 }] },
+  { title: 'Super Bowl LX: Chiefs vs Niners', emoji: '🏈', seed: 'football-stadium', badge: 'LIVE', traders: 3412, duration: '3h 45m', words: [{ word: 'touchdown', yes: 0.88 }, { word: 'penalty', yes: 0.74 }, { word: 'overtime', yes: 0.19 }, { word: 'fumble', yes: 0.41 }] },
+  { title: 'Fed Rate Decision: Powell Speaks', emoji: '💰', seed: 'federal-reserve', badge: 'LOCKED', traders: 612, duration: '1h 30m', words: [{ word: 'inflation', yes: 0.82 }, { word: 'recession', yes: 0.37 }, { word: 'cut', yes: 0.54 }, { word: 'hawkish', yes: 0.46 }] },
+  { title: 'Taylor Swift: Eras Tour Finale', emoji: '🎤', seed: 'concert-lights', badge: 'LIVE', traders: 2087, duration: '3h 20m', words: [{ word: 'encore', yes: 0.94 }, { word: 'engaged', yes: 0.23 }, { word: 'surprise', yes: 0.78 }, { word: 'cried', yes: 0.51 }] },
+  { title: 'Presidential Debate Night', emoji: '🗣️', seed: 'debate-podium', badge: 'LIVE', traders: 4521, duration: '2h 00m', words: [{ word: 'tariffs', yes: 0.69 }, { word: 'border', yes: 0.85 }, { word: 'China', yes: 0.72 }, { word: 'economy', yes: 0.91 }] },
+  { title: 'Oscars 2026 Ceremony', emoji: '🎬', seed: 'oscars-stage', badge: 'FREE', traders: 958, duration: '3h 30m', words: [{ word: 'historic', yes: 0.55 }, { word: 'overdue', yes: 0.48 }, { word: 'Nolan', yes: 0.27 }, { word: 'speechless', yes: 0.33 }] },
+  { title: 'League Worlds: Semifinals', emoji: '⚔️', seed: 'league-worlds', badge: 'LIVE', traders: 1876, duration: '2h 50m', words: [{ word: 'pentakill', yes: 0.15 }, { word: 'baron', yes: 0.82 }, { word: 'throw', yes: 0.44 }, { word: 'comeback', yes: 0.38 }] },
+  { title: 'Lex Fridman: OpenAI CEO', emoji: '🧠', seed: 'ai-brain', badge: 'LIVE', traders: 743, duration: '2h 45m', words: [{ word: 'AGI', yes: 0.71 }, { word: 'consciousness', yes: 0.62 }, { word: 'love', yes: 0.88 }, { word: 'existential', yes: 0.56 }] },
+  { title: 'H3 Podcast: Live Episode', emoji: '🎙️', seed: 'h3-studio', badge: 'LIVE', traders: 521, duration: '3h 00m', words: [{ word: 'lawsuit', yes: 0.42 }, { word: 'sponsor', yes: 0.79 }, { word: 'beef', yes: 0.66 }, { word: 'apology', yes: 0.31 }] },
+  { title: 'UFC 310: Title Fight', emoji: '🥊', seed: 'ufc-cage', badge: 'LIVE', traders: 2193, duration: '4h 00m', words: [{ word: 'knockout', yes: 0.58 }, { word: 'submission', yes: 0.34 }, { word: 'decision', yes: 0.41 }, { word: 'rematch', yes: 0.29 }] },
+  { title: 'Apple WWDC Keynote', emoji: '💻', seed: 'apple-keynote', badge: 'LOCKED', traders: 1402, duration: '2h 00m', words: [{ word: 'AI', yes: 0.96 }, { word: 'Vision', yes: 0.71 }, { word: 'iPhone', yes: 0.89 }, { word: 'one more thing', yes: 0.28 }] },
+  { title: 'NBA Finals Game 7', emoji: '🏀', seed: 'nba-court', badge: 'LIVE', traders: 3102, duration: '3h 15m', words: [{ word: 'overtime', yes: 0.37 }, { word: 'clutch', yes: 0.81 }, { word: 'triple-double', yes: 0.44 }, { word: 'ring', yes: 0.92 }] },
+  { title: 'Tesla Earnings Call', emoji: '📱', seed: 'tesla-factory', badge: 'LOCKED', traders: 687, duration: '1h 15m', words: [{ word: 'robotaxi', yes: 0.73 }, { word: 'delayed', yes: 0.68 }, { word: 'delivery', yes: 0.85 }, { word: 'FSD', yes: 0.77 }] },
+  { title: 'Twitch Rivals: Fortnite', emoji: '🎮', seed: 'twitch-gaming', badge: 'LIVE', traders: 892, duration: '4h 30m', words: [{ word: 'victory royale', yes: 0.62 }, { word: 'banned', yes: 0.18 }, { word: 'teamkill', yes: 0.39 }, { word: 'cracked', yes: 0.74 }] },
+  { title: 'Diary of a CEO: Tell All', emoji: '🎧', seed: 'ceo-interview', badge: 'LIVE', traders: 438, duration: '2h 10m', words: [{ word: 'breakdown', yes: 0.52 }, { word: 'divorce', yes: 0.31 }, { word: 'billion', yes: 0.67 }, { word: 'failure', yes: 0.83 }] },
+  { title: 'F1 Monaco Grand Prix', emoji: '🏎️', seed: 'f1-monaco', badge: 'LIVE', traders: 1654, duration: '2h 30m', words: [{ word: 'crash', yes: 0.58 }, { word: 'safety car', yes: 0.72 }, { word: 'podium', yes: 0.91 }, { word: 'pit stop', yes: 0.99 }] },
+  { title: 'SNL Cold Open', emoji: '🎤', seed: 'snl-studio', badge: 'LIVE', traders: 721, duration: '1h 30m', words: [{ word: 'Trump', yes: 0.79 }, { word: 'cringe', yes: 0.46 }, { word: 'applause', yes: 0.88 }, { word: 'politics', yes: 0.94 }] },
+  { title: 'All-In Podcast Live', emoji: '🎙️', seed: 'all-in-pod', badge: 'LIVE', traders: 963, duration: '2h 00m', words: [{ word: 'besties', yes: 0.92 }, { word: 'Sacks', yes: 0.68 }, { word: 'unbelievable', yes: 0.77 }, { word: 'tequila', yes: 0.41 }] },
+  { title: 'Crypto: Bitcoin Halving', emoji: '₿', seed: 'bitcoin-crypto', badge: 'LOCKED', traders: 1834, duration: '6h 00m', words: [{ word: 'bullish', yes: 0.81 }, { word: 'crash', yes: 0.24 }, { word: 'ETF', yes: 0.69 }, { word: 'moon', yes: 0.58 }] },
+]
+
+// Distribute markets across 5 columns with varied counts so they don't sync.
+const BG_COLUMNS: FakeMarket[][] = [
+  [FAKE_MARKETS[0], FAKE_MARKETS[5], FAKE_MARKETS[10], FAKE_MARKETS[15]],
+  [FAKE_MARKETS[1], FAKE_MARKETS[6], FAKE_MARKETS[11], FAKE_MARKETS[16], FAKE_MARKETS[19]],
+  [FAKE_MARKETS[2], FAKE_MARKETS[7], FAKE_MARKETS[12], FAKE_MARKETS[17]],
+  [FAKE_MARKETS[3], FAKE_MARKETS[8], FAKE_MARKETS[13], FAKE_MARKETS[18]],
+  [FAKE_MARKETS[4], FAKE_MARKETS[9], FAKE_MARKETS[14], FAKE_MARKETS[0], FAKE_MARKETS[11]],
+]
+
+function FakeMarketCard({ market }: { market: FakeMarket }) {
+  const badgeClass =
+    market.badge === 'LIVE' ? 'bg-apple-red/90' :
+    market.badge === 'LOCKED' ? 'bg-orange-500/80' :
+    'bg-apple-green/90'
+  const imgUrl = `https://picsum.photos/seed/${market.seed}/400/200`
+  return (
+    <div className="rounded-2xl glass overflow-hidden">
+      <div className="h-[90px] bg-neutral-900 relative overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={imgUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40" />
+        <div className="absolute top-2 left-2 flex gap-1">
+          <span className={`px-2 py-0.5 rounded-full ${badgeClass} text-white text-[9px] font-bold uppercase tracking-wide backdrop-blur-sm`}>{market.badge}</span>
+        </div>
+        <div className="absolute top-2 right-2">
+          <span className="text-base drop-shadow-md">{market.emoji}</span>
+        </div>
+      </div>
+      <div className="p-3 flex flex-col gap-2">
+        <h3 className="text-white text-xs font-semibold leading-tight line-clamp-2 h-[2.2rem]">{market.title}</h3>
+        <div className="flex flex-col gap-1">
+          {market.words.map(w => {
+            const yesPct = Math.round(w.yes * 100)
+            return (
+              <div key={w.word} className="flex items-center gap-2 h-[22px] px-2 rounded-lg bg-white/5">
+                <span className="text-white text-[10px] font-medium truncate flex-1">{w.word}</span>
+                <span className="text-apple-green text-[10px] font-semibold tabular-nums w-7 text-right">{yesPct}c</span>
+                <span className="text-apple-red text-[10px] font-semibold tabular-nums w-7 text-right">{100 - yesPct}c</span>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-1.5 pt-2 border-t border-white/5">
+          <span className="px-1.5 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[9px] font-medium">{market.traders} traders</span>
+          <span className="px-1.5 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[9px] font-medium">{market.duration}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ScrollingColumn({ markets, direction, duration }: { markets: FakeMarket[]; direction: 'up' | 'down'; duration: number }) {
+  const copyRef = useRef<HTMLDivElement>(null)
+  const [copyHeight, setCopyHeight] = useState(0)
+
+  useEffect(() => {
+    if (!copyRef.current) return
+    const update = () => {
+      if (copyRef.current) setCopyHeight(copyRef.current.offsetHeight)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(copyRef.current)
+    return () => ro.disconnect()
+  }, [])
+
+  // Distance to translate so copy2 lands exactly where copy1 started (including the gap).
+  const distance = copyHeight + 16 // gap-4 = 16px between the two copies
+
+  return (
+    <div
+      className="flex flex-col gap-4"
+      style={{
+        animation: copyHeight ? `bg-scroll-${direction} ${duration}s linear infinite` : undefined,
+        willChange: 'transform',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ['--scroll-dist' as any]: `${distance}px`,
+      }}
+    >
+      <div ref={copyRef} className="flex flex-col gap-4">
+        {markets.map((m, i) => <FakeMarketCard key={`a${i}`} market={m} />)}
+      </div>
+      <div className="flex flex-col gap-4" aria-hidden>
+        {markets.map((m, i) => <FakeMarketCard key={`b${i}`} market={m} />)}
+      </div>
+    </div>
+  )
+}
+
+function HeroBackground() {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const handler = () => {
+      const fade = window.innerHeight * 0.75
+      const o = Math.max(0, 1 - window.scrollY / fade)
+      el.style.opacity = String(o)
+    }
+    handler()
+    window.addEventListener('scroll', handler, { passive: true })
+    return () => window.removeEventListener('scroll', handler)
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="fixed left-0 right-0 bottom-0 top-[40px] pointer-events-none overflow-hidden z-0"
+      style={{ opacity: 1, transition: 'opacity 120ms linear' }}
+    >
+      <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 opacity-[0.5]">
+        {BG_COLUMNS.map((col, i) => (
+          <ScrollingColumn
+            key={i}
+            markets={col}
+            direction={i % 2 === 0 ? 'up' : 'down'}
+            duration={70 + i * 9}
+          />
+        ))}
+      </div>
+      {/* Center darken mask so hero text stays readable */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 60% 55% at center, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.7) 35%, rgba(0,0,0,0.25) 65%, rgba(0,0,0,0) 100%)',
+        }}
+      />
+    </div>
+  )
+}
+
+
+/* ═══════════════════════════════════════════════
    SLIDE DEFINITIONS
    ═══════════════════════════════════════════════ */
 const SLIDES = [
@@ -544,13 +714,16 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen w-full bg-black" style={{ overflowX: 'clip' }}>
+      {/* Scrolling market previews behind hero (fades out on scroll) */}
+      <HeroBackground />
+
       {/* Header */}
       <div className="relative z-50 px-4 md:px-10 lg:px-20 flex justify-center">
         <div className="w-full max-w-7xl"><Header /></div>
       </div>
 
       {/* Hero */}
-      <section className="min-h-[85vh] flex flex-col items-center justify-center text-center px-4 md:px-10">
+      <section className="relative z-10 min-h-[85vh] flex flex-col items-center justify-center text-center px-4 md:px-10">
         <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
         <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
         <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
@@ -565,7 +738,7 @@ export default function Home() {
       </section>
 
       {/* Auto-playing slideshow */}
-      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '100vh', marginTop: '-15vh' }}>
+      <section ref={slideshowRef} className="relative z-10 overflow-hidden bg-black" style={{ height: '100vh', marginTop: '-15vh' }}>
         {SLIDES.map((slide, i) => {
           const isActive = activeSlide === i
           return (
@@ -703,6 +876,14 @@ export default function Home() {
         .stagger-1 { transition-delay: 0.12s; }
         .stagger-2 { transition-delay: 0.24s; }
         .stagger-3 { transition-delay: 0.36s; }
+        @keyframes bg-scroll-up {
+          from { transform: translate3d(0, 0, 0); }
+          to { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
+        }
+        @keyframes bg-scroll-down {
+          from { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
+          to { transform: translate3d(0, 0, 0); }
+        }
       `}</style>
     </div>
   )
