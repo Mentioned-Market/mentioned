@@ -1095,6 +1095,8 @@ export interface CustomMarketRow {
   play_tokens: number
   slug: string
   is_featured: boolean
+  market_type: string
+  event_start_time: string | null
   created_at: string
   updated_at: string
 }
@@ -1167,22 +1169,24 @@ export async function createCustomMarket(
   bParameter: number,
   playTokens: number,
   urlPrefix: string,
+  marketType: string = 'continuous',
+  eventStartTime: string | null = null,
 ): Promise<CustomMarketRow> {
   const slug = generateSlug(urlPrefix)
   const result = await pool.query(
-    `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, lock_time, b_parameter, play_tokens, slug)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, lock_time, b_parameter, play_tokens, slug, market_type, event_start_time)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
-    [title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, slug],
+    [title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, slug, marketType, eventStartTime],
   )
   return result.rows[0]
 }
 
-const UPDATABLE_MARKET_FIELDS = ['title', 'description', 'cover_image_url', 'stream_url', 'lock_time'] as const
+const UPDATABLE_MARKET_FIELDS = ['title', 'description', 'cover_image_url', 'stream_url', 'lock_time', 'market_type', 'event_start_time'] as const
 
 export async function updateCustomMarket(
   id: number,
-  fields: Partial<Pick<CustomMarketRow, 'title' | 'description' | 'cover_image_url' | 'stream_url' | 'lock_time'>>,
+  fields: Partial<Pick<CustomMarketRow, 'title' | 'description' | 'cover_image_url' | 'stream_url' | 'lock_time' | 'market_type' | 'event_start_time'>>,
 ): Promise<CustomMarketRow | null> {
   const setClauses: string[] = []
   const values: (string | number | null)[] = []

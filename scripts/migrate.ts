@@ -340,6 +340,10 @@ CREATE INDEX IF NOT EXISTS idx_user_visit_logs_wallet_week ON user_visit_logs(wa
 
 -- Featured market flag (only one market should be featured at a time)
 ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Market type: 'continuous' (always live when open) or 'event' (live only after event_start_time)
+ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS market_type TEXT NOT NULL DEFAULT 'continuous';
+ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS event_start_time TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_custom_markets_featured ON custom_markets(is_featured) WHERE is_featured = TRUE;
 
 -- Admin audit log
