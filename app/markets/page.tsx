@@ -523,9 +523,9 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
       setVisible(false)
       // Defer visibility so elements render at opacity:0 first, then fade in
       const frameId = requestAnimationFrame(() => setVisible(true))
-      // After 20s, fade out (2s transition), then clear shift data
-      const fadeTimer = setTimeout(() => setVisible(false), 20_000)
-      const clearTimer = setTimeout(() => setShifts(new Map()), 22_000)
+      // After 6s, fade out (2s transition), then clear shift data
+      const fadeTimer = setTimeout(() => setVisible(false), 6_000)
+      const clearTimer = setTimeout(() => setShifts(new Map()), 8_000)
       return () => { cancelAnimationFrame(frameId); clearTimeout(fadeTimer); clearTimeout(clearTimer) }
     }
   }, [words])
@@ -603,8 +603,8 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
       setShifts(changed)
       setVisible(false)
       const frameId = requestAnimationFrame(() => setVisible(true))
-      const fadeTimer = setTimeout(() => setVisible(false), 20_000)
-      const clearTimer = setTimeout(() => setShifts(new Map()), 22_000)
+      const fadeTimer = setTimeout(() => setVisible(false), 6_000)
+      const clearTimer = setTimeout(() => setShifts(new Map()), 8_000)
       return () => { cancelAnimationFrame(frameId); clearTimeout(fadeTimer); clearTimeout(clearTimer) }
     }
   }, [traders])
