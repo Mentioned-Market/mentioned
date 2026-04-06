@@ -84,6 +84,11 @@ interface SidebarData {
   weekStart: string
 }
 
+// ── Sidebar cache (persists across SPA navigations) ──────────────────────
+
+const SIDEBAR_STALE_MS = 5 * 60 * 1000 // 5 minutes
+let sidebarCache: { data: SidebarData; fetchedAt: number } | null = null
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const SUBCATEGORY_LABELS: Record<string, string> = {
@@ -490,6 +495,39 @@ function WeekCycleBanner({ countdown }: { countdown: string }) {
 }
 
 function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
+  const prevWordsRef = useRef<TrendingWord[]>([])
+  const [highlights, setHighlights] = useState<Map<string, number | 'new'>>(new Map())
+
+  // Detect changes: compute rank shifts and trigger highlight animation
+  useEffect(() => {
+    const prev = prevWordsRef.current
+    if (prev.length === 0) {
+      prevWordsRef.current = words
+      return
+    }
+
+    const oldRanks = new Map<string, number>()
+    prev.forEach((w, i) => oldRanks.set(w.word, i))
+
+    const changed = new Map<string, number | 'new'>()
+    words.forEach((w, i) => {
+      const oldRank = oldRanks.get(w.word)
+      if (oldRank === undefined) {
+        changed.set(w.word, 'new')
+      } else if (oldRank !== i) {
+        changed.set(w.word, oldRank - i) // positive = moved up
+      }
+    })
+
+    prevWordsRef.current = words
+
+    if (changed.size > 0) {
+      setHighlights(changed)
+      const timer = setTimeout(() => setHighlights(new Map()), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [words])
+
   if (words.length === 0) return null
   return (
     <div className="rounded-2xl glass overflow-hidden p-4 mb-4" style={{ background: '#0d0d0d' }}>
@@ -498,20 +536,39 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
         <span className="text-neutral-600 text-[10px]">7d</span>
       </div>
       <div className="flex flex-col gap-2">
-        {words.map((w, i) => (
-          <Link
-            key={`${w.word}-${i}`}
-            href={`/free/${w.slug}`}
-            className="flex items-center gap-3 group"
-          >
-            <span className="text-neutral-600 text-xs font-bold w-4 text-right tabular-nums shrink-0">#{i + 1}</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-xs font-semibold truncate group-hover:text-[#F2B71F] transition-colors">{w.word}</p>
-              <p className="text-neutral-500 text-[10px] truncate">{w.market_title}</p>
-            </div>
-            <span className="text-neutral-400 text-[10px] tabular-nums shrink-0">{w.trade_count} trades</span>
-          </Link>
-        ))}
+        {words.map((w, i) => {
+          const shift = highlights.get(w.word)
+          const isHighlighted = shift !== undefined
+
+          return (
+            <Link
+              key={w.word}
+              href={`/free/${w.slug}`}
+              className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-colors duration-700"
+              style={{
+                backgroundColor: isHighlighted ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
+              }}
+            >
+              <span className="text-neutral-600 text-xs font-bold w-4 text-right tabular-nums shrink-0">#{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs font-semibold truncate group-hover:text-[#F2B71F] transition-colors">{w.word}</p>
+                <p className="text-neutral-500 text-[10px] truncate">{w.market_title}</p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isHighlighted && (
+                  <span className={`text-[10px] font-semibold tabular-nums ${
+                    shift === 'new' ? 'text-[#F2B71F]'
+                      : (shift as number) > 0 ? 'text-emerald-400'
+                      : 'text-red-400'
+                  }`}>
+                    {shift === 'new' ? 'NEW' : (shift as number) > 0 ? `▲${shift}` : `▼${Math.abs(shift as number)}`}
+                  </span>
+                )}
+                <span className="text-neutral-400 text-[10px] tabular-nums">{w.trade_count} trades</span>
+              </div>
+            </Link>
+          )
+        })}
       </div>
     </div>
   )
@@ -630,11 +687,21 @@ export default function MarketsPage() {
     return () => { cancelled = true }
   }, [])
 
-  // Fetch sidebar data
+  // Fetch sidebar data (use cached if < 5 min old)
   useEffect(() => {
+    if (sidebarCache && Date.now() - sidebarCache.fetchedAt < SIDEBAR_STALE_MS) {
+      setSidebarData(sidebarCache.data)
+      setSidebarLoading(false)
+      return
+    }
     fetch('/api/markets/sidebar')
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setSidebarData(data) })
+      .then(data => {
+        if (data) {
+          sidebarCache = { data, fetchedAt: Date.now() }
+          setSidebarData(data)
+        }
+      })
       .catch(() => {})
       .finally(() => setSidebarLoading(false))
   }, [])
