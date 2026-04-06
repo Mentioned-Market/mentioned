@@ -519,7 +519,7 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
     prevRef.current = words
     if (changed.size > 0) {
       setHighlights(changed)
-      const timer = setTimeout(() => setHighlights(new Map()), 2000)
+      const timer = setTimeout(() => setHighlights(new Map()), 20_000)
       return () => clearTimeout(timer)
     }
   }, [words])
@@ -594,7 +594,7 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
     prevRef.current = traders
     if (changed.size > 0) {
       setHighlights(changed)
-      const timer = setTimeout(() => setHighlights(new Map()), 2000)
+      const timer = setTimeout(() => setHighlights(new Map()), 20_000)
       return () => clearTimeout(timer)
     }
   }, [traders])
