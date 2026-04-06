@@ -1,10 +1,45 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import Link from 'next/link'
+import { useWallet } from '@/contexts/WalletContext'
+
+interface Achievement {
+  id: string
+  emoji: string
+  title: string
+  description: string
+  points: number
+  unlocked: boolean
+}
 
 export default function PointsPage() {
+  const { publicKey, connect } = useWallet()
+  const [achievements, setAchievements] = useState<Achievement[]>([])
+  const [achLoaded, setAchLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!publicKey) {
+      setAchievements([])
+      setAchLoaded(false)
+      return
+    }
+    fetch(`/api/achievements?wallet=${publicKey}`)
+      .then(r => r.json())
+      .then(data => {
+        setAchievements(data.achievements ?? [])
+        setAchLoaded(true)
+      })
+      .catch(() => setAchLoaded(true))
+  }, [publicKey])
+
+  // Separate daily login tiers from action achievements
+  const actionAchievements = achievements.filter(a => !a.id.startsWith('daily_login_'))
+  const completedCount = achievements.filter(a => a.unlocked).length
+  const totalPts = achievements.reduce((s, a) => s + a.points, 0)
+
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
       <div className="layout-container flex h-full grow flex-col">
@@ -15,171 +50,175 @@ export default function PointsPage() {
         </div>
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="layout-content-container flex flex-col w-full max-w-4xl flex-1">
-            <main className="py-6 md:py-10 animate-fade-in max-w-2xl">
+            <main className="py-6 md:py-10 animate-fade-in">
 
-              <div className="mb-10">
-                <h1 className="text-2xl md:text-3xl font-bold text-white">Points</h1>
-                <p className="text-neutral-500 text-sm mt-2">
-                  Points reset every Monday at midnight UTC. Top earners each week win real USDC on the <Link href="/leaderboard" className="text-neutral-300 hover:text-white transition-colors underline underline-offset-2">leaderboard</Link>.
+              {/* ── Hero ────────────────────────────────────── */}
+              <div className="mb-8 max-w-2xl">
+                <h1 className="text-3xl md:text-5xl font-bold text-white tracking-tight">Points</h1>
+                <p className="text-neutral-300 text-base md:text-lg mt-3 leading-relaxed">
+                  Top of the{' '}
+                  <Link href="/leaderboard" className="text-white font-semibold underline underline-offset-4 decoration-[#F2B71F] hover:decoration-white transition-colors">leaderboard</Link>{' '}
+                  wins real USDC every week. Resets Monday midnight UTC.
                 </p>
               </div>
 
-              {/* ── Chat ──────────────────────────────────────── */}
-              <section className="mb-10">
-                <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4">Chat</h2>
-                <div className="rounded-xl border border-white/10 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-white/5 flex items-baseline justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-white">Send a message</p>
-                      <p className="text-xs text-neutral-500 mt-1">Counts in both global chat and market chats. Capped at 10 messages per day — after that, extra messages earn nothing until midnight UTC.</p>
-                    </div>
-                    <span className="text-sm font-bold text-apple-blue tabular-nums flex-shrink-0">2 pts</span>
-                  </div>
-                  <div className="px-5 py-3 bg-white/[0.02]">
-                    <p className="text-xs text-neutral-600">Max per week: 10 messages x 7 days = <span className="text-neutral-400">140 pts</span></p>
-                  </div>
-                </div>
-              </section>
-
-              {/* ── Free markets ──────────────────────────────── */}
-              <section className="mb-10">
-                <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4">Free markets</h2>
-                <div className="rounded-xl border border-white/10 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-white/5">
-                    <p className="text-sm font-medium text-white">Win a market</p>
-                    <p className="text-xs text-neutral-500 mt-1">
-                      When a market resolves, your net profit converts to points at a 0.5x rate. Net profit is tokens received minus tokens spent across all your positions in that market.
-                    </p>
-                    <p className="text-xs text-neutral-500 mt-2">
-                      If you break even or lose, you receive zero points. There is no penalty.
+              {/* ── Featured: Free markets ───────────────────── */}
+              <Link
+                href="/markets"
+                className="group block mb-3 rounded-2xl border border-[#F2B71F]/30 bg-gradient-to-br from-[#F2B71F]/[0.12] via-[#F2B71F]/[0.04] to-transparent hover:border-[#F2B71F]/50 transition-colors overflow-hidden"
+              >
+                <div className="px-5 md:px-6 py-5 md:py-6 flex items-start justify-between gap-4 border-b border-white/5">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-[#F2B71F] uppercase tracking-widest mb-2">The fastest way to earn</p>
+                    <p className="text-2xl md:text-3xl font-bold text-white leading-tight">Trade free markets.<br className="hidden sm:block" /> Win unlimited points.</p>
+                    <p className="text-sm md:text-base text-neutral-300 mt-3 leading-relaxed">
+                      Play-token markets with zero risk. Profit converts to points at 0.5x. No cap, no penalty for losses.
                     </p>
                   </div>
-                  <div className="px-5 py-4 border-b border-white/5 bg-white/[0.02]">
-                    <p className="text-xs font-medium text-neutral-400 mb-3">Examples</p>
-                    <div className="space-y-2">
-                      {[
-                        { label: 'Spent 200, received 400', net: '+200', pts: '100 pts' },
-                        { label: 'Spent 500, received 950', net: '+450', pts: '225 pts' },
-                        { label: 'Spent 200, received 80',  net: '-120', pts: '0 pts' },
-                      ].map((row) => (
-                        <div key={row.label} className="flex items-center justify-between text-xs">
-                          <span className="text-neutral-500">{row.label}</span>
-                          <div className="flex items-center gap-4">
-                            <span className={row.net.startsWith('+') ? 'text-neutral-400 tabular-nums' : 'text-neutral-600 tabular-nums'}>{row.net} tokens</span>
-                            <span className="text-white font-medium tabular-nums w-14 text-right">{row.pts}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="px-5 py-3 bg-white/[0.02]">
-                    <p className="text-xs text-neutral-600">Points are awarded once per market when it resolves. You must have Discord linked to trade.</p>
-                  </div>
+                  <svg className="w-5 h-5 text-[#F2B71F] group-hover:translate-x-0.5 transition-transform flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
                 </div>
-              </section>
-
-              {/* ── Daily visit streak ────────────────────────── */}
-              <section className="mb-10">
-                <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4">Daily visit streak</h2>
-                <div className="rounded-xl border border-white/10 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-white/5">
-                    <p className="text-sm font-medium text-white">Visit Mentioned each day</p>
-                    <p className="text-xs text-neutral-500 mt-1">Each unique day you open the site adds to your streak for the week. Streaks reset every Monday. The tiers stack, so hitting 7 days pays out all three bonuses.</p>
-                  </div>
-                  <div className="divide-y divide-white/5">
-                    {[
-                      { days: 3, pts: 50 },
-                      { days: 5, pts: 75, note: 'stacks with 3-day bonus' },
-                      { days: 7, pts: 100, note: 'stacks with both' },
-                    ].map((tier) => (
-                      <div key={tier.days} className="px-5 py-3 flex items-center justify-between">
-                        <div>
-                          <span className="text-sm text-white">{tier.days} days this week</span>
-                          {tier.note && <span className="text-xs text-neutral-600 ml-2">{tier.note}</span>}
-                        </div>
-                        <span className="text-sm font-bold text-apple-blue tabular-nums">+{tier.pts} pts</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="px-5 py-3 bg-white/[0.02] border-t border-white/5">
-                    <p className="text-xs text-neutral-600">Visit all 7 days: 50 + 75 + 100 = <span className="text-neutral-400">225 pts total</span></p>
-                  </div>
-                </div>
-              </section>
-
-              {/* ── Achievements ──────────────────────────────── */}
-              <section className="mb-10">
-                <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1">Weekly achievements</h2>
-                <p className="text-xs text-neutral-600 mb-4">A set of achievements resets each Monday. Each one unlocks once per week and pays out the moment you complete the action. The exact set changes week to week. Below are examples of what a typical week looks like.</p>
-                <div className="rounded-xl border border-white/10 overflow-hidden divide-y divide-white/5">
+                <div className="grid grid-cols-3 divide-x divide-white/5 bg-black/20">
                   {[
-                    { title: 'Place a free market trade',  pts: 60  },
-                    { title: 'Win a free market trade',    pts: 100 },
-                    { title: 'Send a chat message',        pts: 40  },
-                    { title: 'Set your username',          pts: 40  },
-                    { title: 'Refer a new user',           pts: 100 },
-                  ].map((ach) => (
-                    <div key={ach.title} className="px-5 py-3 flex items-center justify-between">
-                      <span className="text-sm text-neutral-300">{ach.title}</span>
-                      <span className="text-sm font-bold text-apple-blue tabular-nums">+{ach.pts} pts</span>
+                    { label: 'Profit +200', pts: '+100', muted: false },
+                    { label: 'Profit +450', pts: '+225', muted: false },
+                    { label: 'Loss −120',   pts: '0',    muted: true  },
+                  ].map((row) => (
+                    <div key={row.label} className="px-3 md:px-4 py-3 text-center">
+                      <p className="text-[11px] text-neutral-400 uppercase tracking-wide">{row.label}</p>
+                      <p className={`text-lg font-bold tabular-nums mt-1 ${row.muted ? 'text-neutral-600' : 'text-[#F2B71F]'}`}>{row.pts} pts</p>
                     </div>
                   ))}
-                  <div className="px-5 py-3 bg-white/[0.02] flex items-center justify-between">
-                    <span className="text-xs text-neutral-500">Example week total</span>
-                    <span className="text-xs font-semibold text-neutral-400 tabular-nums">340 pts</span>
+                </div>
+              </Link>
+
+              {/* ── Passive earnings label ───────────────────── */}
+              <div className="flex items-baseline justify-between mt-10 mb-4">
+                <h2 className="text-lg md:text-xl font-bold text-white">Earn without trading</h2>
+                <p className="text-sm text-neutral-400 tabular-nums">up to <span className="text-white font-semibold">705 pts / week</span></p>
+              </div>
+
+              {/* ── 3-col passive earning grid ───────────────── */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                {/* Chat */}
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-4 border-b border-white/5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F] flex-shrink-0" />
+                      <p className="text-sm font-semibold text-white">Chat</p>
+                    </div>
+                    <p className="text-2xl font-bold text-white tabular-nums">140</p>
+                    <p className="text-[11px] text-neutral-400 uppercase tracking-wide mt-0.5">pts / week</p>
+                  </div>
+                  <div className="px-4 py-2.5 bg-white/[0.015]">
+                    <p className="text-xs text-neutral-400">2 pts · first 10 msgs daily</p>
                   </div>
                 </div>
-              </section>
 
-              {/* ── Weekly totals ─────────────────────────────── */}
-              <section className="mb-10">
-                <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4">What a full week looks like</h2>
-                <div className="rounded-xl border border-white/10 overflow-hidden">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-white/10">
-                        <th className="text-left text-xs font-medium text-neutral-500 px-5 py-3">Source</th>
-                        <th className="text-right text-xs font-medium text-neutral-500 px-5 py-3">Max / week</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5 text-sm">
-                      <tr>
-                        <td className="px-5 py-3 text-neutral-400">Chat</td>
-                        <td className="px-5 py-3 text-right text-white tabular-nums">140 pts</td>
-                      </tr>
-                      <tr>
-                        <td className="px-5 py-3 text-neutral-400">Visit streak (7 days)</td>
-                        <td className="px-5 py-3 text-right text-white tabular-nums">225 pts</td>
-                      </tr>
-                      <tr>
-                        <td className="px-5 py-3 text-neutral-400">Achievements (example week)</td>
-                        <td className="px-5 py-3 text-right text-white tabular-nums">340 pts</td>
-                      </tr>
-                      <tr>
-                        <td className="px-5 py-3 text-neutral-400">Free market wins</td>
-                        <td className="px-5 py-3 text-right text-neutral-500">Unlimited</td>
-                      </tr>
-                      <tr className="border-t border-white/10 bg-white/[0.02]">
-                        <td className="px-5 py-3 text-white font-semibold">Without any trading</td>
-                        <td className="px-5 py-3 text-right text-apple-blue font-bold tabular-nums">705 pts</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                {/* Streak */}
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-4 border-b border-white/5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F] flex-shrink-0" />
+                      <p className="text-sm font-semibold text-white">Daily streak</p>
+                    </div>
+                    <p className="text-2xl font-bold text-white tabular-nums">225</p>
+                    <p className="text-[11px] text-neutral-400 uppercase tracking-wide mt-0.5">pts / week</p>
+                  </div>
+                  <div className="px-4 py-2.5 bg-white/[0.015]">
+                    <p className="text-xs text-neutral-400">3d +50 · 5d +75 · 7d +100</p>
+                  </div>
                 </div>
-                <p className="text-xs text-neutral-600 mt-2">A single well-called market returning 450 tokens profit adds another 225 pts on top.</p>
-              </section>
+
+                {/* Achievements */}
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-4 border-b border-white/5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F] flex-shrink-0" />
+                      <p className="text-sm font-semibold text-white">Achievements</p>
+                    </div>
+                    <p className="text-2xl font-bold text-white tabular-nums">~340</p>
+                    <p className="text-[11px] text-neutral-400 uppercase tracking-wide mt-0.5">pts / week</p>
+                  </div>
+                  <div className="px-4 py-2.5 bg-white/[0.015]">
+                    <p className="text-xs text-neutral-400">New set every Monday</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── This week's achievements ─────────────────── */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden mb-10">
+                <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <p className="text-[11px] font-semibold text-neutral-500 uppercase tracking-widest">This week&apos;s achievements</p>
+                    {achLoaded && publicKey && (
+                      <span className="text-xs text-neutral-400 tabular-nums">{completedCount}/{achievements.length} done</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-neutral-400 tabular-nums">{achLoaded ? totalPts : 340} pts total</p>
+                </div>
+                <div className="divide-y divide-white/5">
+                  {(achLoaded && actionAchievements.length > 0 ? actionAchievements : [
+                    { id: 'free_trade', title: 'Place a free market trade', points: 60, unlocked: false },
+                    { id: 'win_free_trade', title: 'Win a free market trade', points: 100, unlocked: false },
+                    { id: 'send_chat', title: 'Send a chat message', points: 40, unlocked: false },
+                    { id: 'set_profile', title: 'Set your username', points: 40, unlocked: false },
+                    { id: 'refer_friend', title: 'Refer a new user', points: 100, unlocked: false },
+                  ] as Pick<Achievement, 'id' | 'title' | 'points' | 'unlocked'>[]).map((ach) => (
+                    <div key={ach.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {achLoaded && publicKey ? (
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            ach.unlocked
+                              ? 'bg-[#F2B71F]/20 text-[#F2B71F]'
+                              : 'border border-white/10 text-transparent'
+                          }`}>
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        ) : null}
+                        <span className={`text-sm ${ach.unlocked ? 'text-neutral-500 line-through' : 'text-neutral-300'}`}>
+                          {ach.title}
+                        </span>
+                      </div>
+                      <span className={`text-sm font-semibold tabular-nums flex-shrink-0 ${ach.unlocked ? 'text-[#F2B71F]' : 'text-[#F2B71F]'}`}>
+                        +{ach.points}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-5 py-3 border-t border-white/5 bg-white/[0.015]">
+                  {publicKey ? (
+                    <Link
+                      href={`/profile/${publicKey}`}
+                      className="text-sm text-[#F2B71F] font-medium hover:text-white transition-colors"
+                    >
+                      View achievements →
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={connect}
+                      className="text-sm text-[#F2B71F] font-medium hover:text-white transition-colors"
+                    >
+                      Log in to track your progress →
+                    </button>
+                  )}
+                </div>
+              </div>
 
               {/* ── CTA ───────────────────────────────────────── */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <Link
                   href="/markets"
-                  className="flex-1 flex items-center justify-center h-10 rounded-xl bg-white text-black text-sm font-semibold hover:bg-neutral-100 transition-colors"
+                  className="flex-1 flex items-center justify-center h-12 rounded-xl bg-white text-black text-base font-semibold hover:bg-neutral-100 transition-colors"
                 >
-                  Browse free markets
+                  Start trading free markets
                 </Link>
                 <Link
                   href="/leaderboard"
-                  className="flex-1 flex items-center justify-center h-10 rounded-xl border border-white/10 bg-white/[0.03] text-white text-sm font-medium hover:bg-white/[0.07] transition-colors"
+                  className="flex-1 flex items-center justify-center h-12 rounded-xl border border-white/10 bg-white/[0.03] text-white text-base font-medium hover:bg-white/[0.07] transition-colors"
                 >
                   View leaderboard
                 </Link>
