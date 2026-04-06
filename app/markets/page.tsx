@@ -86,8 +86,8 @@ interface SidebarData {
 
 // ── Sidebar cache (persists across SPA navigations) ──────────────────────
 
-const SIDEBAR_STALE_MS = 5 * 60 * 1000 // 5 minutes
-let sidebarCache: { data: SidebarData; fetchedAt: number } | null = null
+const SIDEBAR_STALE_MS = 60 * 1000 // 1 minute
+let sidebarCache: { data: SidebarData; prevData: SidebarData | null; fetchedAt: number } | null = null
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -495,16 +495,10 @@ function WeekCycleBanner({ countdown }: { countdown: string }) {
 }
 
 function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
-  const prevWordsRef = useRef<TrendingWord[]>([])
-  const [highlights, setHighlights] = useState<Map<string, number | 'new'>>(new Map())
-
-  // Detect changes: compute rank shifts and trigger highlight animation
-  useEffect(() => {
-    const prev = prevWordsRef.current
-    if (prev.length === 0) {
-      prevWordsRef.current = words
-      return
-    }
+  // Compute initial highlights from module-level cache (survives unmount)
+  const [highlights] = useState<Map<string, number | 'new'>>(() => {
+    const prev = sidebarCache?.prevData?.trendingWords
+    if (!prev || prev.length === 0) return new Map()
 
     const oldRanks = new Map<string, number>()
     prev.forEach((w, i) => oldRanks.set(w.word, i))
@@ -515,18 +509,19 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
       if (oldRank === undefined) {
         changed.set(w.word, 'new')
       } else if (oldRank !== i) {
-        changed.set(w.word, oldRank - i) // positive = moved up
+        changed.set(w.word, oldRank - i)
       }
     })
+    return changed
+  })
+  const [visible, setVisible] = useState(highlights.size > 0)
 
-    prevWordsRef.current = words
-
-    if (changed.size > 0) {
-      setHighlights(changed)
-      const timer = setTimeout(() => setHighlights(new Map()), 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [words])
+  // Auto-clear highlights after 2s
+  useEffect(() => {
+    if (!visible) return
+    const timer = setTimeout(() => setVisible(false), 2000)
+    return () => clearTimeout(timer)
+  }, [visible])
 
   if (words.length === 0) return null
   return (
@@ -538,7 +533,7 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
       <div className="flex flex-col gap-2">
         {words.map((w, i) => {
           const shift = highlights.get(w.word)
-          const isHighlighted = shift !== undefined
+          const show = visible && shift !== undefined
 
           return (
             <Link
@@ -546,7 +541,7 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
               href={`/free/${w.slug}`}
               className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-colors duration-700"
               style={{
-                backgroundColor: isHighlighted ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
+                backgroundColor: show ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
               }}
             >
               <span className="text-neutral-600 text-xs font-bold w-4 text-right tabular-nums shrink-0">#{i + 1}</span>
@@ -555,7 +550,7 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
                 <p className="text-neutral-500 text-[10px] truncate">{w.market_title}</p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {isHighlighted && (
+                {show && (
                   <span className={`text-[10px] font-semibold tabular-nums ${
                     shift === 'new' ? 'text-[#F2B71F]'
                       : (shift as number) > 0 ? 'text-emerald-400'
@@ -575,15 +570,9 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
 }
 
 function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: boolean }) {
-  const prevTradersRef = useRef<TopTrader[]>([])
-  const [highlights, setHighlights] = useState<Map<string, number | 'new'>>(new Map())
-
-  useEffect(() => {
-    const prev = prevTradersRef.current
-    if (prev.length === 0) {
-      prevTradersRef.current = traders
-      return
-    }
+  const [highlights] = useState<Map<string, number | 'new'>>(() => {
+    const prev = sidebarCache?.prevData?.topTraders
+    if (!prev || prev.length === 0) return new Map()
 
     const oldRanks = new Map<string, number>()
     prev.forEach((t, i) => oldRanks.set(t.wallet, i))
@@ -597,15 +586,15 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
         changed.set(t.wallet, oldRank - i)
       }
     })
+    return changed
+  })
+  const [visible, setVisible] = useState(highlights.size > 0)
 
-    prevTradersRef.current = traders
-
-    if (changed.size > 0) {
-      setHighlights(changed)
-      const timer = setTimeout(() => setHighlights(new Map()), 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [traders])
+  useEffect(() => {
+    if (!visible) return
+    const timer = setTimeout(() => setVisible(false), 2000)
+    return () => clearTimeout(timer)
+  }, [visible])
 
   if (traders.length === 0) return null
   const medalColors = ['text-yellow-400', 'text-neutral-300', 'text-orange-400', 'text-neutral-500', 'text-neutral-500']
@@ -622,7 +611,7 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
       <div className="flex flex-col gap-3">
         {traders.map((t, i) => {
           const shift = highlights.get(t.wallet)
-          const isHighlighted = shift !== undefined
+          const show = visible && shift !== undefined
 
           return (
             <Link
@@ -630,7 +619,7 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
               href={`/profile/${t.username ?? t.wallet}`}
               className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-colors duration-700"
               style={{
-                backgroundColor: isHighlighted ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
+                backgroundColor: show ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
               }}
             >
               <span className="text-sm w-5 text-center shrink-0">
@@ -645,7 +634,7 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {isHighlighted && (
+                {show && (
                   <span className={`text-[10px] font-semibold tabular-nums ${
                     shift === 'new' ? 'text-[#F2B71F]'
                       : (shift as number) > 0 ? 'text-emerald-400'
@@ -738,18 +727,19 @@ export default function MarketsPage() {
     return () => { cancelled = true }
   }, [])
 
-  // Fetch sidebar data (use cached if < 5 min old)
+  // Fetch sidebar data (use cached if < 1 min old, preserve previous for animations)
   useEffect(() => {
     if (sidebarCache && Date.now() - sidebarCache.fetchedAt < SIDEBAR_STALE_MS) {
       setSidebarData(sidebarCache.data)
       setSidebarLoading(false)
       return
     }
+    const prevData = sidebarCache?.data ?? null
     fetch('/api/markets/sidebar')
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data) {
-          sidebarCache = { data, fetchedAt: Date.now() }
+          sidebarCache = { data, prevData, fetchedAt: Date.now() }
           setSidebarData(data)
         }
       })
