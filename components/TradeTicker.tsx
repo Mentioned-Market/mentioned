@@ -132,7 +132,7 @@ export default function TradeTicker() {
     }
 
     load()
-    intervalRef.current = setInterval(load, 30_000)
+    intervalRef.current = setInterval(load, 60_000)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }

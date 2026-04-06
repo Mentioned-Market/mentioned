@@ -261,10 +261,10 @@ async function seed() {
     // ── Free markets (custom markets with virtual LMSR) ──────────────────────
     console.log('  Seeding free markets...')
 
-    // Market 1: Open, active trading
+    // Market 1: Open, continuous (always live when open)
     const { rows: [fm1] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at)
-       VALUES ($1, $2, 'open', 100, 1000, $3, $4, $5)
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, market_type, created_at)
+       VALUES ($1, $2, 'open', 100, 1000, $3, $4, 'continuous', $5)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [
@@ -276,10 +276,10 @@ async function seed() {
       ],
     )
 
-    // Market 2: Open, fresh (no trades yet)
+    // Market 2: Open, event type (live only after event_start_time)
     const { rows: [fm2] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at)
-       VALUES ($1, $2, 'open', 150, 500, $3, $4, $5)
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, market_type, event_start_time, created_at)
+       VALUES ($1, $2, 'open', 150, 500, $3, $4, 'event', $5, $6)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [
@@ -287,14 +287,15 @@ async function seed() {
         'Which words will the casters say during the grand final? Trade on your predictions before the match starts.',
         hoursAgo(-72), // lock_time 72 hours from now
         'navi-vitality-seed02',
+        hoursAgo(-2),  // event starts 2 hours from now (not yet live)
         daysAgo(1),
       ],
     )
 
-    // Market 3: Resolved
+    // Market 3: Resolved, event type (event already happened)
     const { rows: [fm3] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at)
-       VALUES ($1, $2, 'resolved', 100, 1000, $3, $4, $5)
+      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, market_type, event_start_time, created_at)
+       VALUES ($1, $2, 'resolved', 100, 1000, $3, $4, 'event', $5, $6)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [
@@ -302,6 +303,7 @@ async function seed() {
         'Which phrases will the analyst desk use when breaking down this match?',
         daysAgo(1), // already past
         'c9-faze-seed03',
+        daysAgo(2), // event started 2 days ago
         daysAgo(5),
       ],
     )
