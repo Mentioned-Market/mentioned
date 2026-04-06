@@ -224,7 +224,7 @@ export default function MarketTutorial({ onClose, onStepChange }: Props) {
             <div
               key={i}
               className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === step ? 'w-6 bg-apple-blue' : i < step ? 'w-1.5 bg-white/30' : 'w-1.5 bg-white/10'
+                i === step ? 'w-6 bg-[#F2B71F]' : i < step ? 'w-1.5 bg-white/30' : 'w-1.5 bg-white/10'
               }`}
             />
           ))}
@@ -254,7 +254,7 @@ export default function MarketTutorial({ onClose, onStepChange }: Props) {
             )}
             <button
               onClick={next}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-apple-blue hover:bg-apple-blue/80 rounded-lg transition-all"
+              className="px-4 py-1.5 text-xs font-semibold text-black bg-[#F2B71F] hover:bg-[#F2B71F]/80 rounded-lg transition-all"
             >
               {step === STEPS.length - 1 ? 'Get started' : 'Next'}
             </button>

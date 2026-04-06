@@ -1,4 +1,4 @@
-import { unlockAchievement, insertPointEvent } from './db'
+import { unlockAchievement, insertPointEvent, getWeekStart } from './db'
 
 // ── Achievement Definitions ─────────────────────────────
 
@@ -103,9 +103,10 @@ export async function tryUnlockAchievement(
   const unlocked = await unlockAchievement(wallet, achievementId, def.points)
   if (!unlocked) return null
 
-  // Award bonus points
+  // Award bonus points — ref_id includes week_start so the same achievement ID
+  // can be awarded again in a new week without hitting the ON CONFLICT dedup.
   if (def.points > 0) {
-    await insertPointEvent(wallet, 'achievement', def.points, `ach:${achievementId}`)
+    await insertPointEvent(wallet, 'achievement', def.points, `ach:${achievementId}:${getWeekStart()}`)
   }
 
   return def
