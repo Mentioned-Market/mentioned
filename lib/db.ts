@@ -777,7 +777,7 @@ export async function hasDiscordLinked(wallet: string): Promise<boolean> {
   return linked
 }
 
-const REFERRAL_BONUS_RATE = 0.10 // 10% mutual bonus
+const REFERRAL_BONUS_RATE = 0.05 // 5% mutual bonus
 
 /**
  * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
@@ -908,7 +908,7 @@ export async function getBulkPointTotals(
 // ── Achievements ─────────────────────────────────────
 
 /** Returns the ISO Monday of the current UTC week as a YYYY-MM-DD string. */
-function getWeekStart(): string {
+export function getWeekStart(): string {
   const now = new Date()
   const day = now.getUTCDay() // 0=Sun, 1=Mon, ...
   const diff = (day === 0 ? -6 : 1 - day) // days to subtract to get to Monday
@@ -966,12 +966,12 @@ export async function backfillAchievementPoints(wallet: string): Promise<void> {
          SELECT 1 FROM point_events pe
          WHERE pe.wallet = $1
            AND pe.action = 'achievement'
-           AND pe.ref_id = 'ach:' || ua.achievement_id
+           AND pe.ref_id = 'ach:' || ua.achievement_id || ':' || $2
        )`,
     [wallet, weekStart],
   )
   for (const row of result.rows) {
-    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}`)
+    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}:${weekStart}`)
   }
 }
 

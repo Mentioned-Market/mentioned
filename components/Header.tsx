@@ -67,7 +67,9 @@ export default function Header() {
 
   return (
     <>
-      <header className="flex items-center justify-between py-3 md:py-5 backdrop-blur-xl bg-black/30 sticky top-0 z-50 -mx-4 md:-mx-10 lg:-mx-20 px-4 md:px-10 lg:px-20 border-b border-white/10">
+      <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] backdrop-blur-xl bg-black/30 border-b border-white/10">
+        <div className="px-4 md:px-10 lg:px-20">
+         <div className="max-w-7xl mx-auto flex items-center justify-between py-3 md:py-5">
         <div className="flex items-center gap-4 md:gap-6">
           <Link href="/" className="flex items-center text-white hover:opacity-70 transition-opacity duration-300 flex-shrink-0" aria-label="Mentioned - Home">
             <Image
@@ -88,7 +90,7 @@ export default function Header() {
           {/* How it works button — desktop only */}
           <button
             onClick={() => setShowHowItWorks(true)}
-            className="hidden md:flex items-center gap-1.5 h-8 md:h-9 px-3 md:px-4 rounded-lg text-sm font-medium text-neutral-400 hover:text-white hover:bg-white/10 transition-all duration-200 border border-transparent hover:border-white/10"
+            className="hidden md:flex items-center gap-1.5 h-8 md:h-9 px-3 md:px-4 rounded-lg text-sm font-medium text-[#F2B71F] hover:text-[#F2B71F]/80 bg-[#F2B71F]/10 hover:bg-[#F2B71F]/20 transition-all duration-200 border border-[#F2B71F]/20 hover:border-[#F2B71F]/30"
           >
             <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -257,6 +259,8 @@ export default function Header() {
               </div>
             )}
           </div>
+        </div>
+         </div>
         </div>
       </header>
       <ConnectModal />

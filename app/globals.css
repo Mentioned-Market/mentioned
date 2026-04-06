@@ -200,3 +200,31 @@ html {
 
 /* Mentioned spinner arc */
 @keyframes ms-spin { to { transform: rotate(360deg); } }
+
+/* Scroll-driven fade for the homepage hero background (cards scrolling behind the hero text) */
+@keyframes hero-bg-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@supports (animation-timeline: scroll()) {
+  .hero-bg-scroll-fade {
+    animation-name: hero-bg-fade-out;
+    animation-duration: 1ms;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: scroll(root);
+    animation-range: 0 75vh;
+  }
+}
+
+/* Pause the background market column animations once the hero bg has faded out */
+.bg-paused .bg-col-anim {
+  animation-play-state: paused !important;
+}
+
+/* Respect user's reduced-motion preference — stop the decorative scrolling bg entirely */
+@media (prefers-reduced-motion: reduce) {
+  .bg-col-anim {
+    animation: none !important;
+  }
+}
