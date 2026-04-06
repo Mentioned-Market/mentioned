@@ -612,8 +612,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (walletType === 'privy') {
       disconnectingRef.current = true
       setPrivySolanaProvider(null)
+      try {
+        await privyLogout()
+      } catch (e) {
+        console.warn('Privy logout error:', e)
+      }
       clearState()
-      await privyLogout()
     } else {
       disconnectingRef.current = true
       const wallet = walletRef.current
