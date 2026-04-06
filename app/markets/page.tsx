@@ -575,6 +575,38 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
 }
 
 function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: boolean }) {
+  const prevTradersRef = useRef<TopTrader[]>([])
+  const [highlights, setHighlights] = useState<Map<string, number | 'new'>>(new Map())
+
+  useEffect(() => {
+    const prev = prevTradersRef.current
+    if (prev.length === 0) {
+      prevTradersRef.current = traders
+      return
+    }
+
+    const oldRanks = new Map<string, number>()
+    prev.forEach((t, i) => oldRanks.set(t.wallet, i))
+
+    const changed = new Map<string, number | 'new'>()
+    traders.forEach((t, i) => {
+      const oldRank = oldRanks.get(t.wallet)
+      if (oldRank === undefined) {
+        changed.set(t.wallet, 'new')
+      } else if (oldRank !== i) {
+        changed.set(t.wallet, oldRank - i)
+      }
+    })
+
+    prevTradersRef.current = traders
+
+    if (changed.size > 0) {
+      setHighlights(changed)
+      const timer = setTimeout(() => setHighlights(new Map()), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [traders])
+
   if (traders.length === 0) return null
   const medalColors = ['text-yellow-400', 'text-neutral-300', 'text-orange-400', 'text-neutral-500', 'text-neutral-500']
   const medals = ['🥇', '🥈', '🥉', null, null]
@@ -588,28 +620,47 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
         </Link>
       </div>
       <div className="flex flex-col gap-3">
-        {traders.map((t, i) => (
-          <Link
-            key={t.wallet}
-            href={`/profile/${t.username ?? t.wallet}`}
-            className="flex items-center gap-3 group"
-          >
-            <span className="text-sm w-5 text-center shrink-0">
-              {medals[i] ?? <span className={`text-xs font-bold tabular-nums ${medalColors[i]}`}>{i + 1}</span>}
-            </span>
-            <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-sm shrink-0">
-              {t.pfpEmoji ?? '👤'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-xs font-semibold truncate group-hover:text-[#F2B71F] transition-colors">
-                {t.username ? `@${t.username}` : truncateWallet(t.wallet)}
-              </p>
-            </div>
-            <span className="text-[#F2B71F] text-xs font-bold tabular-nums shrink-0">
-              +{t.weeklyPoints.toLocaleString()} pts
-            </span>
-          </Link>
-        ))}
+        {traders.map((t, i) => {
+          const shift = highlights.get(t.wallet)
+          const isHighlighted = shift !== undefined
+
+          return (
+            <Link
+              key={t.wallet}
+              href={`/profile/${t.username ?? t.wallet}`}
+              className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-colors duration-700"
+              style={{
+                backgroundColor: isHighlighted ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
+              }}
+            >
+              <span className="text-sm w-5 text-center shrink-0">
+                {medals[i] ?? <span className={`text-xs font-bold tabular-nums ${medalColors[i]}`}>{i + 1}</span>}
+              </span>
+              <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-sm shrink-0">
+                {t.pfpEmoji ?? '👤'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs font-semibold truncate group-hover:text-[#F2B71F] transition-colors">
+                  {t.username ? `@${t.username}` : truncateWallet(t.wallet)}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isHighlighted && (
+                  <span className={`text-[10px] font-semibold tabular-nums ${
+                    shift === 'new' ? 'text-[#F2B71F]'
+                      : (shift as number) > 0 ? 'text-emerald-400'
+                      : 'text-red-400'
+                  }`}>
+                    {shift === 'new' ? 'NEW' : (shift as number) > 0 ? `▲${shift}` : `▼${Math.abs(shift as number)}`}
+                  </span>
+                )}
+                <span className="text-[#F2B71F] text-xs font-bold tabular-nums">
+                  +{t.weeklyPoints.toLocaleString()} pts
+                </span>
+              </div>
+            </Link>
+          )
+        })}
       </div>
     </div>
   )
