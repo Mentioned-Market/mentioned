@@ -53,41 +53,29 @@ export default function PointsPage() {
             <main className="py-6 md:py-10 animate-fade-in">
 
               {/* ── Hero ────────────────────────────────────── */}
-              <div className="mb-6 max-w-2xl">
+              <div className="mb-8 max-w-2xl">
                 <h1 className="text-3xl md:text-5xl font-bold text-white tracking-tight">Points</h1>
                 <p className="text-neutral-300 text-base md:text-lg mt-3 leading-relaxed">
-                  Earn points by trading, chatting, and completing weekly achievements.
+                  Top of the{' '}
+                  <Link href="/leaderboard" className="text-white font-semibold underline underline-offset-4 decoration-[#F2B71F] hover:decoration-white transition-colors">leaderboard</Link>{' '}
+                  wins real USDC every week. Resets Monday midnight UTC.
                 </p>
               </div>
-
-              {/* ── USDC hook ───────────────────────────────── */}
-              <Link
-                href="/leaderboard"
-                className="group flex items-center justify-between gap-4 mb-6 px-5 md:px-6 py-4 md:py-5 rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/[0.08] to-transparent hover:border-emerald-500/40 transition-colors"
-              >
-                <div>
-                  <p className="text-lg md:text-xl font-bold text-white">Top earners win real USDC every Monday</p>
-                  <p className="text-sm text-emerald-400/80 mt-1">Leaderboard resets weekly — everyone starts fresh</p>
-                </div>
-                <svg className="w-5 h-5 text-emerald-400/60 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </Link>
 
               {/* ── Featured: Free markets ───────────────────── */}
               <Link
                 href="/markets"
-                className="group block mb-3 rounded-2xl border border-apple-blue/30 bg-gradient-to-br from-apple-blue/[0.12] via-apple-blue/[0.04] to-transparent hover:border-apple-blue/50 transition-colors overflow-hidden"
+                className="group block mb-3 rounded-2xl border border-[#F2B71F]/30 bg-gradient-to-br from-[#F2B71F]/[0.12] via-[#F2B71F]/[0.04] to-transparent hover:border-[#F2B71F]/50 transition-colors overflow-hidden"
               >
                 <div className="px-5 md:px-6 py-5 md:py-6 flex items-start justify-between gap-4 border-b border-white/5">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold text-apple-blue uppercase tracking-widest mb-2">The fastest way to earn</p>
+                    <p className="text-[11px] font-semibold text-[#F2B71F] uppercase tracking-widest mb-2">The fastest way to earn</p>
                     <p className="text-2xl md:text-3xl font-bold text-white leading-tight">Trade free markets.<br className="hidden sm:block" /> Win unlimited points.</p>
                     <p className="text-sm md:text-base text-neutral-300 mt-3 leading-relaxed">
                       Play-token markets with zero risk. Profit converts to points at 0.5x. No cap, no penalty for losses.
                     </p>
                   </div>
-                  <svg className="w-5 h-5 text-apple-blue group-hover:translate-x-0.5 transition-transform flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="w-5 h-5 text-[#F2B71F] group-hover:translate-x-0.5 transition-transform flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
@@ -99,7 +87,7 @@ export default function PointsPage() {
                   ].map((row) => (
                     <div key={row.label} className="px-3 md:px-4 py-3 text-center">
                       <p className="text-[11px] text-neutral-400 uppercase tracking-wide">{row.label}</p>
-                      <p className={`text-lg font-bold tabular-nums mt-1 ${row.muted ? 'text-neutral-600' : 'text-apple-blue'}`}>{row.pts} pts</p>
+                      <p className={`text-lg font-bold tabular-nums mt-1 ${row.muted ? 'text-neutral-600' : 'text-[#F2B71F]'}`}>{row.pts} pts</p>
                     </div>
                   ))}
                 </div>
@@ -107,8 +95,8 @@ export default function PointsPage() {
 
               {/* ── Passive earnings label ───────────────────── */}
               <div className="flex items-baseline justify-between mt-10 mb-4">
-                <h2 className="text-[11px] font-semibold text-neutral-500 uppercase tracking-widest">Earn without trading</h2>
-                <p className="text-[11px] text-neutral-500 tabular-nums">up to <span className="text-white font-semibold">705 pts / week</span></p>
+                <h2 className="text-lg md:text-xl font-bold text-white">Earn without trading</h2>
+                <p className="text-sm text-neutral-400 tabular-nums">up to <span className="text-white font-semibold">705 pts / week</span></p>
               </div>
 
               {/* ── 3-col passive earning grid ───────────────── */}
@@ -117,7 +105,7 @@ export default function PointsPage() {
                 <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
                   <div className="px-4 py-4 border-b border-white/5">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-apple-blue flex-shrink-0" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F] flex-shrink-0" />
                       <p className="text-sm font-semibold text-white">Chat</p>
                     </div>
                     <p className="text-2xl font-bold text-white tabular-nums">140</p>
@@ -132,7 +120,7 @@ export default function PointsPage() {
                 <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
                   <div className="px-4 py-4 border-b border-white/5">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-apple-blue flex-shrink-0" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F] flex-shrink-0" />
                       <p className="text-sm font-semibold text-white">Daily streak</p>
                     </div>
                     <p className="text-2xl font-bold text-white tabular-nums">225</p>
@@ -147,7 +135,7 @@ export default function PointsPage() {
                 <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
                   <div className="px-4 py-4 border-b border-white/5">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-apple-blue flex-shrink-0" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F] flex-shrink-0" />
                       <p className="text-sm font-semibold text-white">Achievements</p>
                     </div>
                     <p className="text-2xl font-bold text-white tabular-nums">~340</p>
@@ -183,7 +171,7 @@ export default function PointsPage() {
                         {achLoaded && publicKey ? (
                           <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
                             ach.unlocked
-                              ? 'bg-emerald-500/20 text-emerald-400'
+                              ? 'bg-[#F2B71F]/20 text-[#F2B71F]'
                               : 'border border-white/10 text-transparent'
                           }`}>
                             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -195,7 +183,7 @@ export default function PointsPage() {
                           {ach.title}
                         </span>
                       </div>
-                      <span className={`text-sm font-semibold tabular-nums flex-shrink-0 ${ach.unlocked ? 'text-emerald-400' : 'text-apple-blue'}`}>
+                      <span className={`text-sm font-semibold tabular-nums flex-shrink-0 ${ach.unlocked ? 'text-[#F2B71F]' : 'text-[#F2B71F]'}`}>
                         +{ach.points}
                       </span>
                     </div>
@@ -205,14 +193,14 @@ export default function PointsPage() {
                   {publicKey ? (
                     <Link
                       href={`/profile/${publicKey}`}
-                      className="text-sm text-apple-blue font-medium hover:text-white transition-colors"
+                      className="text-sm text-[#F2B71F] font-medium hover:text-white transition-colors"
                     >
                       View achievements →
                     </Link>
                   ) : (
                     <button
                       onClick={connect}
-                      className="text-sm text-apple-blue font-medium hover:text-white transition-colors"
+                      className="text-sm text-[#F2B71F] font-medium hover:text-white transition-colors"
                     >
                       Log in to track your progress →
                     </button>
