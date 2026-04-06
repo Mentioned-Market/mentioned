@@ -310,6 +310,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const setup = (wallet: Wallet) => {
       walletRef.current = wallet
 
+      // User explicitly disconnected — don't auto-reconnect
+      const wasDisconnected = (() => {
+        try { return localStorage.getItem('phantom_disconnected') === '1' } catch { return false }
+      })()
+
+      if (wasDisconnected) {
+        setWalletReady(true)
+        return
+      }
+
       if (wallet.accounts.length > 0) {
         applyPhantomAccount(wallet, wallet.accounts[0])
         setWalletReady(true)
@@ -574,6 +584,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const connectPhantom = useCallback(async () => {
     setShowConnectModal(false)
     disconnectingRef.current = false
+    try { localStorage.removeItem('phantom_disconnected') } catch {}
     let wallet = walletRef.current
     if (!wallet) {
       const { get } = getWallets()
@@ -620,10 +631,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       clearState()
     } else {
       disconnectingRef.current = true
+      // Persist disconnect intent so silent reconnect doesn't fire on refresh
+      try { localStorage.setItem('phantom_disconnected', '1') } catch {}
       const wallet = walletRef.current
       if (wallet && FEAT_DISCONNECT in wallet.features) {
         const feat = wallet.features[FEAT_DISCONNECT] as DisconnectFeature
-        await feat.disconnect()
+        // Fire-and-forget — don't await; Phantom's disconnect() can hang
+        feat.disconnect().catch(() => {})
       }
       clearState()
     }
