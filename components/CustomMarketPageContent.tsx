@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -104,56 +105,91 @@ function formatCloseTime(isoTime: string): string {
 
 // ── How It Works Tooltip ───────────────────────────────
 
-function HowItWorks({ onRerunTutorial, upward }: { onRerunTutorial?: () => void; upward?: boolean }) {
+function HowItWorks({ onRerunTutorial, upward, compact }: { onRerunTutorial?: () => void; upward?: boolean; compact?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({})
+
+  useEffect(() => { setMounted(true) }, [])
+
+  const handleOpen = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      if (upward) {
+        const panel = btnRef.current.closest<HTMLElement>('[data-trading-panel]')
+        const panelRect = panel ? panel.getBoundingClientRect() : rect
+        setPopupStyle({
+          position: 'fixed',
+          top: Math.max(8, rect.top + rect.height / 2 - 110),
+          right: window.innerWidth - panelRect.left + 10,
+          width: 300,
+          zIndex: 99999,
+        })
+      } else {
+        setPopupStyle({
+          position: 'fixed',
+          top: rect.bottom + 8,
+          left: rect.left,
+          width: 300,
+          zIndex: 99999,
+        })
+      }
+    }
+    setOpen(v => !v)
+  }
+
+  const popupContent = open ? (
+    <>
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 99998 }}
+        onClick={() => setOpen(false)}
+      />
+      <div
+        style={{ ...popupStyle, backgroundColor: '#141414' }}
+        className="rounded-xl p-4 shadow-2xl border border-white/15 animate-scale-in"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold text-white">How it works</span>
+          <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="space-y-3 text-xs text-neutral-400 leading-relaxed">
+          <p>You get <span className="text-[#F2B71F] font-semibold">free play tokens</span> — no real money involved.</p>
+          <p>Pick <span className="text-apple-green font-semibold">YES</span> or <span className="text-apple-red font-semibold">NO</span> on whether a word will be said. Prices shift as more people trade.</p>
+          <p>If you&apos;re right, each share pays out <span className="text-white font-semibold">1 token</span>. Wrong shares pay <span className="text-neutral-300 font-semibold">nothing</span>.</p>
+          <p>Every token of profit earns <span className="text-apple-blue font-semibold">0.5 platform points</span> toward the weekly leaderboard.</p>
+        </div>
+        {onRerunTutorial && (
+          <button
+            onClick={() => { setOpen(false); onRerunTutorial() }}
+            className="mt-3 w-full text-center text-[11px] text-[#F2B71F] transition-colors"
+          >
+            Rerun tutorial
+          </button>
+        )}
+      </div>
+    </>
+  ) : null
 
   return (
-    <div className="relative mb-3">
+    <div className={compact ? 'inline-block' : 'mb-3'}>
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-[#F2B71F]/10 border border-[#F2B71F]/20 text-xs text-[#F2B71F] hover:bg-[#F2B71F]/15 transition-colors"
+        ref={btnRef}
+        onClick={handleOpen}
+        className={compact
+          ? "flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F2B71F]/10 border border-[#F2B71F]/20 text-[11px] text-[#F2B71F] hover:bg-[#F2B71F]/15 transition-colors"
+          : "flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-[#F2B71F]/10 border border-[#F2B71F]/20 text-xs text-[#F2B71F] hover:bg-[#F2B71F]/15 transition-colors"
+        }
       >
         <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-[13px] font-bold leading-none">?</span>
-        <span className="font-medium">How does this work?</span>
+        {!compact && <span className="font-medium">How does this work?</span>}
       </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className={`absolute left-0 right-0 z-50 bg-neutral-900 border border-white/10 rounded-xl p-4 shadow-xl animate-scale-in ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-white">How it works</span>
-              <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="space-y-2 text-[11px] text-neutral-400 leading-relaxed">
-              <p>
-                <span className="text-white font-medium">Free to play.</span> You get play tokens to trade with. No real money.
-              </p>
-              <p>
-                <span className="text-white font-medium">Pick YES or NO</span> on words you think will or won&apos;t be said. Prices shift as people trade.
-              </p>
-              <p>
-                <span className="text-white font-medium">Get it right, get paid.</span> Correct shares pay out 1 token each. Wrong shares pay nothing.
-              </p>
-              <p>
-                <span className="text-white font-medium">Profit becomes points.</span> Every token of profit earns 0.5 platform points toward the weekly leaderboard.
-              </p>
-            </div>
-            {onRerunTutorial && (
-              <button
-                onClick={() => { setOpen(false); onRerunTutorial() }}
-                className="mt-3 w-full text-center text-[11px] text-[#F2B71F] hover:text-[#F2B71F] transition-colors"
-              >
-                Rerun tutorial
-              </button>
-            )}
-          </div>
-        </>
-      )}
+      {mounted && createPortal(popupContent, document.body)}
     </div>
   )
 }
@@ -189,7 +225,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
   // Mobile trade sheet
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
-  const [previewDetailsOpen, setPreviewDetailsOpen] = useState(false)
+  const [descExpanded, setDescExpanded] = useState(false)
+
+  const DESC_LIMIT = 160
 
   const [showTutorial, setShowTutorial] = useState(false)
   useEffect(() => {
@@ -523,225 +561,147 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
   // ── Trading Panel (shared between desktop & mobile) ────
 
+  const showBuyPreview = !!(preview && amountNum > 0 && tradeMode === 'buy')
+  const showSellPreview = !!(preview && amountNum > 0 && tradeMode === 'sell')
+
   const tradingPanel = selectedWord ? (
     <>
-      {/* How it works */}
-      <HowItWorks onRerunTutorial={() => {
-        document.cookie = 'mentioned_free_tutorial_seen=; Max-Age=0; path=/'
-        setShowTutorial(true)
-      }} />
-
-      {/* Balance bar + points info */}
-      {connected && (
-        <div className="mb-4 pb-4 border-b border-white/10">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider cursor-help" title="Virtual tokens used for trading in this market. Each market gives you a fresh balance to trade with — no real money involved.">Play Tokens $</span>
-            <span className="text-sm font-semibold text-white">{Math.floor(balance)} / {startingBalance}</span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
-            <div
-              className="h-full bg-[#F2B71F]/70 transition-all duration-300 rounded-full"
-              style={{ width: `${Math.max(0, Math.min(100, (balance / startingBalance) * 100))}%` }}
-            />
-          </div>
-          <p className="text-[10px] text-neutral-600 mt-2">
-            Profit from trades converts to platform points at 0.5x. Buy low, sell high, or hold until resolution.
-          </p>
-        </div>
-      )}
-
-      {/* Current profit summary */}
-      {connected && positions.length > 0 && market?.status !== 'resolved' && (
-        <div className="mb-4 pb-4 border-b border-white/10">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider cursor-help" title="Your profit and loss across all positions in this market. Includes tokens spent, tokens received from selling, and the estimated value if you sold all remaining shares now.">Current P&L</span>
-            <span className={`text-sm font-bold ${currentProfit.total >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-              {currentProfit.total >= 0 ? '+' : ''}{currentProfit.total.toFixed(1)} tokens
-            </span>
-          </div>
-          <div className="space-y-0.5 text-[11px]">
-            <div className="flex justify-between text-neutral-500">
-              <span className="cursor-help" title="Total play tokens you've spent buying shares in this market.">Spent</span>
-              <span>{currentProfit.spent.toFixed(1)}</span>
-            </div>
-            <div className="flex justify-between text-neutral-500">
-              <span className="cursor-help" title="Tokens you've already received back by selling shares.">Realised (from sells)</span>
-              <span>{currentProfit.received.toFixed(1)}</span>
-            </div>
-            <div className="flex justify-between text-neutral-500">
-              <span className="cursor-help" title="Estimated tokens you'd get if you sold all remaining shares right now at current market prices.">Unrealised (if sold now)</span>
-              <span>{currentProfit.unrealised.toFixed(1)}</span>
-            </div>
-          </div>
-          {currentProfit.total > 0 && (
-            <div className="mt-1.5 text-[11px] text-[#F2B71F] font-medium">
-              = {Math.floor(currentProfit.total * VIRTUAL_MARKET_POINTS_MULTIPLIER)} points if resolved now
-            </div>
+      {/* Header: word image + name */}
+      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/10">
+        <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0">
+          {market.cover_image_url ? (
+            <img src={market.cover_image_url} alt={selectedWord.word} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-base">🎯</div>
           )}
         </div>
-      )}
-
-      {/* Selected word label */}
-      <div className="mb-4">
-        <span className={`font-semibold text-sm ${side === 'YES' ? 'text-[#F2B71F]' : 'text-apple-red'}`}>
-          {tradeMode === 'buy' ? 'Buy' : 'Sell'} {side}
-        </span>
-        <span className="text-neutral-400 text-sm"> · </span>
-        <span className="text-white font-semibold text-sm">{selectedWord.word}</span>
+        <span className="text-white font-semibold text-base">{selectedWord.word}</span>
       </div>
 
-      {/* Buy / Sell toggle */}
-      <div className="flex gap-2 mb-4" title="Buy to open a new position, or sell to close an existing one and get tokens back.">
+      {/* Buy / Sell tabs */}
+      <div className="flex items-center gap-5 mb-5">
         <button
           onClick={() => { setTradeMode('buy'); setAmount('') }}
-          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
-            tradeMode === 'buy' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+          className={`text-base font-semibold pb-1 border-b-2 transition-all duration-200 ${
+            tradeMode === 'buy' ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
           }`}
         >Buy</button>
         <button
           onClick={() => { setTradeMode('sell'); setAmount('') }}
-          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
-            tradeMode === 'sell' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+          className={`text-base font-semibold pb-1 border-b-2 transition-all duration-200 ${
+            tradeMode === 'sell' ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
           }`}
         >Sell</button>
       </div>
 
       {/* Yes / No buttons */}
-      <div className="flex gap-2 mb-5" title="Pick a side. YES means you think this word will be said. NO means you think it won't. The price shows the current market probability.">
+      <div className="flex gap-2 mb-5">
         <button
           onClick={() => { setSide('YES'); setAmount('') }}
-          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+          className={`flex-1 py-3.5 rounded-xl text-base font-bold transition-all duration-200 ${
             side === 'YES'
-              ? 'bg-apple-green/15 text-apple-green border border-apple-green/40'
-              : 'border border-white/10 text-neutral-400 hover:border-white/20'
+              ? 'bg-apple-green text-white'
+              : 'bg-white/5 text-neutral-400 hover:bg-white/10'
           }`}
         >
           Yes <FlashValue value={`${yesCents}¢`} />
         </button>
         <button
           onClick={() => { setSide('NO'); setAmount('') }}
-          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+          className={`flex-1 py-3.5 rounded-xl text-base font-bold transition-all duration-200 ${
             side === 'NO'
-              ? 'bg-apple-red/15 text-apple-red border border-apple-red/40'
-              : 'border border-white/10 text-neutral-400 hover:border-white/20'
+              ? 'bg-apple-red text-white'
+              : 'bg-white/5 text-neutral-400 hover:bg-white/10'
           }`}
         >
           No <FlashValue value={`${noCents}¢`} />
         </button>
       </div>
 
-      {/* Amount input */}
+      {/* Amount section */}
       <div className="mb-4">
-        <div className="flex items-center justify-between py-3">
-          <div>
-            <div className="text-sm text-neutral-400 font-medium cursor-help" title={tradeMode === 'buy' ? 'How many play tokens to spend. More tokens = more shares. The price per share increases as more people buy the same side.' : 'How many shares to sell back to the market. You\'ll receive tokens based on the current market price.'}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-400 font-medium">
               {tradeMode === 'buy' ? 'Amount (Tokens)' : 'Shares to sell'}
-            </div>
-            {preview && (
-              <div className="text-xs text-neutral-500 mt-0.5">
-                {tradeMode === 'buy'
-                  ? `~${preview.shares.toFixed(1)} shares`
-                  : `~${preview.cost.toFixed(1)} tokens returned`}
-              </div>
-            )}
+            </span>
+            <HowItWorks compact upward onRerunTutorial={() => {
+              document.cookie = 'mentioned_free_tutorial_seen=; Max-Age=0; path=/'
+              setShowTutorial(true)
+            }} />
           </div>
-          <div className="flex items-center gap-1">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              placeholder="0"
-              className="bg-transparent border-0 text-right text-2xl font-semibold text-white w-24 focus:outline-none focus:ring-0 placeholder:text-neutral-600 p-0"
-            />
-            {tradeMode === 'buy' && <span className="text-neutral-500 text-xl font-semibold">$</span>}
-          </div>
+          {connected && tradeMode === 'buy' && (
+            <span className="text-xs text-neutral-500">{Math.floor(balance)} left</span>
+          )}
         </div>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={amount}
+          onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+          placeholder="0"
+          className="bg-transparent border-0 text-right text-4xl font-bold text-white w-full focus:outline-none focus:ring-0 placeholder:text-neutral-700 p-0 mb-4"
+        />
 
-        {/* Slider + presets — hidden in sell mode when no shares on selected side */}
+        {/* Preset buttons */}
         {(tradeMode === 'buy' || sharesForSelectedSide > 0) && (
-          <div className="pb-2">
-            <div className="flex gap-1.5 mb-3">
-              {[25, 50, 75, 100].map(pct => (
-                <button
-                  key={pct}
-                  onClick={() => handleSliderChange(pct)}
-                  className="flex-1 py-1 text-xs font-medium rounded-md border border-white/10 text-neutral-400 hover:border-white/20 hover:text-white transition-colors"
-                >
-                  {pct === 100 ? 'MAX' : `${pct}%`}
-                </button>
-              ))}
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={Math.round(sliderValue)}
-              onChange={e => handleSliderChange(Number(e.target.value))}
-              className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-              style={{ accentColor: side === 'YES' ? '#F2B71F' : 'var(--apple-red, #ff453a)' }}
-            />
+          <div className="flex gap-2">
+            {[25, 50, 75, 100].map(pct => (
+              <button
+                key={pct}
+                onClick={() => handleSliderChange(pct)}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-full bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-colors border border-white/10"
+              >
+                {pct === 100 ? 'Max' : `${pct}%`}
+              </button>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Cost breakdown */}
-      {preview && amountNum > 0 && tradeMode === 'buy' && (
-        <div className="mb-5">
-          {/* Hero payout + profit */}
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 mb-2">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-neutral-400 text-xs uppercase tracking-wide" title="If your prediction is correct, each share pays out 1 token.">Payout if correct</span>
-              <span className="text-white font-bold text-2xl leading-none">{preview.payout.toFixed(1)} <span className="text-base font-medium text-neutral-300">tokens</span></span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-neutral-400 text-xs uppercase tracking-wide" title="Payout minus your cost.">Profit</span>
-              <span className="text-apple-green font-bold text-2xl leading-none">+{preview.profit.toFixed(1)} <span className="text-base font-medium text-apple-green/80">tokens</span></span>
-            </div>
+      {/* Animated buy preview — slides down when active */}
+      <div
+        style={{
+          maxHeight: showBuyPreview ? '160px' : '0px',
+          opacity: showBuyPreview ? 1 : 0,
+          transform: showBuyPreview ? 'translateY(0)' : 'translateY(-10px)',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease-out, opacity 0.25s ease-out, transform 0.25s ease-out',
+          marginBottom: showBuyPreview ? '16px' : '0px',
+        }}
+      >
+        <div className="border-t border-white/10 pt-4">
+          <div className="flex items-end justify-between mb-1.5">
+            <span className="text-sm text-neutral-400">To win 🎯</span>
+            <span className={`text-3xl font-bold ${preview && preview.profit > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
+              +{preview?.profit.toFixed(1)}
+            </span>
           </div>
-
-          {/* Points earned */}
-          <div className="flex justify-between text-sm px-1 py-2">
-            <span className="text-neutral-400 cursor-help" title="Profit from free markets converts to platform points at a 0.5x rate. Points count toward the leaderboard.">Points earned</span>
-            <span className="text-apple-blue font-semibold">+{Math.floor(preview.profit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} pts</span>
-          </div>
-
-          {/* Collapsible details */}
-          <button
-            type="button"
-            onClick={() => setPreviewDetailsOpen(v => !v)}
-            className="w-full flex items-center justify-between text-xs text-neutral-500 hover:text-neutral-300 transition-colors px-1 py-1.5"
-          >
-            <span>Details</span>
-            <svg className={`w-3 h-3 transition-transform ${previewDetailsOpen ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none">
-              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {previewDetailsOpen && (
-            <div className="space-y-2 text-sm px-1 pt-1">
-              <div className="flex justify-between">
-                <span className="text-neutral-400 cursor-help" title="The average cost per share for this order. Larger orders move the price, so the average may be higher than the current price.">Avg Price</span>
-                <span className="text-white font-medium">{preview.shares > 0 ? Math.round((preview.cost / preview.shares) * 100) : 0}¢</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400 cursor-help" title="The number of shares you'll receive. Each share pays out 1 token if the outcome is correct.">Shares</span>
-                <span className="text-white font-medium">{preview.shares.toFixed(1)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Sell preview */}
-      {preview && amountNum > 0 && tradeMode === 'sell' && (
-        <div className="mb-5 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-neutral-400 cursor-help" title="The amount of play tokens you'll get back by selling these shares at the current market price.">Tokens returned</span>
-            <span className="text-white font-medium">{preview.cost.toFixed(1)}</span>
+          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <span>Avg. Price {preview && preview.shares > 0 ? Math.round((preview.cost / preview.shares) * 100) : 0}¢</span>
+            <span className="text-apple-blue">+{Math.floor((preview?.profit ?? 0) * VIRTUAL_MARKET_POINTS_MULTIPLIER)} pts</span>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Animated sell preview */}
+      <div
+        style={{
+          maxHeight: showSellPreview ? '80px' : '0px',
+          opacity: showSellPreview ? 1 : 0,
+          transform: showSellPreview ? 'translateY(0)' : 'translateY(-10px)',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease-out, opacity 0.25s ease-out, transform 0.25s ease-out',
+          marginBottom: showSellPreview ? '16px' : '0px',
+        }}
+      >
+        <div className="border-t border-white/10 pt-4">
+          <div className="flex items-end justify-between">
+            <span className="text-sm text-neutral-400">Tokens returned</span>
+            <span className="text-2xl font-bold text-white">{preview?.cost.toFixed(1)}</span>
+          </div>
+        </div>
+      </div>
 
       {/* Trade status */}
       {tradeStatus && (
@@ -756,7 +716,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
       {/* Action button */}
       {!isOpen ? (
-        <button disabled className="w-full py-3.5 bg-white/10 text-neutral-400 font-semibold text-base rounded-xl cursor-not-allowed">
+        <button disabled className="w-full py-4 bg-white/10 text-neutral-400 font-bold text-base rounded-2xl cursor-not-allowed">
           {market?.status === 'resolved' ? 'Market Resolved' : market?.status === 'locked' ? 'Market Locked' : 'Market Closed'}
         </button>
       ) : connected && discordLinked === false ? (
@@ -769,9 +729,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
             href={`/api/discord/link?wallet=${publicKey}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-3.5 bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-base rounded-xl transition-all duration-200"
+            className="flex items-center justify-center gap-2 w-full py-4 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-base rounded-2xl transition-all duration-200"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03z"/></svg>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.030z"/></svg>
             Link Discord to trade
           </a>
         </div>
@@ -779,16 +739,10 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
         <button
           onClick={handleTrade}
           disabled={!amount || amountNum <= 0 || (tradeMode === 'buy' && amountNum < 1) || trading}
-          className={`w-full py-3.5 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`w-full py-4 font-bold text-base rounded-2xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
             side === 'YES'
-              ? 'bg-[#F2B71F] hover:bg-[#F2B71F]/90 text-black'
-              : 'bg-apple-red hover:bg-apple-red/90'
-          } ${
-            selectedWordId !== null && amountNum > 0 && !(tradeMode === 'buy' && amountNum < 1) && !trading
-              ? side === 'YES'
-                ? 'ring-2 ring-[#F2B71F]/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(242,183,31,0.45)] animate-pulse'
-                : 'ring-2 ring-apple-red/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(255,59,48,0.45)] animate-pulse'
-              : ''
+              ? 'bg-apple-green hover:bg-apple-green/90 text-white'
+              : 'bg-apple-red hover:bg-apple-red/90 text-white'
           }`}
         >
           {trading ? (
@@ -806,7 +760,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       ) : (
         <button
           onClick={connect}
-          className="w-full py-3.5 bg-white hover:bg-neutral-100 text-black font-semibold text-base rounded-xl transition-all duration-200"
+          className="w-full py-4 bg-white hover:bg-neutral-100 text-black font-bold text-base rounded-2xl transition-all duration-200"
         >
           Login to trade
         </button>
@@ -911,106 +865,98 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 <span className="text-neutral-400">Free Market</span>
               </div>
 
-              {/* Event Header */}
-              <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
-                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
-                  {market.cover_image_url ? (
-                    <img src={market.cover_image_url} alt={market.title} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
-                  )}
-                </div>
+              {/* Two-column layout — starts right after breadcrumb */}
+              <div className="flex gap-6">
+                {/* Left Column */}
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-lg md:text-xl font-semibold text-white leading-tight">
-                    {market.title}
-                  </h1>
-                  {market.description && (
-                    <p className="text-neutral-500 text-sm mt-1">{market.description}</p>
-                  )}
-                </div>
-              </div>
 
-              {/* Meta bar */}
-              <div className="flex items-center gap-4 mb-5 text-xs md:text-sm text-neutral-400">
-                <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
-                <span className="text-neutral-700">·</span>
-                <span>{words.length} words</span>
-                <span className="text-neutral-700">·</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                  market.status === 'resolved' ? 'bg-blue-500/15 text-blue-400' :
-                  (market.status === 'locked' || lockTimePassed) ? 'bg-white/10 text-neutral-400' :
-                  'bg-[#F2B71F]/15 text-[#F2B71F]'
-                }`}>
-                  {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
-                </span>
-                {market.lock_time && isOpen && !lockTimePassed && (
-                  <>
-                    <span className="text-neutral-700">·</span>
-                    <span>Locks {formatCloseTime(market.lock_time)}</span>
-                    <span className="text-neutral-700">·</span>
-                    <span>{timeUntil(market.lock_time)} left</span>
-                  </>
-                )}
-              </div>
-
-              {/* Resolved summary */}
-              {market.status === 'resolved' && positions.length > 0 && (
-                <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-neutral-400">Your Result</span>
-                    <div className="text-right">
-                      <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
-                        {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
-                      </div>
-                      {totalProfit > 0 && (
-                        <div className="text-xs text-neutral-500">
-                          = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
-                        </div>
+                  {/* Event Header */}
+                  <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
+                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
+                      {market.cover_image_url ? (
+                        <img src={market.cover_image_url} alt={market.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
                       )}
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Stream embed + event chat */}
-              {streamEmbedUrl && !streamHidden && (
-                <div className="mb-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                      <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
-                    </div>
-                    <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
-                      Hide stream
-                    </button>
-                  </div>
-                  <div className="flex gap-4">
                     <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-2">
+                        <h1 className="text-lg md:text-xl font-semibold text-white leading-tight flex-1 min-w-0">
+                          {market.title}
+                        </h1>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Meta bar */}
+                  <div className="flex items-center gap-4 mb-5 text-xs md:text-sm text-neutral-400">
+                    <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
+                    <span className="text-neutral-700">·</span>
+                    <span>{words.length} words</span>
+                    <span className="text-neutral-700">·</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      market.status === 'resolved' ? 'bg-blue-500/15 text-blue-400' :
+                      (market.status === 'locked' || lockTimePassed) ? 'bg-white/10 text-neutral-400' :
+                      'bg-[#F2B71F]/15 text-[#F2B71F]'
+                    }`}>
+                      {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
+                    </span>
+                    {market.lock_time && isOpen && !lockTimePassed && (
+                      <>
+                        <span className="text-neutral-700">·</span>
+                        <span>Locks {formatCloseTime(market.lock_time)}</span>
+                        <span className="text-neutral-700">·</span>
+                        <span>{timeUntil(market.lock_time)} left</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Resolved summary */}
+                  {market.status === 'resolved' && positions.length > 0 && (
+                    <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-neutral-400">Your Result</span>
+                        <div className="text-right">
+                          <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                            {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
+                          </div>
+                          {totalProfit > 0 && (
+                            <div className="text-xs text-neutral-500">
+                              = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stream embed */}
+                  {streamEmbedUrl && !streamHidden && (
+                    <div className="mb-5">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                          <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
+                        </div>
+                        <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                          Hide stream
+                        </button>
+                      </div>
                       <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
                         <iframe src={streamEmbedUrl} className="absolute inset-0 w-full h-full" allowFullScreen allow="autoplay; encrypted-media" />
                       </div>
                     </div>
-                    <div className="hidden lg:block w-[340px] flex-shrink-0 aspect-video">
-                      <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
-                    </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {streamEmbedUrl && streamHidden && (
-                <button
-                  onClick={() => setStreamHidden(false)}
-                  className="flex items-center gap-2 mb-5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-                >
-                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                  <span className="text-xs font-medium text-neutral-300">Show live stream</span>
-                </button>
-              )}
-
-              {/* Two-column layout */}
-              <div className="flex gap-6">
-                {/* Left Column */}
-                <div className="flex-1 min-w-0">
+                  {streamEmbedUrl && streamHidden && (
+                    <button
+                      onClick={() => setStreamHidden(false)}
+                      className="flex items-center gap-2 mb-5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                    >
+                      <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                      <span className="text-xs font-medium text-neutral-300">Show live stream</span>
+                    </button>
+                  )}
                   {/* Price chart — matches polymarket event chart with legend + timeframes */}
                   {loading || chartLoading ? (
                     <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
@@ -1033,7 +979,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
                       <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Word</span>
                       <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1" data-tutorial="chance-column">Chance</span>
-                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-right w-[180px] md:w-[240px]">Trade</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center w-[172px] md:w-[232px]">Trade</span>
                     </div>
 
                     {words.map(word => {
@@ -1072,7 +1018,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                             <FlashValue value={`${pct}%`} className="text-white font-bold text-base md:text-lg" />
                           </div>
 
-                          <div className="flex items-center gap-1.5 md:gap-2 w-[180px] md:w-[240px] justify-end">
+                          <div className="flex items-center gap-1.5 md:gap-2 w-[172px] md:w-[232px] justify-end">
                             {isResolved ? (
                               <span className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border ${
                                 word.resolved_outcome
@@ -1084,7 +1030,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                             ) : (
                               <>
                                 <span
-                                  className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
+                                  className={`w-[82px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
                                     isSelected && side === 'YES'
                                       ? 'bg-apple-green/15 border-apple-green text-apple-green'
                                       : 'border-white/10 text-apple-green hover:border-apple-green/30'
@@ -1094,7 +1040,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                   Yes <FlashValue value={`${wordYesCents}¢`} />
                                 </span>
                                 <span
-                                  className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 ${
+                                  className={`w-[82px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
                                     isSelected && side === 'NO'
                                       ? 'bg-apple-red/15 border-apple-red text-apple-red'
                                       : 'border-white/10 text-apple-red hover:border-apple-red/30'
@@ -1111,12 +1057,79 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     })}
                   </div>
 
-                  {/* Event chat (when no stream, show inline) */}
+                  {/* Description — show more/less */}
+                  {market.description && (
+                    <div className="mb-5">
+                      <p className="text-neutral-500 text-sm leading-relaxed">
+                        {descExpanded || market.description.length <= DESC_LIMIT
+                          ? market.description
+                          : `${market.description.slice(0, DESC_LIMIT).trimEnd()}…`}
+                      </p>
+                      {market.description.length > DESC_LIMIT && (
+                        <button
+                          onClick={() => setDescExpanded(v => !v)}
+                          className="mt-1 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+                        >
+                          {descExpanded ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Event chat + P&L side by side (when no stream) */}
                   {!streamEmbedUrl && (
-                    <div className="mb-6">
-                      <div className="h-[400px]">
+                    <div className="flex gap-4 mb-6">
+                      <div className="flex-1 min-w-0 h-[400px]">
                         <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
                       </div>
+                      {connected && market?.status !== 'resolved' && (
+                        <div className="flex-1 min-w-0 glass rounded-2xl p-4 flex flex-col">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">Current P&amp;L</span>
+                            <span className={`text-sm font-bold ${currentProfit.total >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                              {currentProfit.total >= 0 ? '+' : ''}{currentProfit.total.toFixed(1)} tokens
+                            </span>
+                          </div>
+                          {/* Balance bar */}
+                          <div className="mb-4">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] text-neutral-600">Play tokens</span>
+                              <span className="text-xs font-semibold text-white">{Math.floor(balance)} / {startingBalance}</span>
+                            </div>
+                            <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
+                              <div
+                                className="h-full bg-[#F2B71F]/70 transition-all duration-300 rounded-full"
+                                style={{ width: `${Math.max(0, Math.min(100, (balance / startingBalance) * 100))}%` }}
+                              />
+                            </div>
+                          </div>
+                          {positions.length > 0 ? (
+                            <div className="space-y-2 text-xs flex-1">
+                              <div className="flex justify-between text-neutral-500">
+                                <span title="Total play tokens you've spent buying shares.">Spent</span>
+                                <span>{currentProfit.spent.toFixed(1)}</span>
+                              </div>
+                              <div className="flex justify-between text-neutral-500">
+                                <span title="Tokens received back from selling shares.">Realised (from sells)</span>
+                                <span>{currentProfit.received.toFixed(1)}</span>
+                              </div>
+                              <div className="flex justify-between text-neutral-500">
+                                <span title="Estimated value if you sold all shares now.">Unrealised (if sold now)</span>
+                                <span>{currentProfit.unrealised.toFixed(1)}</span>
+                              </div>
+                              {currentProfit.total > 0 && (
+                                <div className="pt-2 border-t border-white/10 text-[#F2B71F] font-medium">
+                                  = {Math.floor(currentProfit.total * VIRTUAL_MARKET_POINTS_MULTIPLIER)} points if resolved now
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex-1 flex items-center justify-center">
+                              <p className="text-neutral-600 text-xs text-center">No positions yet.<br />Place a trade to get started.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1197,14 +1210,12 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
                 {/* Right Column — Trading Panel (desktop) */}
                 <div className="w-[340px] flex-shrink-0 hidden lg:block">
-                  <div className="sticky top-24">
-                    <div className="glass rounded-2xl p-5" data-tutorial="trading-panel">
+                  <div className="sticky top-28">
+                    <div className="glass rounded-2xl p-5" data-tutorial="trading-panel" data-trading-panel>
                       {tradingPanel}
                     </div>
 
-                    {/* Event chat below trading panel only when stream is hidden or absent —
-                        when stream is visible the chat is already shown beside the stream */}
-                    {streamEmbedUrl && streamHidden && (
+                    {streamEmbedUrl && (
                       <div className="mt-4 h-[400px]">
                         <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
                       </div>
