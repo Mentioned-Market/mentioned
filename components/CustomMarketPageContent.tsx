@@ -992,7 +992,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
                       <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Word</span>
                       <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1" data-tutorial="chance-column">Chance</span>
-                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center w-[172px] md:w-[232px]">Trade</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center w-[148px] md:w-[232px]">Trade</span>
                     </div>
 
                     {words.map(word => {
@@ -1031,7 +1031,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                             <FlashValue value={`${pct}%`} className="text-white font-bold text-base md:text-lg" />
                           </div>
 
-                          <div className="flex items-center gap-1.5 md:gap-2 w-[172px] md:w-[232px] justify-end">
+                          <div className="flex items-center gap-1.5 md:gap-2 w-[148px] md:w-[232px] justify-end">
                             {isResolved ? (
                               <span className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border ${
                                 word.resolved_outcome
@@ -1043,7 +1043,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                             ) : (
                               <>
                                 <span
-                                  className={`w-[82px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
+                                  className={`w-[70px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
                                     isSelected && side === 'YES'
                                       ? 'bg-apple-green/15 border-apple-green text-apple-green'
                                       : 'border-white/10 text-apple-green hover:border-apple-green/30'
@@ -1053,7 +1053,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                   Yes <FlashValue value={`${wordYesCents}¢`} />
                                 </span>
                                 <span
-                                  className={`w-[82px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
+                                  className={`w-[70px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
                                     isSelected && side === 'NO'
                                       ? 'bg-apple-red/15 border-apple-red text-apple-red'
                                       : 'border-white/10 text-apple-red hover:border-apple-red/30'
@@ -1089,9 +1089,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     </div>
                   )}
 
-                  {/* Event chat + P&L side by side (when no stream) */}
+                  {/* Event chat + P&L stacked on mobile, side by side on desktop (when no stream) */}
                   {!streamEmbedUrl && (
-                    <div className="flex gap-4 mb-6">
+                    <div className="flex flex-col lg:flex-row gap-4 mb-6">
                       <div className="flex-1 min-w-0 h-[400px]">
                         <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
                       </div>

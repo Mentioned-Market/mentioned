@@ -277,7 +277,8 @@ export function AchievementProvider({ children }: { children: ReactNode }) {
 
             {/* Dismiss hint */}
             <div className="pb-4 text-center">
-              <span className="text-[10px] text-neutral-700">tap anywhere to dismiss</span>
+              <span className="text-[10px] text-neutral-700 md:hidden">tap anywhere to dismiss</span>
+              <span className="text-[10px] text-neutral-700 hidden md:inline">click anywhere to dismiss</span>
             </div>
           </div>
         </div>
