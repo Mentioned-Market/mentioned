@@ -119,14 +119,27 @@ function HowItWorks({ onRerunTutorial, upward, compact }: { onRerunTutorial?: ()
       const rect = btnRef.current.getBoundingClientRect()
       if (upward) {
         const panel = btnRef.current.closest<HTMLElement>('[data-trading-panel]')
-        const panelRect = panel ? panel.getBoundingClientRect() : rect
-        setPopupStyle({
-          position: 'fixed',
-          top: Math.max(8, rect.top + rect.height / 2 - 110),
-          right: window.innerWidth - panelRect.left + 10,
-          width: 300,
-          zIndex: 99999,
-        })
+        if (panel) {
+          const panelRect = panel.getBoundingClientRect()
+          setPopupStyle({
+            position: 'fixed',
+            top: Math.max(8, rect.top + rect.height / 2 - 110),
+            right: window.innerWidth - panelRect.left + 10,
+            width: 300,
+            zIndex: 99999,
+          })
+        } else {
+          // Mobile bottom bar — center popup above the button
+          const popupWidth = 300
+          const left = Math.max(8, Math.min(rect.left + rect.width / 2 - popupWidth / 2, window.innerWidth - popupWidth - 8))
+          setPopupStyle({
+            position: 'fixed',
+            bottom: window.innerHeight - rect.top + 8,
+            left,
+            width: popupWidth,
+            zIndex: 99999,
+          })
+        }
       } else {
         setPopupStyle({
           position: 'fixed',
@@ -1035,7 +1048,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                       ? 'bg-apple-green/15 border-apple-green text-apple-green'
                                       : 'border-white/10 text-apple-green hover:border-apple-green/30'
                                   }`}
-                                  onClick={e => { e.stopPropagation(); setSelectedWordId(word.id); setSide('YES') }}
+                                  onClick={e => { e.stopPropagation(); setSelectedWordId(word.id); setSide('YES'); if (window.innerWidth < 1024) setMobileTradeOpen(true) }}
                                 >
                                   Yes <FlashValue value={`${wordYesCents}¢`} />
                                 </span>
@@ -1045,7 +1058,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                       ? 'bg-apple-red/15 border-apple-red text-apple-red'
                                       : 'border-white/10 text-apple-red hover:border-apple-red/30'
                                   }`}
-                                  onClick={e => { e.stopPropagation(); setSelectedWordId(word.id); setSide('NO') }}
+                                  onClick={e => { e.stopPropagation(); setSelectedWordId(word.id); setSide('NO'); if (window.innerWidth < 1024) setMobileTradeOpen(true) }}
                                 >
                                   No <FlashValue value={`${wordNoCents}¢`} />
                                 </span>
