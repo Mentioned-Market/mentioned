@@ -14,7 +14,8 @@ Solana prediction market platform. Users trade YES/NO outcomes on events (via Ju
 ## Important notes to remember:
 - The code needs to be well written and without errors, verify as you're working
 - Every solution needs to take into account user experience and keep with the social aspect of Mentioned
-- Scalability, performance and security is incredibly important, make sure any change meets this criteria  
+- Scalability, performance and security is incredibly important, make sure any change meets this criteria
+- When making changes, ensure they will perform and look well on mobile
 
 ## Architecture
 

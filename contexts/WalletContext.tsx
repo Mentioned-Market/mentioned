@@ -296,6 +296,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     profileFetchedForRef.current = null
     authInFlightRef.current = null
     privyWalletRef.current = null
+    walletRef.current = null
   }, [])
 
   useEffect(() => {
@@ -304,9 +305,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (disconnectingRef.current) return
 
     const { get, on } = getWallets()
+    let unsubChange: (() => void) | null = null
 
     const setup = (wallet: Wallet) => {
       walletRef.current = wallet
+
+      // User explicitly disconnected — don't auto-reconnect
+      const wasDisconnected = (() => {
+        try { return localStorage.getItem('phantom_disconnected') === '1' } catch { return false }
+      })()
+
+      if (wasDisconnected) {
+        setWalletReady(true)
+        return
+      }
 
       if (wallet.accounts.length > 0) {
         applyPhantomAccount(wallet, wallet.accounts[0])
@@ -331,7 +343,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       if (FEAT_EVENTS in wallet.features) {
         const events = wallet.features[FEAT_EVENTS] as EventsFeature
-        events.on('change', (props) => {
+        unsubChange = events.on('change', (props) => {
           if (disconnectingRef.current) return
           const accounts = props.accounts ?? wallet.accounts
           if (accounts.length > 0) {
@@ -359,7 +371,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setup(found)
         }
       })
-      return () => { clearTimeout(readyTimer); unsub2() }
+      return () => { clearTimeout(readyTimer); unsub2(); unsubChange?.() }
     }
 
     const unsub = on('register', (...newWallets: Wallet[]) => {
@@ -370,6 +382,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     return () => {
       unsub()
+      unsubChange?.()
     }
   }, [applyPhantomAccount, clearState, walletType])
 
@@ -571,6 +584,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const connectPhantom = useCallback(async () => {
     setShowConnectModal(false)
     disconnectingRef.current = false
+    try { localStorage.removeItem('phantom_disconnected') } catch {}
     let wallet = walletRef.current
     if (!wallet) {
       const { get } = getWallets()
@@ -609,14 +623,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (walletType === 'privy') {
       disconnectingRef.current = true
       setPrivySolanaProvider(null)
+      try {
+        await privyLogout()
+      } catch (e) {
+        console.warn('Privy logout error:', e)
+      }
       clearState()
-      await privyLogout()
     } else {
       disconnectingRef.current = true
+      // Persist disconnect intent so silent reconnect doesn't fire on refresh
+      try { localStorage.setItem('phantom_disconnected', '1') } catch {}
       const wallet = walletRef.current
       if (wallet && FEAT_DISCONNECT in wallet.features) {
         const feat = wallet.features[FEAT_DISCONNECT] as DisconnectFeature
-        await feat.disconnect()
+        // Fire-and-forget — don't await; Phantom's disconnect() can hang
+        feat.disconnect().catch(() => {})
       }
       clearState()
     }
