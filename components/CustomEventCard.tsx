@@ -90,7 +90,7 @@ function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; mark
     <div
       ref={outerRef}
       className="overflow-hidden"
-      style={{ height: needsScroll ? fixedHeight : undefined }}
+      style={{ height: fixedHeight }}
     >
       <div ref={innerRef} className="flex flex-col gap-1.5">
         {words.map(w => {

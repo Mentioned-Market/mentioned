@@ -79,7 +79,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
 
   return (
     <div
-      className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 shrink-0 select-none cursor-pointer hover:bg-white/10 hover:border-white/20 transition-colors"
+      className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-neutral-900 border border-white/10 shrink-0 select-none cursor-pointer hover:bg-neutral-800 hover:border-white/20 transition-colors"
       onClick={() => router.push(href)}
     >
       {isFree && (
@@ -147,16 +147,16 @@ export default function TradeTicker() {
 
   return (
     <div
-      className="relative w-full overflow-hidden border-b border-white/10 bg-neutral-950/80 backdrop-blur-sm"
-      style={{ height: '40px' }}
+      className="relative w-full overflow-hidden border-b border-white/10 bg-neutral-950"
+      style={{ height: '40px', zIndex: 51 }}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       aria-label="Recent trades"
     >
       {/* Left fade */}
-      <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-16 z-10 bg-gradient-to-r from-neutral-950/80 to-transparent" />
+      <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-16 z-10 bg-gradient-to-r from-neutral-950 to-transparent" />
       {/* Right fade */}
-      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-16 z-10 bg-gradient-to-l from-neutral-950/80 to-transparent" />
+      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-16 z-10 bg-gradient-to-l from-neutral-950 to-transparent" />
 
       {doubled.length > 0 ? (
         <div

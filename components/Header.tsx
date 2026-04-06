@@ -67,7 +67,7 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] backdrop-blur-xl bg-black/30 border-b border-white/10">
+      <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] bg-black border-b border-white/10">
         <div className="px-4 md:px-10 lg:px-20">
          <div className="max-w-7xl mx-auto flex items-center justify-between py-3 md:py-5">
         <div className="flex items-center gap-4 md:gap-6">
@@ -165,6 +165,14 @@ export default function Header() {
                   >
                     My Profile
                   </Link>
+                  <div className="border-t border-white/10"></div>
+                  <Link
+                    href="/points"
+                    onClick={() => setDropdownOpen(false)}
+                    className="block w-full text-left px-4 py-3 text-[#F2B71F] text-sm font-semibold hover:bg-white/10 transition-colors duration-200"
+                  >
+                    Points & Prizes
+                  </Link>
                   {walletType === 'privy' && (
                     <>
                       <div className="border-t border-white/10"></div>
@@ -248,6 +256,7 @@ export default function Header() {
                 <Link href="/markets" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Markets</Link>
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
+                <Link href="/points" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-[#F2B71F] text-sm font-semibold hover:bg-white/10 transition-colors duration-200">Points & Prizes</Link>
                 <div className="border-t border-white/10" />
                 <button
                   onClick={() => {
