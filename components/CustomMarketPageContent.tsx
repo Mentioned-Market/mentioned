@@ -569,7 +569,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       {/* Header: word image + name */}
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/10">
         <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0">
-          {market.cover_image_url ? (
+          {market?.cover_image_url ? (
             <img src={market.cover_image_url} alt={selectedWord.word} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-base">🎯</div>
