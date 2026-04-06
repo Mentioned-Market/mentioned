@@ -57,6 +57,8 @@ interface CustomMarketSummary {
   lock_time: string | null
   slug: string
   is_featured: boolean
+  market_type: string
+  event_start_time: string | null
   word_count: number
   trader_count: number
   words_prices: { word_id: number; word: string; yes_price: number; no_price: number }[]
@@ -285,6 +287,11 @@ function EventCard({ event }: { event: PolyEvent }) {
 function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
   const url = `/free/${market.slug}`
+  const lockPassed = market.lock_time ? new Date(market.lock_time) <= new Date() : false
+  const isLive = market.status === 'open' && !lockPassed && (
+    market.market_type === 'continuous' ||
+    (market.market_type === 'event' && market.event_start_time && new Date(market.event_start_time) <= new Date())
+  )
 
   const topWords = market.words_prices.slice(0, 4)
 
@@ -313,6 +320,14 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
           )}
           <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-medium backdrop-blur-sm">Featured</span>
         </div>
+        {isLive && (
+          <div className="absolute top-3 right-3">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 text-apple-red text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-apple-red animate-pulse" />
+              Live
+            </span>
+          </div>
+        )}
 
         {/* Title overlaid at bottom of image */}
         <div className="absolute bottom-0 left-0 right-0 p-4">

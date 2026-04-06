@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words, urlPrefix } = body as {
+  const { title, description, coverImageUrl, streamUrl, lockTime, bParameter, playTokens, words, urlPrefix, marketType, eventStartTime } = body as {
     title?: string
     description?: string
     coverImageUrl?: string
@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
     playTokens?: number
     words?: string[]
     urlPrefix?: string
+    marketType?: string
+    eventStartTime?: string
   }
 
   if (!title || !urlPrefix?.trim()) {
@@ -64,6 +66,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'URL prefix must contain only letters and numbers' }, { status: 400 })
   }
 
+  const mType = marketType === 'event' ? 'event' : 'continuous'
+
   const market = await createCustomMarket(
     title,
     description ?? null,
@@ -73,6 +77,8 @@ export async function POST(req: NextRequest) {
     b,
     tokens,
     trimmedPrefix,
+    mType,
+    eventStartTime ?? null,
   )
 
   let marketWords: any[] = []

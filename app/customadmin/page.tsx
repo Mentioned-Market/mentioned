@@ -30,6 +30,8 @@ export default function CustomAdminPage() {
   const [bParameter, setBParameter] = useState('500')
   const [playTokens, setPlayTokens] = useState('1000')
   const [urlPrefix, setUrlPrefix] = useState('')
+  const [marketType, setMarketType] = useState<'continuous' | 'event'>('continuous')
+  const [eventStartTime, setEventStartTime] = useState('')
   const [wordsInput, setWordsInput] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -42,6 +44,8 @@ export default function CustomAdminPage() {
   const [editCoverImageUrl, setEditCoverImageUrl] = useState('')
   const [editStreamUrl, setEditStreamUrl] = useState('')
   const [editLockTime, setEditLockTime] = useState('')
+  const [editMarketType, setEditMarketType] = useState<'continuous' | 'event'>('continuous')
+  const [editEventStartTime, setEditEventStartTime] = useState('')
   const [addWordsInput, setAddWordsInput] = useState('')
 
   // Resolution state
@@ -95,6 +99,8 @@ export default function CustomAdminPage() {
     setEditCoverImageUrl(market.cover_image_url || '')
     setEditStreamUrl(market.stream_url || '')
     setEditLockTime(market.lock_time ? new Date(market.lock_time).toISOString().slice(0, 16) : '')
+    setEditMarketType((market.market_type === 'event' ? 'event' : 'continuous') as 'continuous' | 'event')
+    setEditEventStartTime(market.event_start_time ? new Date(market.event_start_time).toISOString().slice(0, 16) : '')
     setAddWordsInput('')
     const res: Record<number, boolean | null> = {}
     market.words.forEach(w => { res[w.id] = w.resolved_outcome })
@@ -123,6 +129,8 @@ export default function CustomAdminPage() {
           playTokens: parseInt(playTokens) || 1000,
           words: words.length > 0 ? words : undefined,
           urlPrefix: urlPrefix.trim() || undefined,
+          marketType,
+          eventStartTime: eventStartTime || undefined,
         }),
       })
       const json = await res.json()
@@ -136,6 +144,8 @@ export default function CustomAdminPage() {
       setBParameter('500')
       setPlayTokens('1000')
       setUrlPrefix('')
+      setMarketType('continuous')
+      setEventStartTime('')
       setWordsInput('')
       fetchMarkets()
     } catch (err: any) {
@@ -158,6 +168,8 @@ export default function CustomAdminPage() {
           cover_image_url: editCoverImageUrl.trim() || null,
           stream_url: editStreamUrl.trim() || null,
           lock_time: editLockTime || null,
+          market_type: editMarketType,
+          event_start_time: editEventStartTime || null,
         }),
       })
       if (!res.ok) throw new Error('Failed to update')
@@ -390,6 +402,33 @@ export default function CustomAdminPage() {
                 onChange={e => setLockTime(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
               />
+              <div>
+                <select
+                  value={marketType}
+                  onChange={e => setMarketType(e.target.value as 'continuous' | 'event')}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-white/20"
+                >
+                  <option value="continuous">Continuous</option>
+                  <option value="event">Event</option>
+                </select>
+                <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                  Continuous: always live when open (e.g. &quot;What will Trump say this week&quot;). Event: live only after event starts (e.g. PM Questions, live streams).
+                </p>
+              </div>
+              {marketType === 'event' && (
+                <div>
+                  <input
+                    type="datetime-local"
+                    placeholder="Event Start Time"
+                    value={eventStartTime}
+                    onChange={e => setEventStartTime(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                  />
+                  <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                    When the event begins. The &quot;Live&quot; tag will appear on the card once this time is reached.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
@@ -482,6 +521,13 @@ export default function CustomAdminPage() {
                             ★ Featured
                           </span>
                         )}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide ${
+                          market.market_type === 'event'
+                            ? 'bg-purple-500/20 text-purple-400'
+                            : 'bg-white/5 text-neutral-500'
+                        }`}>
+                          {market.market_type === 'event' ? 'Event' : 'Continuous'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-4 text-xs text-neutral-500">
                         <span>{market.words.length} words</span>
@@ -526,6 +572,32 @@ export default function CustomAdminPage() {
                               onChange={e => setEditLockTime(e.target.value)}
                               className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
                             />
+                            <div>
+                              <select
+                                value={editMarketType}
+                                onChange={e => setEditMarketType(e.target.value as 'continuous' | 'event')}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/20"
+                              >
+                                <option value="continuous">Continuous</option>
+                                <option value="event">Event</option>
+                              </select>
+                              <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                                Continuous: always live when open. Event: live only after event starts.
+                              </p>
+                            </div>
+                            {editMarketType === 'event' && (
+                              <div>
+                                <input
+                                  type="datetime-local"
+                                  value={editEventStartTime}
+                                  onChange={e => setEditEventStartTime(e.target.value)}
+                                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                                />
+                                <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                                  When the event begins. &quot;Live&quot; tag appears after this time.
+                                </p>
+                              </div>
+                            )}
                           </div>
                           <textarea
                             placeholder="Description"

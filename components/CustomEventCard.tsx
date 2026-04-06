@@ -19,6 +19,8 @@ interface CustomMarketSummary {
   status: string
   lock_time: string | null
   slug: string
+  market_type: string
+  event_start_time: string | null
   word_count: number
   trader_count: number
   words_prices: WordPrice[]
@@ -123,6 +125,12 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
   const lockPassed = market.lock_time ? new Date(market.lock_time) <= new Date() : false
   const isClosed = market.status === 'locked' || (market.status === 'open' && lockPassed)
 
+  // Live logic: continuous markets are live when open, event markets are live when open + event started
+  const isLive = market.status === 'open' && !lockPassed && (
+    market.market_type === 'continuous' ||
+    (market.market_type === 'event' && market.event_start_time && new Date(market.event_start_time) <= new Date())
+  )
+
   return (
     <div className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift">
       {/* Image */}
@@ -148,6 +156,14 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
             <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/80 text-black text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
           )}
         </div>
+        {isLive && (
+          <div className="absolute top-3 right-3">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 text-apple-red text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-apple-red animate-pulse" />
+              Live
+            </span>
+          </div>
+        )}
       </Link>
 
       <div className="p-4 flex flex-col gap-3">
@@ -170,6 +186,14 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {market.word_count} words
           </span>
+          {market.lock_time && market.status === 'open' && !lockPassed && (
+            <>
+              <span className="text-neutral-600 text-[10px]">·</span>
+              <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+                Closes {formatCloseTime(market.lock_time)}
+              </span>
+            </>
+          )}
         </Link>
       </div>
     </div>
