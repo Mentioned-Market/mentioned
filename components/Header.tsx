@@ -131,7 +131,7 @@ export default function Header() {
               <span className="text-neutral-500 text-sm tracking-widest">···</span>
             </div>
           ) : connected ? (
-            <div className="relative" ref={dropdownRef}>
+            <div className="relative hidden md:block" ref={dropdownRef}>
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className="flex items-center gap-1.5 md:gap-2 h-8 md:h-9 px-2.5 md:px-4 glass hover:bg-white/10 text-white text-sm font-medium rounded-lg transition-all duration-200"
@@ -183,6 +183,16 @@ export default function Header() {
                   <button
                     onClick={() => {
                       setDropdownOpen(false)
+                      window.dispatchEvent(new Event('open-bug-report'))
+                    }}
+                    className="w-full text-left px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200"
+                  >
+                    Report a Bug
+                  </button>
+                  <div className="border-t border-white/10"></div>
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false)
                       disconnect()
                     }}
                     className="w-full text-left px-4 py-3 text-apple-red text-sm font-medium hover:bg-white/10 transition-colors duration-200"
@@ -221,10 +231,24 @@ export default function Header() {
 
             {mobileMenuOpen && (
               <div className="absolute right-0 mt-2 w-48 bg-neutral-900 rounded-xl overflow-hidden z-50 shadow-card-hover animate-scale-in border border-white/10">
+                {/* Profile — top of menu when connected */}
+                {connected && publicKey && (
+                  <>
+                    <Link
+                      href={username ? `/profile/${username}` : `/profile/${publicKey}`}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex items-center gap-2 px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200"
+                    >
+                      {pfpEmoji && <span className="text-base leading-none">{pfpEmoji}</span>}
+                      <span>{username ? `@${username}` : formatAddress(publicKey)}</span>
+                    </Link>
+                    <div className="border-t border-white/10" />
+                  </>
+                )}
                 <Link href="/markets" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Markets</Link>
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
-                <div className="border-t border-white/10"></div>
+                <div className="border-t border-white/10" />
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false)
@@ -237,16 +261,6 @@ export default function Header() {
                   </svg>
                   How it works
                 </button>
-                {publicKey && (
-                  <Link
-                    href={username ? `/profile/${username}` : `/profile/${publicKey}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="block px-4 py-3 text-neutral-400 text-sm hover:bg-white/10 transition-colors duration-200"
-                  >
-                    My Profile
-                  </Link>
-                )}
-                <div className="border-t border-white/10"></div>
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false)
@@ -256,6 +270,21 @@ export default function Header() {
                 >
                   Report a Bug
                 </button>
+                {/* Disconnect — bottom of menu when connected */}
+                {connected && (
+                  <>
+                    <div className="border-t border-white/10" />
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false)
+                        disconnect()
+                      }}
+                      className="w-full text-left px-4 py-3 text-apple-red text-sm font-medium hover:bg-white/10 transition-colors duration-200"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
