@@ -164,7 +164,7 @@ function AnimatedChart({ play }: { play: boolean }) {
     const lastPt = points[points.length - 1]
 
     const grad = ctx.createLinearGradient(0, 0, 0, h)
-    grad.addColorStop(0, 'rgba(52,199,89,0.15)'); grad.addColorStop(1, 'rgba(52,199,89,0)')
+    grad.addColorStop(0, 'rgba(242,183,31,0.15)'); grad.addColorStop(1, 'rgba(242,183,31,0)')
     ctx.beginPath()
     points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y))
     ctx.lineTo(lastPt[0], h); ctx.lineTo(0, h); ctx.closePath()
@@ -172,10 +172,10 @@ function AnimatedChart({ play }: { play: boolean }) {
 
     ctx.beginPath()
     points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y))
-    ctx.strokeStyle = '#34C759'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
+    ctx.strokeStyle = '#F2B71F'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
 
-    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 4, 0, Math.PI * 2); ctx.fillStyle = '#34C759'; ctx.fill()
-    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(52,199,89,0.25)'; ctx.fill()
+    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 4, 0, Math.PI * 2); ctx.fillStyle = '#F2B71F'; ctx.fill()
+    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(242,183,31,0.25)'; ctx.fill()
   }, [progress, prices])
 
   return <canvas ref={canvasRef} className="w-full h-full" style={{ display: 'block' }} />
@@ -196,15 +196,15 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
     <div className="glass rounded-2xl p-5 text-left cursor-pointer relative overflow-hidden" style={{
       opacity: enterP,
       transform: `translateY(${lerp(40, 0, enterP)}px) scale(${lerp(0.95, 1, enterP)})`,
-      border: `1px solid rgba(52, 199, 89, ${selectP * 0.5})`,
-      boxShadow: `0 0 ${selectP * 40}px rgba(52, 199, 89, ${selectP * 0.1}), inset 0 0 ${selectP * 30}px rgba(52,199,89,${selectP * 0.03})`,
+      border: `1px solid rgba(242, 183, 31, ${selectP * 0.5})`,
+      boxShadow: `0 0 ${selectP * 40}px rgba(242, 183, 31, ${selectP * 0.1}), inset 0 0 ${selectP * 30}px rgba(242,183,31,${selectP * 0.03})`,
     }}>
-      {isSelected && <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg, transparent 40%, rgba(52,199,89,0.06) 50%, transparent 60%)', animation: 'shimmerSlide 2s ease-in-out infinite' }} />}
+      {isSelected && <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg, transparent 40%, rgba(242,183,31,0.06) 50%, transparent 60%)', animation: 'shimmerSlide 2s ease-in-out infinite' }} />}
       <div className="flex items-center gap-3 mb-4">
         <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-xl">{emoji}</div>
         <div>
           <h4 className="text-white text-sm font-semibold">{title}</h4>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Open</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#F2B71F] bg-[#F2B71F]/10 px-2 py-0.5 rounded-full">Open</span>
         </div>
       </div>
       <div className="space-y-2">
@@ -258,12 +258,12 @@ function MockWordList({ play }: { play: boolean }) {
           return (
             <div key={w.word} className="flex items-center px-3 py-2.5 rounded-lg cursor-pointer" style={{
               opacity: rowEnter, transform: `translateX(${lerp(-20, 0, rowEnter)}px)`,
-              background: isSelected ? `rgba(52,199,89,${selectT * 0.1})` : isHovered ? 'rgba(255,255,255,0.04)' : 'transparent',
-              border: isSelected ? `1px solid rgba(52,199,89,${selectT * 0.25})` : '1px solid transparent',
+              background: isSelected ? `rgba(242,183,31,${selectT * 0.1})` : isHovered ? 'rgba(255,255,255,0.04)' : 'transparent',
+              border: isSelected ? `1px solid rgba(242,183,31,${selectT * 0.25})` : '1px solid transparent',
               transition: 'background 0.4s ease-out, border 0.4s ease-out',
             }}>
               <span className="flex-1 text-white text-sm font-medium">{w.word}</span>
-              <span className="w-16 text-right text-sm font-mono" style={{ color: i === 0 && priceT > 0 ? `rgba(52,199,89,${0.8 + priceT * 0.2})` : 'rgba(52,199,89,0.8)', textShadow: i === 0 && priceT > 0 ? `0 0 ${priceT * 10}px rgba(52,199,89,${priceT * 0.5})` : 'none' }}>
+              <span className="w-16 text-right text-sm font-mono" style={{ color: i === 0 && priceT > 0 ? `rgba(74,222,128,${0.8 + priceT * 0.2})` : 'rgba(74,222,128,0.8)', textShadow: i === 0 && priceT > 0 ? `0 0 ${priceT * 10}px rgba(74,222,128,${priceT * 0.5})` : 'none' }}>
                 {(yesPrice * 100).toFixed(0)}¢
               </span>
               <span className="w-16 text-right text-red-400 text-sm font-mono">{((1 - yesPrice) * 100).toFixed(0)}¢</span>
@@ -306,12 +306,12 @@ function MockTradingPanel({ play }: { play: boolean }) {
         <div className="flex-1 text-center py-1.5 text-xs font-semibold rounded-md text-neutral-500">Sell</div>
       </div>
       <div className="flex gap-2 mb-4">
-        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold" style={{ background: `rgba(52,199,89,${yesT * 0.2})`, border: `1px solid rgba(52,199,89,${yesT * 0.5})`, color: yesT > 0.5 ? '#34C759' : '#a3a3a3', transform: `scale(${lerp(1, 1.05, yesT < 0.5 ? yesT * 2 : (1 - yesT) * 2)})` }}>YES 42¢</button>
-        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-neutral-500">NO 58¢</button>
+        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold" style={{ background: `rgba(242,183,31,${yesT * 0.2})`, border: `1px solid rgba(242,183,31,${yesT * 0.5})`, color: yesT > 0.5 ? '#4ade80' : '#a3a3a3', transform: `scale(${lerp(1, 1.05, yesT < 0.5 ? yesT * 2 : (1 - yesT) * 2)})` }}>YES 42¢</button>
+        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-red-400">NO 58¢</button>
       </div>
       <div className="mb-4">
         <p className="text-neutral-500 text-[10px] uppercase tracking-wider mb-1.5">Amount (tokens)</p>
-        <div className="flex items-center bg-white/5 border rounded-lg px-3 py-2.5" style={{ borderColor: amount > 0 ? 'rgba(52,199,89,0.3)' : 'rgba(255,255,255,0.1)', transition: 'border-color 0.3s' }}>
+        <div className="flex items-center bg-white/5 border rounded-lg px-3 py-2.5" style={{ borderColor: amount > 0 ? 'rgba(242,183,31,0.3)' : 'rgba(255,255,255,0.1)', transition: 'border-color 0.3s' }}>
           <span className="text-sm font-mono" style={{ color: amount > 0 ? 'white' : '#525252' }}>{amount || '0'}</span>
           {amountT > 0 && amountT < 1 && <span className="text-white ml-0.5" style={{ animation: 'blink 0.8s step-end infinite' }}>|</span>}
           <span className="ml-auto text-[10px] text-neutral-500">Play Tokens</span>
@@ -320,14 +320,14 @@ function MockTradingPanel({ play }: { play: boolean }) {
       <div className="space-y-1.5 mb-4 overflow-hidden" style={{ maxHeight: `${breakdownT * 120}px`, opacity: breakdownT }}>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Avg price</span><span className="text-neutral-300 font-mono">{avgPrice.toFixed(2)}</span></div>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Shares</span><span className="text-neutral-300 font-mono">{shares}</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout if correct</span><span className="text-green-400 font-mono">{shares} tokens</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Profit</span><span className="text-green-400 font-mono">+{profit} tokens</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout if correct</span><span className="text-[#F2B71F] font-mono">{shares} tokens</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Profit</span><span className="text-[#F2B71F] font-mono">+{profit} tokens</span></div>
       </div>
-      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: confirmed ? '#34C759' : amount > 0 ? 'white' : 'rgba(255,255,255,0.1)', color: confirmed ? 'white' : amount > 0 ? 'black' : '#525252', transform: `scale(${buttonPress ? lerp(1, 0.96, pressT) : 1})` }}>
+      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: confirmed ? '#F2B71F' : amount > 0 ? 'white' : 'rgba(255,255,255,0.1)', color: confirmed ? 'black' : amount > 0 ? 'black' : '#525252', transform: `scale(${buttonPress ? lerp(1, 0.96, pressT) : 1})` }}>
         {confirmed ? '✓ Trade Placed!' : amount > 0 ? 'Place Trade' : 'Enter amount'}
       </button>
       <div className="mt-3 text-center" style={{ opacity: confirmT, transform: `translateY(${lerp(10, 0, confirmT)}px)` }}>
-        <p className="text-green-400 text-xs font-medium">Bought {shares} YES shares of &quot;GG&quot;</p>
+        <p className="text-[#F2B71F] text-xs font-medium">Bought {shares} YES shares of &quot;GG&quot;</p>
       </div>
     </div>
   )
@@ -354,24 +354,24 @@ function MockClaimPanel({ play }: { play: boolean }) {
           <div className="text-right"><p className="text-neutral-400 text-[10px]">Avg price</p><p className="text-white text-sm font-mono">0.43</p></div>
         </div>
       </div>
-      <div className="mb-4 p-3 rounded-xl" style={{ background: `rgba(52,199,89,${resolveT * 0.08})`, border: `1px solid rgba(52,199,89,${resolveT * 0.2})` }}>
+      <div className="mb-4 p-3 rounded-xl" style={{ background: `rgba(242,183,31,${resolveT * 0.08})`, border: `1px solid rgba(242,183,31,${resolveT * 0.2})` }}>
         <div className="flex items-center gap-2 mb-1">
-          <div className="w-2 h-2 rounded-full" style={{ background: `rgb(${lerp(82, 52, resolveT)},${lerp(82, 199, resolveT)},${lerp(82, 89, resolveT)})` }} />
-          <p className="text-xs font-semibold" style={{ color: resolved ? '#34C759' : '#a3a3a3' }}>{resolved ? 'Resolved: YES ✓' : 'Awaiting resolution...'}</p>
+          <div className="w-2 h-2 rounded-full" style={{ background: resolved ? '#F2B71F' : `rgba(163,163,163,${resolveT})` }} />
+          <p className="text-xs font-semibold" style={{ color: resolved ? '#F2B71F' : '#a3a3a3' }}>{resolved ? 'Resolved: YES ✓' : 'Awaiting resolution...'}</p>
         </div>
         <p className="text-neutral-500 text-[10px] ml-4">{resolved ? '"GG" was said during the broadcast' : 'Transcript will be checked after the event'}</p>
       </div>
       <div className="mb-4 space-y-1.5 overflow-hidden" style={{ maxHeight: `${payoutT * 120}px`, opacity: payoutT }}>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Your shares</span><span className="text-neutral-300 font-mono">116.2</span></div>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Cost basis</span><span className="text-neutral-300 font-mono">$50.00</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout</span><span className="text-green-400 font-mono">$116.20</span></div>
-        <div className="flex justify-between text-[11px] pt-1 border-t border-white/5"><span className="text-neutral-400 font-medium">Profit</span><span className="text-green-400 font-semibold font-mono">+$66.20 (+132%)</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout</span><span className="text-[#F2B71F] font-mono">$116.20</span></div>
+        <div className="flex justify-between text-[11px] pt-1 border-t border-white/5"><span className="text-neutral-400 font-medium">Profit</span><span className="text-[#F2B71F] font-semibold font-mono">+$66.20 (+132%)</span></div>
       </div>
-      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: claimed ? '#34C759' : claimReady ? 'linear-gradient(135deg, #34C759, #30d158)' : `rgba(255,255,255,${0.1 + claimT * 0.1})`, color: claimT > 0.3 ? 'white' : '#525252', transform: `scale(${lerp(1, 1.02, claimedT)})`, boxShadow: `0 0 ${claimT * 25}px rgba(52,199,89,${claimT * 0.2})` }}>
+      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: claimed ? '#F2B71F' : claimReady ? 'linear-gradient(135deg, #F2B71F, #f5c93a)' : `rgba(255,255,255,${0.1 + claimT * 0.1})`, color: claimT > 0.3 ? 'black' : '#525252', transform: `scale(${lerp(1, 1.02, claimedT)})`, boxShadow: `0 0 ${claimT * 25}px rgba(242,183,31,${claimT * 0.2})` }}>
         {claimed ? '✓ Winnings Claimed!' : claimReady ? 'Claim Winnings' : 'Waiting for result...'}
       </button>
       <div className="mt-3 text-center" style={{ opacity: claimedT, transform: `translateY(${lerp(15, 0, claimedT)}px) scale(${lerp(0.95, 1, claimedT)})` }}>
-        <p className="text-green-400 text-sm font-semibold">+$66.20 earned!</p>
+        <p className="text-[#F2B71F] text-sm font-semibold">+$66.20 earned!</p>
         <p className="text-neutral-500 text-[10px] mt-0.5">33 points added to your score</p>
       </div>
     </div>
@@ -389,7 +389,7 @@ function MockChartSection({ play }: { play: boolean }) {
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div><p className="text-white text-sm font-semibold">&quot;GG&quot; YES price</p><p className="text-neutral-500 text-xs">VCT Masters: Grand Final</p></div>
-          <div className="flex items-center gap-1"><span className="text-green-400 text-lg font-mono font-bold">{Math.round(lerp(32, 85, ease(p)))}¢</span><span className="text-green-400 text-[10px]">▲</span></div>
+          <div className="flex items-center gap-1"><span className="text-[#F2B71F] text-lg font-mono font-bold">{Math.round(lerp(32, 85, ease(p)))}¢</span><span className="text-[#F2B71F] text-[10px]">▲</span></div>
         </div>
         <div className="h-48 md:h-56"><AnimatedChart play={play} /></div>
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
@@ -443,12 +443,12 @@ function MockAchievements() {
   ]
   return (
     <div className="glass rounded-2xl p-5 w-full">
-      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Achievements</h4><span className="text-[10px] text-green-400 font-mono">4/6 unlocked</span></div>
+      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Achievements</h4><span className="text-[10px] text-[#F2B71F] font-mono">4/6 unlocked</span></div>
       <div className="grid grid-cols-2 gap-2">
         {achievements.map((a) => (
-          <div key={a.name} className="p-3 rounded-xl relative overflow-hidden" style={{ background: a.unlocked ? 'rgba(52,199,89,0.06)' : 'rgba(255,255,255,0.03)', border: a.unlocked ? '1px solid rgba(52,199,89,0.15)' : '1px solid rgba(255,255,255,0.05)' }}>
+          <div key={a.name} className="p-3 rounded-xl relative overflow-hidden" style={{ background: a.unlocked ? 'rgba(242,183,31,0.06)' : 'rgba(255,255,255,0.03)', border: a.unlocked ? '1px solid rgba(242,183,31,0.15)' : '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ filter: a.unlocked ? undefined : 'blur(6px)', userSelect: 'none' }}>
-              <div className="text-lg mb-1">{a.icon}</div><p className="text-white text-xs font-semibold">{a.name}</p><p className="text-neutral-500 text-[10px]">{a.desc}</p><p className="text-green-400/70 text-[10px] font-mono mt-1">+{a.points} pts</p>
+              <div className="text-lg mb-1">{a.icon}</div><p className="text-white text-xs font-semibold">{a.name}</p><p className="text-neutral-500 text-[10px]">{a.desc}</p><p className="text-[#F2B71F]/70 text-[10px] font-mono mt-1">+{a.points} pts</p>
             </div>
           </div>
         ))}
@@ -465,7 +465,7 @@ function MockChat() {
   ]
   return (
     <div className="glass rounded-2xl p-5 w-full">
-      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Market Chat</h4><div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-green-400" style={{ animation: 'pulse 2s infinite' }} /><span className="text-[10px] text-neutral-500">24 online</span></div></div>
+      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Market Chat</h4><div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F]" style={{ animation: 'pulse 2s infinite' }} /><span className="text-[10px] text-neutral-500">24 online</span></div></div>
       <div className="space-y-2.5">
         {messages.map((m, i) => { const isYou = m.user === 'you'; return (
           <div key={i} className="flex items-center gap-2">
@@ -494,7 +494,7 @@ function MockPointsBreakdown() {
       <div className="space-y-2">
         {items.map((item) => (
           <div key={item.action} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02]">
-            <span className="text-sm">{item.icon}</span><span className="flex-1 text-neutral-300 text-xs">{item.action}</span><span className="text-neutral-500 text-[10px] font-mono">{item.count}</span><span className="text-green-400 text-xs font-mono font-semibold">{item.points}</span>
+            <span className="text-sm">{item.icon}</span><span className="flex-1 text-neutral-300 text-xs">{item.action}</span><span className="text-neutral-500 text-[10px] font-mono">{item.count}</span><span className="text-[#F2B71F] text-xs font-mono font-semibold">{item.points}</span>
           </div>
         ))}
       </div>
@@ -716,7 +716,7 @@ const HeroBackground = memo(function HeroBackground() {
       ref={ref}
       aria-hidden
       className="absolute inset-x-0 top-0 pointer-events-none overflow-hidden z-0"
-      style={{ height: '100vh' }}
+      style={{ height: '115vh' }}
     >
       <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 opacity-[0.5]">
         {BG_COLUMNS.map((col, i) => (
@@ -790,10 +790,10 @@ export default function Home() {
       </div>
 
       {/* Hero */}
-      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center text-center px-4 md:px-10">
+      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center text-center px-4 md:px-10 -translate-y-16 md:-translate-y-20">
         <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
         <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
-        <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
+        <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for any form of media.<br />Pick words. Trade against friends. Win.</p>
         <div className="mt-8 md:mt-10 flex items-center gap-3 hero-cta">
           <Link href="/markets" className="h-10 md:h-12 px-6 md:px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
           <Link href="/leaderboard" className="h-10 md:h-12 px-6 md:px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
@@ -903,7 +903,7 @@ export default function Home() {
                   <p className="text-neutral-400 text-sm">Real USDC. Trade on Polymarket&apos;s mention markets, powered by Solana. Connect your Phantom wallet and trade with real stakes.</p>
                 </div>
                 <div className="reveal reveal-right glass rounded-2xl p-7 text-left">
-                  <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center"><span className="text-base">🎮</span></div><h3 className="text-white text-base font-semibold">Free markets</h3></div>
+                  <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#F2B71F]/10 flex items-center justify-center"><span className="text-base">🎮</span></div><h3 className="text-white text-base font-semibold">Free markets</h3></div>
                   <p className="text-neutral-400 text-sm">Play tokens, no money needed. Same trading mechanics. Profit converts to platform points and leaderboard rank.</p>
                 </div>
               </div>

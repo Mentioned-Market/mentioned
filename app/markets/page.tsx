@@ -308,9 +308,8 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
 
         {/* Badges */}
         <div className="absolute top-3 left-3 flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded-full bg-apple-green/90 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Free</span>
           {market.status === 'open' && (
-            <span className="px-2 py-0.5 rounded-full bg-green-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
+            <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/80 text-black text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
           )}
           <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-medium backdrop-blur-sm">Featured</span>
         </div>
@@ -324,7 +323,7 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
             <span className="text-neutral-300 text-xs">{market.trader_count} trader{market.trader_count !== 1 ? 's' : ''}</span>
             <span className="text-neutral-500 text-xs">·</span>
             <span className="text-neutral-300 text-xs">{market.word_count} words</span>
-            {market.lock_time && market.status === 'open' && (
+            {market.lock_time && market.status === 'open' && formatCloseTime(market.lock_time) !== 'Closed' && (
               <>
                 <span className="text-neutral-500 text-xs">·</span>
                 <span className="text-neutral-300 text-xs">Closes {formatCloseTime(market.lock_time)}</span>
@@ -361,17 +360,17 @@ function WeekCycleBanner({ countdown }: { countdown: string }) {
   return (
     <div className="rounded-2xl glass p-4 mb-4">
       <div className="flex items-center gap-2 mb-1">
-        <div className="w-2 h-2 rounded-full bg-apple-green animate-pulse" />
+        <div className="w-2 h-2 rounded-full bg-[#F2B71F] animate-pulse" />
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Week Cycle</span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-neutral-400 text-xs mb-0.5">Resets in</p>
-          <p className="text-apple-green text-xl font-bold tabular-nums">{countdown}</p>
+          <p className="text-[#F2B71F] text-xl font-bold tabular-nums">{countdown}</p>
         </div>
         <Link
           href="/leaderboard"
-          className="px-3 py-2 rounded-xl bg-apple-green/15 text-apple-green text-xs font-semibold hover:bg-apple-green/25 transition-colors whitespace-nowrap"
+          className="px-3 py-2 rounded-xl bg-[#F2B71F]/15 text-[#F2B71F] text-xs font-semibold hover:bg-[#F2B71F]/25 transition-colors whitespace-nowrap"
         >
           View Leaderboard
         </Link>
@@ -398,7 +397,7 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
           >
             <span className="text-neutral-600 text-xs font-bold w-4 text-right tabular-nums shrink-0">#{i + 1}</span>
             <div className="flex-1 min-w-0">
-              <p className="text-white text-xs font-semibold truncate group-hover:text-apple-green transition-colors">{w.word}</p>
+              <p className="text-white text-xs font-semibold truncate group-hover:text-[#F2B71F] transition-colors">{w.word}</p>
               <p className="text-neutral-500 text-[10px] truncate">{w.market_title}</p>
             </div>
             <span className="text-neutral-400 text-[10px] tabular-nums shrink-0">{w.trade_count} trades</span>
@@ -418,7 +417,7 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
     <div className={`rounded-2xl glass p-4 ${grow ? 'flex-1' : 'mb-4'}`}>
       <div className="flex items-center justify-between mb-3">
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Top Traders</span>
-        <Link href="/leaderboard" className="text-apple-green text-[10px] font-medium hover:underline">
+        <Link href="/leaderboard" className="text-[#F2B71F] text-[10px] font-medium hover:underline">
           Full rankings
         </Link>
       </div>
@@ -436,11 +435,11 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
               {t.pfpEmoji ?? '👤'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white text-xs font-semibold truncate group-hover:text-apple-green transition-colors">
+              <p className="text-white text-xs font-semibold truncate group-hover:text-[#F2B71F] transition-colors">
                 {t.username ? `@${t.username}` : truncateWallet(t.wallet)}
               </p>
             </div>
-            <span className="text-apple-green text-xs font-bold tabular-nums shrink-0">
+            <span className="text-[#F2B71F] text-xs font-bold tabular-nums shrink-0">
               +{t.weeklyPoints.toLocaleString()} pts
             </span>
           </Link>
@@ -518,9 +517,8 @@ export default function MarketsPage() {
 
               {/* Free section heading — full width, above the two-column layout */}
               <div className="flex items-center gap-2 mb-4">
-                <span className="px-2 py-0.5 rounded-full bg-apple-green/20 text-apple-green text-[10px] font-bold uppercase">Free</span>
-                <h2 className="text-white text-lg font-semibold">Free Prediction Markets</h2>
-                <InfoTooltip>
+                <h2 className="text-white text-lg font-semibold">Free to Play Prediction Markets</h2>
+                <InfoTooltip position="right">
                   Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
                 </InfoTooltip>
               </div>
