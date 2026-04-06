@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useWallet } from '@/contexts/WalletContext'
@@ -28,12 +28,14 @@ export default function GlobalChat() {
   const [input, setInput] = useState('')
   const [unread, setUnread] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastIdRef = useRef(0)
   const lastSeenIdRef = useRef(0)
   const lastSentRef = useRef(0)
   const sseRef = useRef<EventSource | null>(null)
   const unreadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initialScrollDoneRef = useRef(false)
 
   // ── SSE connection (only when open) ────────────────────
   const connectSSE = useCallback(() => {
@@ -158,6 +160,7 @@ export default function GlobalChat() {
       // Opening: stop unread polling, fetch initial messages, start SSE
       stopUnreadPolling()
       setUnread(0)
+      initialScrollDoneRef.current = false
       // Reset so fetchNewMessages does a full load (no ?after= param)
       lastIdRef.current = 0
 
@@ -189,8 +192,15 @@ export default function GlobalChat() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll on new messages when open
-  useEffect(() => {
-    if (open) {
+  useLayoutEffect(() => {
+    if (!open) return
+    const container = messagesContainerRef.current
+    if (!container) return
+    if (!initialScrollDoneRef.current) {
+      // Jump to bottom before paint so the top is never visible
+      container.scrollTop = container.scrollHeight
+      initialScrollDoneRef.current = true
+    } else {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, open])
@@ -280,7 +290,7 @@ export default function GlobalChat() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <p className="text-neutral-500 text-xs">No messages yet. Say something!</p>

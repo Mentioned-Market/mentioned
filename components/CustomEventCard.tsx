@@ -120,6 +120,8 @@ function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; mark
 export default function CustomEventCard({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
   const url = `/free/${market.slug}`
+  const lockPassed = market.lock_time ? new Date(market.lock_time) <= new Date() : false
+  const isClosed = market.status === 'locked' || (market.status === 'open' && lockPassed)
 
   return (
     <div className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift">
@@ -137,24 +139,13 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
             <span className="text-neutral-500 text-2xl">🎯</span>
           </div>
         )}
-        <div className="absolute top-3 left-3 flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded-full bg-apple-green/90 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
-            Free
-          </span>
-          {market.status === 'open' && (
-            <span className="px-2 py-0.5 rounded-full bg-green-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
-              Open
-            </span>
-          )}
-          {market.status === 'locked' && (
-            <span className="px-2 py-0.5 rounded-full bg-orange-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
-              Locked
-            </span>
-          )}
-          {market.status === 'resolved' && (
-            <span className="px-2 py-0.5 rounded-full bg-blue-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
-              Resolved
-            </span>
+        <div className="absolute top-3 left-3">
+          {market.status === 'resolved' ? (
+            <span className="px-2 py-0.5 rounded-full bg-blue-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Resolved</span>
+          ) : isClosed ? (
+            <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-300 text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Closed</span>
+          ) : (
+            <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/80 text-black text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
           )}
         </div>
       </Link>
@@ -175,11 +166,7 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {market.trader_count} trader{market.trader_count !== 1 ? 's' : ''}
           </span>
-          {market.lock_time && market.status === 'open' && (
-            <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-              {formatCloseTime(market.lock_time)}
-            </span>
-          )}
+          <span className="text-neutral-600 text-[10px]">·</span>
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {market.word_count} words
           </span>

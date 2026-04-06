@@ -83,7 +83,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
       onClick={() => router.push(href)}
     >
       {isFree && (
-        <span className="text-[9px] font-bold uppercase tracking-wide text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded-full leading-none">
+        <span className="text-[9px] font-bold uppercase tracking-wide text-[#F2B71F] bg-[#F2B71F]/10 px-1.5 py-0.5 rounded-full leading-none">
           FREE
         </span>
       )}
@@ -97,7 +97,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
       </Link>
       <span className={`text-xs font-semibold ${labelColor}`}>{label}</span>
       {isFree ? (
-        <span className="text-purple-300 text-xs font-bold">{formatTokens(trade.cost)} pts</span>
+        <span className="text-[#F2B71F] text-xs font-bold">{formatTokens(trade.cost)} pts</span>
       ) : (
         <span className="text-white text-xs font-bold">{formatAmount(trade.amountUsd)}</span>
       )}
