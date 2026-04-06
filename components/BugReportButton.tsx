@@ -118,36 +118,6 @@ export default function BugReportButton() {
 
   return (
     <>
-      {/* Floating button — bottom-left, raised on mobile to clear bottom sheets */}
-      {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="hidden md:flex fixed bottom-6 left-6 z-50
-            w-10 h-10 rounded-full
-            bg-neutral-800/90 hover:bg-neutral-700 border border-white/10
-            items-center justify-center
-            transition-colors shadow-lg
-            text-neutral-400 hover:text-white"
-          aria-label="Report a bug"
-          title="Report a bug"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            className="w-5 h-5"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-            />
-          </svg>
-        </button>
-      )}
-
       {/* Modal */}
       {isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
