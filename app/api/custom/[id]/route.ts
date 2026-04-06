@@ -62,12 +62,19 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const fields = body as {
+  const { market_type: rawMarketType, ...rest } = body as {
     title?: string
     description?: string
     cover_image_url?: string
     stream_url?: string
     lock_time?: string
+    market_type?: string
+    event_start_time?: string
+  }
+
+  const fields = {
+    ...rest,
+    ...(rawMarketType !== undefined && { market_type: rawMarketType === 'event' ? 'event' : 'continuous' }),
   }
 
   const market = await updateCustomMarket(marketId, fields)
