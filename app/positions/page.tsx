@@ -482,155 +482,175 @@ export default function PositionsPage() {
   // ── Render ────────────────────────────────────────────────
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col bg-black">
-      <div className="flex h-full grow flex-col">
-        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
-          <div className="flex flex-col w-full max-w-7xl flex-1">
-            <Header />
+    <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-black">
+      <div className="layout-container flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex justify-center">
+          <div className="w-full max-w-7xl"><Header /></div>
+        </div>
 
-            <main className="py-4 md:py-6 flex-1">
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="flex flex-col w-full max-w-6xl flex-1">
+            <main className="py-10 space-y-0 flex-1">
               {/* Page header */}
-              <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h1 className="text-white text-2xl md:text-3xl font-bold mb-1">Positions</h1>
-                  <p className="text-neutral-400 text-sm">
-                    {marketMode === 'paid'
-                      ? 'Your Polymarket positions, open orders, and trade history'
-                      : 'Your free market positions and trade history'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 p-1 glass rounded-xl shrink-0">
+              <div
+                className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-2 animate-fade-in"
+                style={{ animationDelay: '0ms', animationFillMode: 'both' }}
+              >
+                <h1 className="text-4xl md:text-5xl font-black tracking-tight" style={{ color: '#F2B71F' }}>
+                  Positions
+                </h1>
+                <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.05]">
                   <button
                     onClick={() => setMarketMode('paid')}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                      marketMode === 'paid' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
-                    }`}
+                    className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
+                    style={marketMode === 'paid'
+                      ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }
+                      : { color: '#6b7280' }
+                    }
                   >
                     Paid Markets
                   </button>
                   <button
                     onClick={() => setMarketMode('free')}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                      marketMode === 'free' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
-                    }`}
+                    className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
+                    style={marketMode === 'free'
+                      ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }
+                      : { color: '#6b7280' }
+                    }
                   >
                     Free Markets
                   </button>
                 </div>
               </div>
 
+              <p
+                className="text-neutral-700 text-xs pb-2 animate-fade-in"
+                style={{ animationDelay: '60ms', animationFillMode: 'both' }}
+              >
+                {marketMode === 'paid'
+                  ? 'Your Polymarket positions, open orders, and trade history'
+                  : 'Your free market positions and trade history'}
+              </p>
+
               {!connected ? (
-                <div className="flex flex-col items-center justify-center py-32 gap-4">
-                  <div className="w-16 h-16 rounded-2xl glass flex items-center justify-center mb-2">
-                    <svg className="w-8 h-8 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
-                    </svg>
-                  </div>
-                  <span className="text-neutral-400 text-base font-medium">Login to view your positions</span>
+                <div className="flex flex-col items-center py-20 gap-3 animate-fade-in" style={{ animationDelay: '120ms', animationFillMode: 'both' }}>
+                  <p className="text-neutral-500 text-sm">Connect your wallet to view positions</p>
                   <button
                     onClick={connect}
-                    className="mt-2 px-6 py-3 bg-white text-black text-sm font-semibold rounded-xl hover:bg-neutral-100 transition-all duration-200"
+                    className="text-sm font-medium hover:underline"
+                    style={{ color: '#F2B71F' }}
                   >
-                    Login
+                    Connect Wallet
                   </button>
                 </div>
               ) : (
                 <>
                   {/* Summary cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  <div
+                    className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 animate-fade-in"
+                    style={{ animationDelay: '120ms', animationFillMode: 'both' }}
+                  >
                     {marketMode === 'paid' ? (
                       <>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
-                          <div className="text-white text-xl font-bold">{positions.length}</div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{positions.length}</div>
                         </div>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
-                          <div className="text-white text-xl font-bold">{microToUsd(totalValue)}</div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Total Value</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{microToUsd(totalValue)}</div>
                         </div>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">P&L</div>
-                          <div className={`text-xl font-bold ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">P&L</div>
+                          <div className={`text-xl font-bold tabular-nums ${totalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
                             {totalPnl >= 0 ? '+' : ''}{microToUsd(totalPnl)}
                           </div>
                         </div>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
-                          <div className="text-white text-xl font-bold">{openOrders.length}</div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Open Orders</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{openOrders.length}</div>
                         </div>
                       </>
                     ) : (
                       <>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
-                          <div className="text-white text-xl font-bold">{freePositions.length}</div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{freePositions.length}</div>
                         </div>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Tokens Spent</div>
-                          <div className="text-white text-xl font-bold">{freeTotalSpent.toFixed(0)}</div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Tokens Spent</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{freeTotalSpent.toFixed(0)}</div>
                         </div>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Points Earned</div>
-                          <div className="text-apple-green text-xl font-bold">+{freePointsEarned.toLocaleString()}
-                          </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Points Earned</div>
+                          <div className="text-apple-green text-xl font-bold tabular-nums">+{freePointsEarned.toLocaleString()}</div>
                         </div>
-                        <div className="glass rounded-xl p-4">
-                          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Trades</div>
-                          <div className="text-white text-xl font-bold">{freeTrades.length}</div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Trades</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{freeTrades.length}</div>
                         </div>
                       </>
                     )}
                   </div>
 
                   {/* Tabs */}
-                  <div className="flex items-center gap-1 mb-4 border-b border-white/10">
-                    {tabs.filter(t => marketMode === 'free' ? t.key !== 'orders' : true).map(t => (
-                      <button
-                        key={t.key}
-                        onClick={() => setTab(t.key)}
-                        className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
-                          tab === t.key
-                            ? 'text-white border-white'
-                            : 'text-neutral-500 border-transparent hover:text-neutral-300'
-                        }`}
-                      >
-                        {t.label}
-                        {t.count > 0 && (
-                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            tab === t.key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
-                          }`}>
-                            {t.count}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                  <div
+                    className="animate-fade-in"
+                    style={{ animationDelay: '180ms', animationFillMode: 'both' }}
+                  >
+                    <div className="flex items-center justify-between mb-1 pb-3">
+                      <span className="text-xs font-medium text-neutral-600 uppercase tracking-widest">
+                        {tab === 'positions' ? 'Open positions' : tab === 'orders' ? 'Open orders' : 'Trade history'}
+                      </span>
+                      <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.05]">
+                        {tabs.filter(t => marketMode === 'free' ? t.key !== 'orders' : true).map(t => (
+                          <button
+                            key={t.key}
+                            onClick={() => setTab(t.key)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
+                            style={tab === t.key
+                              ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }
+                              : { color: '#6b7280' }
+                            }
+                          >
+                            {t.label}
+                            {t.count > 0 && (
+                              <span className="text-[10px] opacity-70">
+                                {t.count}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   {/* ── Free Market Positions Tab ─────────────────── */}
                   <div style={{ display: marketMode === 'free' && tab === 'positions' ? undefined : 'none' }}>
                     {loadingFree ? (
-                      <MentionedSpinner className="py-16" />
+                      <MentionedSpinner className="py-20" />
                     ) : freePositions.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-16 gap-2">
-                        <span className="text-neutral-500 text-sm">No open free market positions</span>
-                        <Link href="/markets?type=free" className="text-apple-blue text-sm font-medium hover:underline">
+                      <div className="flex flex-col items-center py-20 gap-3">
+                        <p className="text-neutral-500 text-sm">No open free market positions</p>
+                        <Link href="/markets?type=free" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                           Browse free markets
                         </Link>
                       </div>
                     ) : (
-                      <>
-                        <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                          <span>Market / Word</span>
-                          <span className="text-right">YES Shares</span>
-                          <span className="text-right">NO Shares</span>
-                          <span className="text-right">Tokens Spent</span>
-                          <span className="text-right">Tokens Received</span>
-                          <span className="text-right">Status</span>
+                      <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                        <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                          <div>Market / Word</div>
+                          <div className="text-right">YES Shares</div>
+                          <div className="text-right">NO Shares</div>
+                          <div className="text-right">Tokens Spent</div>
+                          <div className="text-right">Tokens Received</div>
+                          <div className="text-right">Status</div>
                         </div>
-                        {freePositions.map(pos => (
+                        {freePositions.map((pos, i) => (
                           <div
                             key={pos.id}
-                            className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                            className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+                            style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -639,33 +659,33 @@ export default function PositionsPage() {
                                 {parseFloat(pos.yes_shares) > 0 ? 'YES' : 'NO'}
                               </span>
                               <div className="min-w-0">
-                                <Link href={`/free/${pos.market_slug || pos.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                                <Link href={`/free/${pos.market_slug || pos.market_id}`} className="text-white text-sm font-semibold truncate hover:underline block leading-snug">
                                   {pos.market_title}
                                 </Link>
-                                <span className="text-neutral-500 text-xs">{pos.word}</span>
+                                <span className="text-neutral-600 text-xs">{pos.word}</span>
                               </div>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">YES Shares</span>
-                              <span className="text-white text-sm">{parseFloat(pos.yes_shares).toFixed(2)}</span>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">YES Shares</span>
+                              <span className="text-neutral-300 text-sm tabular-nums">{parseFloat(pos.yes_shares).toFixed(2)}</span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">NO Shares</span>
-                              <span className="text-white text-sm">{parseFloat(pos.no_shares).toFixed(2)}</span>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">NO Shares</span>
+                              <span className="text-neutral-300 text-sm tabular-nums">{parseFloat(pos.no_shares).toFixed(2)}</span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">Tokens Spent</span>
-                              <span className="text-neutral-300 text-sm">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Tokens Spent</span>
+                              <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">Tokens Received</span>
-                              <span className={`text-sm font-medium ${parseFloat(pos.tokens_received) > 0 ? 'text-apple-green' : 'text-neutral-300'}`}>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Tokens Received</span>
+                              <span className={`text-sm font-medium tabular-nums ${parseFloat(pos.tokens_received) > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
                                 {parseFloat(pos.tokens_received).toFixed(2)}
                               </span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">Status</span>
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-block ${
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Status</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
                                 pos.market_status === 'resolved'
                                   ? 'bg-apple-green/10 text-apple-green'
                                   : pos.market_status === 'locked'
@@ -677,90 +697,90 @@ export default function PositionsPage() {
                             </div>
                           </div>
                         ))}
-                      </>
+                      </div>
                     )}
                   </div>
 
                   {/* ── Free Market History Tab ────────────────────── */}
                   <div style={{ display: marketMode === 'free' && tab === 'history' ? undefined : 'none' }}>
                     {loadingFree ? (
-                      <MentionedSpinner className="py-16" />
+                      <MentionedSpinner className="py-20" />
                     ) : freeTrades.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-16 gap-2">
-                        <span className="text-neutral-500 text-sm">No free market trade history yet</span>
-                        <Link href="/markets?type=free" className="text-apple-blue text-sm font-medium hover:underline">
+                      <div className="flex flex-col items-center py-20 gap-3">
+                        <p className="text-neutral-500 text-sm">No free market trade history yet</p>
+                        <Link href="/markets?type=free" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                           Browse free markets
                         </Link>
                       </div>
                     ) : (
-                      <>
-                        <div className="hidden md:grid grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                          <span>Market / Word</span>
-                          <span className="text-center">Action</span>
-                          <span className="text-center">Side</span>
-                          <span className="text-right">Shares</span>
-                          <span className="text-right">Cost (tokens)</span>
-                          <span className="text-right">Date</span>
+                      <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                        <div className="hidden md:grid grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                          <div>Market / Word</div>
+                          <div className="text-center">Action</div>
+                          <div className="text-center">Side</div>
+                          <div className="text-right">Shares</div>
+                          <div className="text-right">Cost (tokens)</div>
+                          <div className="text-right">Date</div>
                         </div>
-                        {freeTrades.map(t => (
+                        {freeTrades.map((t, i) => (
                           <div
                             key={t.id}
-                            className="group grid grid-cols-1 md:grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                            className="group grid grid-cols-1 md:grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+                            style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
                           >
                             <div className="min-w-0">
-                              <Link href={`/free/${t.market_slug || t.market_id}`} className="text-white text-sm font-medium truncate hover:underline block">
+                              <Link href={`/free/${t.market_slug || t.market_id}`} className="text-white text-sm font-semibold truncate hover:underline block leading-snug">
                                 {t.market_title}
                               </Link>
-                              <span className="text-neutral-500 text-xs">{t.word}</span>
+                              <span className="text-neutral-600 text-xs">{t.word}</span>
                             </div>
-                            <div className="flex md:block justify-between md:text-center">
-                              <span className="text-neutral-500 text-xs md:hidden">Action</span>
+                            <div className="flex md:block justify-between md:text-center items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Action</span>
                               <span className={`text-sm font-medium ${t.action === 'buy' ? 'text-apple-green' : 'text-apple-red'}`}>
                                 {t.action.charAt(0).toUpperCase() + t.action.slice(1)}
                               </span>
                             </div>
-                            <div className="flex md:block justify-between md:text-center">
-                              <span className="text-neutral-500 text-xs md:hidden">Side</span>
+                            <div className="flex md:block justify-between md:text-center items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Side</span>
                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block ${
                                 t.side === 'yes' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
                               }`}>
                                 {t.side.toUpperCase()}
                               </span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">Shares</span>
-                              <span className="text-white text-sm">{parseFloat(t.shares).toFixed(4)}</span>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Shares</span>
+                              <span className="text-neutral-300 text-sm tabular-nums">{parseFloat(t.shares).toFixed(4)}</span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">Cost</span>
-                              <span className={`text-sm font-medium ${t.action === 'sell' ? 'text-apple-green' : 'text-white'}`}>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Cost</span>
+                              <span className={`text-sm font-medium tabular-nums ${t.action === 'sell' ? 'text-apple-green' : 'text-white'}`}>
                                 {t.action === 'sell' ? '+' : '-'}{Math.abs(parseFloat(t.cost)).toFixed(2)}
                               </span>
                             </div>
-                            <div className="flex md:block justify-between md:text-right">
-                              <span className="text-neutral-500 text-xs md:hidden">Date</span>
-                              <span className="text-neutral-400 text-xs">{formatDate(Math.floor(new Date(t.created_at).getTime() / 1000))}</span>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Date</span>
+                              <span className="text-neutral-500 text-xs">{formatDate(Math.floor(new Date(t.created_at).getTime() / 1000))}</span>
                             </div>
                           </div>
                         ))}
-                      </>
+                      </div>
                     )}
                   </div>
 
                   {/* ── Positions Tab ──────────────────────────────── */}
                   <div style={{ display: marketMode === 'paid' && tab === 'positions' ? undefined : 'none' }}>
                       {loadingPositions ? (
-                        <MentionedSpinner className="py-16" />
+                        <MentionedSpinner className="py-20" />
                       ) : positions.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 gap-2">
-                          <span className="text-neutral-500 text-sm">No open positions</span>
-                          <Link href="/polymarkets" className="text-apple-blue text-sm font-medium hover:underline">
+                        <div className="flex flex-col items-center py-20 gap-3">
+                          <p className="text-neutral-500 text-sm">No open positions</p>
+                          <Link href="/polymarkets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                             Browse markets
                           </Link>
                         </div>
                       ) : (
                         <>
-                          {/* Close status toast */}
                           {closeStatus && (
                             <div className={`mb-3 p-3 rounded-lg text-xs ${
                               closeStatus.error
@@ -771,131 +791,133 @@ export default function PositionsPage() {
                             </div>
                           )}
 
-                          <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                            <span>Event</span>
-                            <span className="text-right">Total Size</span>
-                            <span className="text-right">Value</span>
-                            <span className="text-right">Avg. Price</span>
-                            <span className="text-right">Mark Price</span>
-                            <span className="text-right">PNL</span>
-                            <span className="text-right">Payout if right</span>
-                            <span className="text-right">Est. Settlement</span>
-                            <span></span>
-                          </div>
+                          <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                              <div>Event</div>
+                              <div className="text-right">Total Size</div>
+                              <div className="text-right">Value</div>
+                              <div className="text-right">Avg. Price</div>
+                              <div className="text-right">Mark Price</div>
+                              <div className="text-right">PNL</div>
+                              <div className="text-right">Payout if right</div>
+                              <div className="text-right">Est. Settlement</div>
+                              <div></div>
+                            </div>
 
-                          {positions.map(pos => {
-                            const contracts = Number(pos.contracts || 0)
-                            const payoutIfRight = contracts * 1_000_000
-                            const isClosing = closingPubkey === pos.pubkey
+                            {positions.map((pos, i) => {
+                              const contracts = Number(pos.contracts || 0)
+                              const payoutIfRight = contracts * 1_000_000
+                              const isClosing = closingPubkey === pos.pubkey
 
-                            return (
-                              <div
-                                key={pos.pubkey}
-                                className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                    pos.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
-                                  }`}>
-                                    {pos.isYes ? 'YES' : 'NO'}
-                                  </span>
-                                  <Link
-                                    href={pos.eventId ? `/polymarkets/event/${pos.eventId}` : '#'}
-                                    className="text-white text-sm font-medium truncate hover:underline"
-                                  >
-                                    {pos.marketMetadata?.title || pos.marketId.slice(0, 12) + '...'}
-                                  </Link>
-                                </div>
-
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Total Size</span>
-                                  <span className="text-white text-sm font-medium">{pos.contracts}</span>
-                                </div>
-
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Value</span>
-                                  <span className="text-white text-sm font-medium">{microToUsd(pos.sizeUsd)}</span>
-                                </div>
-
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Avg. Price</span>
-                                  <span className="text-neutral-300 text-sm">{microToCents(pos.avgPriceUsd)}</span>
-                                </div>
-
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Mark Price</span>
-                                  <span className="text-neutral-300 text-sm">{microToCents(pos.markPriceUsd)}</span>
-                                </div>
-
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">PNL</span>
-                                  <div>
-                                    <span className={`text-sm font-semibold ${Number(pos.pnlUsd) >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                                      {Number(pos.pnlUsd) >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
+                              return (
+                                <div
+                                  key={pos.pubkey}
+                                  className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+                                  style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                      pos.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                                    }`}>
+                                      {pos.isYes ? 'YES' : 'NO'}
                                     </span>
-                                    <span className={`block text-[10px] ${Number(pos.pnlUsdPercent) >= 0 ? 'text-apple-green/70' : 'text-apple-red/70'}`}>
-                                      {Number(pos.pnlUsdPercent) >= 0 ? '+' : ''}{((Number(pos.pnlUsdPercent) || 0) / 100).toFixed(1)}%
+                                    <Link
+                                      href={pos.eventId ? `/polymarkets/event/${pos.eventId}` : '#'}
+                                      className="text-white text-sm font-semibold truncate hover:underline leading-snug"
+                                    >
+                                      {pos.marketMetadata?.title || pos.marketId.slice(0, 12) + '...'}
+                                    </Link>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">Total Size</span>
+                                    <span className="text-neutral-300 text-sm font-medium tabular-nums">{pos.contracts}</span>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">Value</span>
+                                    <span className="text-white text-sm font-medium tabular-nums">{microToUsd(pos.sizeUsd)}</span>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">Avg. Price</span>
+                                    <span className="text-neutral-400 text-sm tabular-nums">{microToCents(pos.avgPriceUsd)}</span>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">Mark Price</span>
+                                    <span className="text-neutral-400 text-sm tabular-nums">{microToCents(pos.markPriceUsd)}</span>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">PNL</span>
+                                    <div>
+                                      <span className={`text-sm font-bold tabular-nums ${Number(pos.pnlUsd) >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                        {Number(pos.pnlUsd) >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
+                                      </span>
+                                      <span className={`block text-[10px] tabular-nums ${Number(pos.pnlUsdPercent) >= 0 ? 'text-apple-green/70' : 'text-apple-red/70'}`}>
+                                        {Number(pos.pnlUsdPercent) >= 0 ? '+' : ''}{((Number(pos.pnlUsdPercent) || 0) / 100).toFixed(1)}%
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">Payout</span>
+                                    <span className="text-white text-sm font-medium tabular-nums">{microToUsd(payoutIfRight)}</span>
+                                  </div>
+
+                                  <div className="flex md:block justify-between md:text-right items-center">
+                                    <span className="text-neutral-600 text-xs md:hidden">Settlement</span>
+                                    <span className="text-neutral-500 text-sm">
+                                      {pos.eventMetadata?.closeTime
+                                        ? formatCloseTime(pos.eventMetadata.closeTime)
+                                        : '—'}
                                     </span>
                                   </div>
-                                </div>
 
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Payout</span>
-                                  <span className="text-white text-sm font-medium">{microToUsd(payoutIfRight)}</span>
+                                  <div className="flex items-center justify-end">
+                                    {pos.claimable && !pos.claimed ? (
+                                      <button
+                                        onClick={() => handleClaimPosition(pos)}
+                                        disabled={isClosing || !!closingPubkey}
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      >
+                                        {isClosing ? (
+                                          <span className="flex items-center gap-1.5">
+                                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                            </svg>
+                                            Claiming
+                                          </span>
+                                        ) : (
+                                          'Claim'
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleClosePosition(pos)}
+                                        disabled={isClosing || !!closingPubkey}
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      >
+                                        {isClosing ? (
+                                          <span className="flex items-center gap-1.5">
+                                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                            </svg>
+                                            Closing
+                                          </span>
+                                        ) : (
+                                          'Close'
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Settlement</span>
-                                  <span className="text-neutral-400 text-sm">
-                                    {pos.eventMetadata?.closeTime
-                                      ? formatCloseTime(pos.eventMetadata.closeTime)
-                                      : '—'}
-                                  </span>
-                                </div>
-
-                                {/* Close / Claim button */}
-                                <div className="flex items-center justify-end">
-                                  {pos.claimable && !pos.claimed ? (
-                                    <button
-                                      onClick={() => handleClaimPosition(pos)}
-                                      disabled={isClosing || !!closingPubkey}
-                                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    >
-                                      {isClosing ? (
-                                        <span className="flex items-center gap-1.5">
-                                          <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                          </svg>
-                                          Claiming
-                                        </span>
-                                      ) : (
-                                        'Claim'
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleClosePosition(pos)}
-                                      disabled={isClosing || !!closingPubkey}
-                                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    >
-                                      {isClosing ? (
-                                        <span className="flex items-center gap-1.5">
-                                          <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                          </svg>
-                                          Closing
-                                        </span>
-                                      ) : (
-                                        'Close'
-                                      )}
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })}
+                              )
+                            })}
+                          </div>
                         </>
                       )}
                     </div>
@@ -903,29 +925,30 @@ export default function PositionsPage() {
                   {/* ── Open Orders Tab ────────────────────────────── */}
                   <div style={{ display: marketMode === 'paid' && tab === 'orders' ? undefined : 'none' }}>
                       {loadingOrders ? (
-                        <MentionedSpinner className="py-16" />
+                        <MentionedSpinner className="py-20" />
                       ) : openOrders.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 gap-2">
-                          <span className="text-neutral-500 text-sm">No open orders</span>
-                          <Link href="/polymarkets" className="text-apple-blue text-sm font-medium hover:underline">
+                        <div className="flex flex-col items-center py-20 gap-3">
+                          <p className="text-neutral-500 text-sm">No open orders</p>
+                          <Link href="/polymarkets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                             Browse markets
                           </Link>
                         </div>
                       ) : (
-                        <>
-                          <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                            <span>Market</span>
-                            <span className="text-center">Side</span>
-                            <span className="text-right">Contracts</span>
-                            <span className="text-right">Max Price</span>
-                            <span className="text-right">Size</span>
-                            <span className="text-right">Created</span>
+                        <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                            <div>Market</div>
+                            <div className="text-center">Side</div>
+                            <div className="text-right">Contracts</div>
+                            <div className="text-right">Max Price</div>
+                            <div className="text-right">Size</div>
+                            <div className="text-right">Created</div>
                           </div>
 
-                          {openOrders.map(order => (
+                          {openOrders.map((order, i) => (
                             <div
                               key={order.pubkey}
-                              className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                              className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+                              style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -935,72 +958,70 @@ export default function PositionsPage() {
                                 </span>
                                 <Link
                                   href={order.eventId ? `/polymarkets/event/${order.eventId}` : '#'}
-                                  className="text-white text-sm font-medium truncate hover:underline"
+                                  className="text-white text-sm font-semibold truncate hover:underline leading-snug"
                                 >
                                   {order.marketMetadata?.title || order.marketId.slice(0, 12) + '...'}
                                 </Link>
                               </div>
 
-                              <div className="flex md:block justify-between md:text-center">
-                                <span className="text-neutral-500 text-xs md:hidden">Side</span>
-                                <span className={`text-sm font-semibold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
+                              <div className="flex md:block justify-between md:text-center items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Side</span>
+                                <span className={`text-sm font-bold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
                                   {order.isBuy ? 'Buy' : 'Sell'}
                                 </span>
                               </div>
 
-                              <div className="flex md:block justify-between md:text-right">
-                                <span className="text-neutral-500 text-xs md:hidden">Contracts</span>
-                                <span className="text-white text-sm">{order.contracts}</span>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Contracts</span>
+                                <span className="text-neutral-300 text-sm tabular-nums">{order.contracts}</span>
                               </div>
 
-                              <div className="flex md:block justify-between md:text-right">
-                                <span className="text-neutral-500 text-xs md:hidden">Max Price</span>
-                                <span className="text-neutral-300 text-sm">{microToUsd(order.maxFillPriceUsd)}</span>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Max Price</span>
+                                <span className="text-neutral-400 text-sm tabular-nums">{microToUsd(order.maxFillPriceUsd)}</span>
                               </div>
 
-                              <div className="flex md:block justify-between md:text-right">
-                                <span className="text-neutral-500 text-xs md:hidden">Size</span>
-                                <span className="text-white text-sm font-medium">{microToUsd(order.sizeUsd)}</span>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Size</span>
+                                <span className="text-white text-sm font-medium tabular-nums">{microToUsd(order.sizeUsd)}</span>
                               </div>
 
-                              <div className="flex md:block justify-between md:text-right">
-                                <span className="text-neutral-500 text-xs md:hidden">Created</span>
-                                <span className="text-neutral-400 text-xs">{formatDate(order.createdAt)}</span>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Created</span>
+                                <span className="text-neutral-500 text-xs">{formatDate(order.createdAt)}</span>
                               </div>
                             </div>
                           ))}
-                        </>
+                        </div>
                       )}
                     </div>
 
                   {/* ── History Tab ─────────────────────────────────── */}
                   <div style={{ display: marketMode === 'paid' && tab === 'history' ? undefined : 'none' }}>
                       {loadingHistory ? (
-                        <MentionedSpinner className="py-16" />
+                        <MentionedSpinner className="py-20" />
                       ) : history.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 gap-2">
-                          <span className="text-neutral-500 text-sm">No trade history yet</span>
-                          <Link href="/polymarkets" className="text-apple-blue text-sm font-medium hover:underline">
+                        <div className="flex flex-col items-center py-20 gap-3">
+                          <p className="text-neutral-500 text-sm">No trade history yet</p>
+                          <Link href="/polymarkets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                             Browse markets
                           </Link>
                         </div>
                       ) : (
-                        <>
-                          {/* Table header — matches Jupiter: Event, Action, Status, Price, Deposit/Withdraw, PNL, Fee */}
-                          <div className="hidden md:grid grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                            <span>Event</span>
-                            <span className="text-center">Action</span>
-                            <span className="text-center">Status</span>
-                            <span className="text-right">Price</span>
-                            <span className="text-right">Deposit / Withdraw</span>
-                            <span className="text-right">PNL</span>
-                            <span className="text-right">Fee</span>
+                        <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="hidden md:grid grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                            <div>Event</div>
+                            <div className="text-center">Action</div>
+                            <div className="text-center">Status</div>
+                            <div className="text-right">Price</div>
+                            <div className="text-right">Deposit / Withdraw</div>
+                            <div className="text-right">PNL</div>
+                            <div className="text-right">Fee</div>
                           </div>
 
-                          {history.map(h => {
+                          {history.map((h, i) => {
                             const { label: statusLabel, color: statusColor } = eventTypeToStatus(h.eventType)
 
-                            // Deposit/withdraw: negative for deposits (money out), positive for withdrawals/proceeds
                             let depositWithdraw: string = '-'
                             if (h.depositAmountUsd && h.depositAmountUsd > 0) {
                               depositWithdraw = `-${microToUsd(h.depositAmountUsd)}`
@@ -1014,7 +1035,6 @@ export default function PositionsPage() {
 
                             const depositIsPositive = depositWithdraw.startsWith('+')
 
-                            // Price
                             const price = h.avgFillPriceUsd
                               ? microToCents(h.avgFillPriceUsd)
                               : h.maxBuyPriceUsd
@@ -1023,13 +1043,11 @@ export default function PositionsPage() {
                               ? microToCents(h.minSellPriceUsd)
                               : '-'
 
-                            // PNL
                             const pnl = h.realizedPnl
                               ? microToUsdSigned(h.realizedPnl)
                               : '-'
                             const pnlPositive = h.realizedPnl ? h.realizedPnl > 0 : false
 
-                            // Fee
                             const fee = h.feeUsd && h.feeUsd > 0
                               ? microToUsd(h.feeUsd)
                               : '-'
@@ -1037,9 +1055,9 @@ export default function PositionsPage() {
                             return (
                               <div
                                 key={h.id}
-                                className="group grid grid-cols-1 md:grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                                className="group grid grid-cols-1 md:grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+                                style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
                               >
-                                {/* Event — name + side + market + time */}
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2 mb-0.5">
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
@@ -1047,76 +1065,69 @@ export default function PositionsPage() {
                                     }`}>
                                       {h.isYes ? 'Yes' : 'No'}
                                     </span>
-                                    <span className="text-neutral-500 text-[10px]">·</span>
+                                    <span className="text-neutral-700 text-[10px]">·</span>
                                     <Link
                                       href={h.eventId ? `/polymarkets/event/${h.eventId}` : '#'}
-                                      className="text-white text-sm font-medium truncate hover:underline"
+                                      className="text-white text-sm font-semibold truncate hover:underline leading-snug"
                                     >
                                       {h.marketMetadata?.title || h.marketId?.slice(0, 12) + '...'}
                                     </Link>
                                   </div>
-                                  <div className="text-neutral-500 text-[11px]">
+                                  <div className="text-neutral-600 text-[11px]">
                                     {formatDateFull(h.timestamp)}
                                   </div>
                                 </div>
 
-                                {/* Action */}
-                                <div className="flex md:block justify-between md:text-center">
-                                  <span className="text-neutral-500 text-xs md:hidden">Action</span>
-                                  <span className="text-white text-sm font-medium">
+                                <div className="flex md:block justify-between md:text-center items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Action</span>
+                                  <span className="text-neutral-300 text-sm font-medium">
                                     {h.isBuy ? 'Buy' : 'Sell'}
                                   </span>
                                 </div>
 
-                                {/* Status */}
-                                <div className="flex md:block justify-between md:text-center">
-                                  <span className="text-neutral-500 text-xs md:hidden">Status</span>
+                                <div className="flex md:block justify-between md:text-center items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Status</span>
                                   <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
                                     {statusLabel}
                                   </span>
                                 </div>
 
-                                {/* Price */}
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Price</span>
-                                  <span className="text-white text-sm">{price}</span>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Price</span>
+                                  <span className="text-neutral-300 text-sm tabular-nums">{price}</span>
                                 </div>
 
-                                {/* Deposit / Withdraw */}
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Deposit / Withdraw</span>
-                                  <span className={`text-sm font-medium ${
-                                    depositIsPositive ? 'text-apple-green' : depositWithdraw === '-' ? 'text-neutral-500' : 'text-white'
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Deposit / Withdraw</span>
+                                  <span className={`text-sm font-medium tabular-nums ${
+                                    depositIsPositive ? 'text-apple-green' : depositWithdraw === '-' ? 'text-neutral-600' : 'text-white'
                                   }`}>
                                     {depositWithdraw}
                                   </span>
                                 </div>
 
-                                {/* PNL */}
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">PNL</span>
-                                  <span className={`text-sm font-semibold ${
-                                    pnl === '-' ? 'text-neutral-500' : pnlPositive ? 'text-apple-green' : 'text-apple-red'
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">PNL</span>
+                                  <span className={`text-sm font-bold tabular-nums ${
+                                    pnl === '-' ? 'text-neutral-600' : pnlPositive ? 'text-apple-green' : 'text-apple-red'
                                   }`}>
                                     {pnl}
                                   </span>
                                 </div>
 
-                                {/* Fee */}
-                                <div className="flex md:block justify-between md:text-right">
-                                  <span className="text-neutral-500 text-xs md:hidden">Fee</span>
-                                  <span className="text-neutral-400 text-sm">{fee}</span>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Fee</span>
+                                  <span className="text-neutral-500 text-sm tabular-nums">{fee}</span>
                                 </div>
                               </div>
                             )
                           })}
-                        </>
+                        </div>
                       )}
                     </div>
                 </>
               )}
             </main>
-
             <Footer />
           </div>
         </div>
