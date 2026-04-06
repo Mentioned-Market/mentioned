@@ -81,15 +81,15 @@ function SlidePickMarket({ play }: { play: boolean }) {
               style={{
                 opacity: enterP,
                 background: 'rgba(255,255,255,0.04)',
-                border: `1px solid rgba(52,199,89,${isSelected ? selectT * 0.55 : 0.08})`,
-                boxShadow: isSelected ? `0 0 ${selectT * 30}px rgba(52,199,89,${selectT * 0.12}), inset 0 0 ${selectT * 20}px rgba(52,199,89,0.03)` : 'none',
+                border: `1px solid rgba(242,183,31,${isSelected ? selectT * 0.55 : 0.08})`,
+                boxShadow: isSelected ? `0 0 ${selectT * 30}px rgba(242,183,31,${selectT * 0.12}), inset 0 0 ${selectT * 20}px rgba(242,183,31,0.03)` : 'none',
               }}
             >
               {isSelected && (
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
-                    background: 'linear-gradient(135deg, transparent 40%, rgba(52,199,89,0.05) 50%, transparent 60%)',
+                    background: 'linear-gradient(135deg, transparent 40%, rgba(242,183,31,0.05) 50%, transparent 60%)',
                     animation: 'shimmerSlide 2s ease-in-out infinite',
                   }}
                 />
@@ -99,7 +99,7 @@ function SlidePickMarket({ play }: { play: boolean }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h4 className="text-white text-xs font-semibold truncate">{market.title}</h4>
-                    <span className="text-[10px] font-semibold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded-full shrink-0">Free</span>
+                    <span className="text-[10px] font-semibold text-[#F2B71F] bg-[#F2B71F]/10 px-1.5 py-0.5 rounded-full shrink-0">Free</span>
                   </div>
                   <div className="flex gap-2.5">
                     {market.words.map((w) => (
@@ -176,9 +176,9 @@ function SlidePlaceTradeTokens({ play }: { play: boolean }) {
         <button
           className="flex-1 py-1.5 rounded-lg text-xs font-semibold"
           style={{
-            background: `rgba(52,199,89,${yesT * 0.2})`,
-            border: `1px solid rgba(52,199,89,${yesT * 0.5})`,
-            color: yesT > 0.5 ? '#34C759' : '#a3a3a3',
+            background: `rgba(242,183,31,${yesT * 0.2})`,
+            border: `1px solid rgba(242,183,31,${yesT * 0.5})`,
+            color: yesT > 0.5 ? '#4ade80' : '#a3a3a3',
           }}
         >
           YES 72¢
@@ -193,7 +193,7 @@ function SlidePlaceTradeTokens({ play }: { play: boolean }) {
           className="flex items-center rounded-lg px-3 py-1.5"
           style={{
             background: 'rgba(255,255,255,0.05)',
-            border: `1px solid ${amount > 0 ? 'rgba(52,199,89,0.3)' : 'rgba(255,255,255,0.1)'}`,
+            border: `1px solid ${amount > 0 ? 'rgba(242,183,31,0.3)' : 'rgba(255,255,255,0.1)'}`,
           }}
         >
           <span className="text-sm font-mono" style={{ color: amount > 0 ? 'white' : '#525252' }}>{amount || '0'}</span>
@@ -214,19 +214,19 @@ function SlidePlaceTradeTokens({ play }: { play: boolean }) {
         </div>
         <div className="flex justify-between text-[11px]">
           <span className="text-neutral-500">Payout if correct</span>
-          <span className="text-green-400 font-mono">{shares} tokens</span>
+          <span className="text-[#F2B71F] font-mono">{shares} tokens</span>
         </div>
         <div className="flex justify-between text-[11px]">
           <span className="text-neutral-500">Potential profit</span>
-          <span className="text-green-400 font-mono">+{profit} tokens</span>
+          <span className="text-[#F2B71F] font-mono">+{profit} tokens</span>
         </div>
       </div>
 
       <button
         className="w-full py-2 rounded-lg text-sm font-semibold mb-2"
         style={{
-          background: confirmed ? '#34C759' : amount > 0 ? 'white' : 'rgba(255,255,255,0.1)',
-          color: confirmed ? 'white' : amount > 0 ? 'black' : '#525252',
+          background: confirmed ? '#F2B71F' : amount > 0 ? 'white' : 'rgba(255,255,255,0.1)',
+          color: confirmed ? 'black' : amount > 0 ? 'black' : '#525252',
           transform: `scale(${pressT > 0 && pressT < 1 ? lerp(1, 0.96, pressT) : 1})`,
         }}
       >
@@ -234,7 +234,7 @@ function SlidePlaceTradeTokens({ play }: { play: boolean }) {
       </button>
 
       <div style={{ opacity: confirmT, transform: `translateY(${lerp(8, 0, confirmT)}px)` }}>
-        <p className="text-green-400 text-xs font-medium text-center">Bought {shares} YES shares of &quot;economy&quot;</p>
+        <p className="text-[#F2B71F] text-xs font-medium text-center">Bought {shares} YES shares of &quot;economy&quot;</p>
       </div>
     </div>
   )
@@ -265,15 +265,15 @@ function SlideRedeemPoints({ play }: { play: boolean }) {
         <div
           className="flex items-center gap-2 p-2.5 rounded-lg mb-2.5"
           style={{
-            background: `rgba(52,199,89,${resultT * 0.08})`,
-            border: `1px solid rgba(52,199,89,${resultT * 0.25})`,
+            background: `rgba(242,183,31,${resultT * 0.08})`,
+            border: `1px solid rgba(242,183,31,${resultT * 0.25})`,
           }}
         >
           <div
             className="w-2 h-2 rounded-full shrink-0"
-            style={{ background: resolved ? '#34C759' : '#525252' }}
+            style={{ background: resolved ? '#F2B71F' : '#525252' }}
           />
-          <p className="text-xs font-semibold" style={{ color: resolved ? '#34C759' : '#a3a3a3' }}>
+          <p className="text-xs font-semibold" style={{ color: resolved ? '#F2B71F' : '#a3a3a3' }}>
             {resolved ? '"economy" mentioned. Resolved YES ✓' : 'Awaiting resolution...'}
           </p>
         </div>
@@ -285,15 +285,15 @@ function SlideRedeemPoints({ play }: { play: boolean }) {
           <div className="space-y-1">
             <div className="flex justify-between text-[11px]">
               <span className="text-neutral-500">Token profit</span>
-              <span className="text-green-400 font-mono">+38.9 tokens</span>
+              <span className="text-[#F2B71F] font-mono">+38.9 tokens</span>
             </div>
             <div className="flex justify-between text-[11px]">
               <span className="text-neutral-500">Points earned (0.5×)</span>
-              <span className="text-green-400 font-mono">+341 pts</span>
+              <span className="text-[#F2B71F] font-mono">+341 pts</span>
             </div>
             <div className="flex justify-between text-[11px]">
               <span className="text-neutral-500">Trade bonus</span>
-              <span className="text-green-400 font-mono">+50 pts</span>
+              <span className="text-[#F2B71F] font-mono">+50 pts</span>
             </div>
             <div className="flex justify-between text-[11px] pt-1 border-t border-white/5">
               <span className="text-neutral-400 font-semibold">Total</span>
@@ -318,7 +318,7 @@ function SlideRedeemPoints({ play }: { play: boolean }) {
           <p className="text-white text-xs font-semibold">Weekly Leaderboard</p>
           <p className="text-neutral-400 text-[11px]">You&apos;re ranked #12 this week</p>
         </div>
-        <span className="text-green-400 text-xs font-mono font-semibold shrink-0">↑ 3</span>
+        <span className="text-[#F2B71F] text-xs font-mono font-semibold shrink-0">↑ 3</span>
       </div>
 
       {/* Prize eligibility */}
@@ -327,14 +327,14 @@ function SlideRedeemPoints({ play }: { play: boolean }) {
         style={{
           opacity: prizeT,
           transform: `translateY(${lerp(12, 0, prizeT)}px)`,
-          background: `rgba(52,199,89,${prizeT * 0.08})`,
-          border: `1px solid rgba(52,199,89,${prizeT * 0.3})`,
-          boxShadow: `0 0 ${prizeT * 16}px rgba(52,199,89,${prizeT * 0.07})`,
+          background: `rgba(242,183,31,${prizeT * 0.08})`,
+          border: `1px solid rgba(242,183,31,${prizeT * 0.3})`,
+          boxShadow: `0 0 ${prizeT * 16}px rgba(242,183,31,${prizeT * 0.07})`,
         }}
       >
         <span className="text-base shrink-0">🎁</span>
         <div>
-          <p className="text-green-400 text-xs font-semibold">Cash prize eligible</p>
+          <p className="text-[#F2B71F] text-xs font-semibold">Cash prize eligible</p>
           <p className="text-neutral-400 text-[11px]">Top traders win real cash every week</p>
         </div>
       </div>
@@ -355,7 +355,7 @@ function StepDots({ total, active, onGoTo }: { total: number; active: number; on
             width: i === active ? '20px' : '6px',
             height: '6px',
             borderRadius: '3px',
-            background: i === active ? '#34C759' : 'rgba(255,255,255,0.2)',
+            background: i === active ? '#F2B71F' : 'rgba(255,255,255,0.2)',
           }}
           aria-label={`Go to step ${i + 1}`}
         />
@@ -454,8 +454,8 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
         {/* Header row */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-blue-500/20 flex items-center justify-center">
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="#0A84FF">
+            <div className="w-6 h-6 rounded-md bg-[#F2B71F]/20 flex items-center justify-center">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="#F2B71F">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
             </div>
@@ -521,7 +521,7 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
             )}
             <button
               onClick={goNext}
-              className="h-9 px-5 rounded-lg text-sm font-semibold bg-white text-black hover:bg-neutral-100 transition-all duration-200"
+              className="h-9 px-5 rounded-lg text-sm font-semibold bg-[#F2B71F] text-black hover:bg-[#F2B71F]/80 transition-all duration-200"
             >
               {isLast ? 'Browse Markets' : 'Next'}
             </button>

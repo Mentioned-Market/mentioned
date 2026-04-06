@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import Header from '@/components/Header'
@@ -164,7 +164,7 @@ function AnimatedChart({ play }: { play: boolean }) {
     const lastPt = points[points.length - 1]
 
     const grad = ctx.createLinearGradient(0, 0, 0, h)
-    grad.addColorStop(0, 'rgba(52,199,89,0.15)'); grad.addColorStop(1, 'rgba(52,199,89,0)')
+    grad.addColorStop(0, 'rgba(242,183,31,0.15)'); grad.addColorStop(1, 'rgba(242,183,31,0)')
     ctx.beginPath()
     points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y))
     ctx.lineTo(lastPt[0], h); ctx.lineTo(0, h); ctx.closePath()
@@ -172,10 +172,10 @@ function AnimatedChart({ play }: { play: boolean }) {
 
     ctx.beginPath()
     points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y))
-    ctx.strokeStyle = '#34C759'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
+    ctx.strokeStyle = '#F2B71F'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
 
-    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 4, 0, Math.PI * 2); ctx.fillStyle = '#34C759'; ctx.fill()
-    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(52,199,89,0.25)'; ctx.fill()
+    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 4, 0, Math.PI * 2); ctx.fillStyle = '#F2B71F'; ctx.fill()
+    ctx.beginPath(); ctx.arc(lastPt[0], lastPt[1], 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(242,183,31,0.25)'; ctx.fill()
   }, [progress, prices])
 
   return <canvas ref={canvasRef} className="w-full h-full" style={{ display: 'block' }} />
@@ -196,15 +196,15 @@ function MockMarketCard({ play, delay, title, emoji, words, selected }: {
     <div className="glass rounded-2xl p-5 text-left cursor-pointer relative overflow-hidden" style={{
       opacity: enterP,
       transform: `translateY(${lerp(40, 0, enterP)}px) scale(${lerp(0.95, 1, enterP)})`,
-      border: `1px solid rgba(52, 199, 89, ${selectP * 0.5})`,
-      boxShadow: `0 0 ${selectP * 40}px rgba(52, 199, 89, ${selectP * 0.1}), inset 0 0 ${selectP * 30}px rgba(52,199,89,${selectP * 0.03})`,
+      border: `1px solid rgba(242, 183, 31, ${selectP * 0.5})`,
+      boxShadow: `0 0 ${selectP * 40}px rgba(242, 183, 31, ${selectP * 0.1}), inset 0 0 ${selectP * 30}px rgba(242,183,31,${selectP * 0.03})`,
     }}>
-      {isSelected && <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg, transparent 40%, rgba(52,199,89,0.06) 50%, transparent 60%)', animation: 'shimmerSlide 2s ease-in-out infinite' }} />}
+      {isSelected && <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg, transparent 40%, rgba(242,183,31,0.06) 50%, transparent 60%)', animation: 'shimmerSlide 2s ease-in-out infinite' }} />}
       <div className="flex items-center gap-3 mb-4">
         <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-xl">{emoji}</div>
         <div>
           <h4 className="text-white text-sm font-semibold">{title}</h4>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Open</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#F2B71F] bg-[#F2B71F]/10 px-2 py-0.5 rounded-full">Open</span>
         </div>
       </div>
       <div className="space-y-2">
@@ -258,12 +258,12 @@ function MockWordList({ play }: { play: boolean }) {
           return (
             <div key={w.word} className="flex items-center px-3 py-2.5 rounded-lg cursor-pointer" style={{
               opacity: rowEnter, transform: `translateX(${lerp(-20, 0, rowEnter)}px)`,
-              background: isSelected ? `rgba(52,199,89,${selectT * 0.1})` : isHovered ? 'rgba(255,255,255,0.04)' : 'transparent',
-              border: isSelected ? `1px solid rgba(52,199,89,${selectT * 0.25})` : '1px solid transparent',
+              background: isSelected ? `rgba(242,183,31,${selectT * 0.1})` : isHovered ? 'rgba(255,255,255,0.04)' : 'transparent',
+              border: isSelected ? `1px solid rgba(242,183,31,${selectT * 0.25})` : '1px solid transparent',
               transition: 'background 0.4s ease-out, border 0.4s ease-out',
             }}>
               <span className="flex-1 text-white text-sm font-medium">{w.word}</span>
-              <span className="w-16 text-right text-sm font-mono" style={{ color: i === 0 && priceT > 0 ? `rgba(52,199,89,${0.8 + priceT * 0.2})` : 'rgba(52,199,89,0.8)', textShadow: i === 0 && priceT > 0 ? `0 0 ${priceT * 10}px rgba(52,199,89,${priceT * 0.5})` : 'none' }}>
+              <span className="w-16 text-right text-sm font-mono" style={{ color: i === 0 && priceT > 0 ? `rgba(74,222,128,${0.8 + priceT * 0.2})` : 'rgba(74,222,128,0.8)', textShadow: i === 0 && priceT > 0 ? `0 0 ${priceT * 10}px rgba(74,222,128,${priceT * 0.5})` : 'none' }}>
                 {(yesPrice * 100).toFixed(0)}¢
               </span>
               <span className="w-16 text-right text-red-400 text-sm font-mono">{((1 - yesPrice) * 100).toFixed(0)}¢</span>
@@ -306,12 +306,12 @@ function MockTradingPanel({ play }: { play: boolean }) {
         <div className="flex-1 text-center py-1.5 text-xs font-semibold rounded-md text-neutral-500">Sell</div>
       </div>
       <div className="flex gap-2 mb-4">
-        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold" style={{ background: `rgba(52,199,89,${yesT * 0.2})`, border: `1px solid rgba(52,199,89,${yesT * 0.5})`, color: yesT > 0.5 ? '#34C759' : '#a3a3a3', transform: `scale(${lerp(1, 1.05, yesT < 0.5 ? yesT * 2 : (1 - yesT) * 2)})` }}>YES 42¢</button>
-        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-neutral-500">NO 58¢</button>
+        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold" style={{ background: `rgba(242,183,31,${yesT * 0.2})`, border: `1px solid rgba(242,183,31,${yesT * 0.5})`, color: yesT > 0.5 ? '#4ade80' : '#a3a3a3', transform: `scale(${lerp(1, 1.05, yesT < 0.5 ? yesT * 2 : (1 - yesT) * 2)})` }}>YES 42¢</button>
+        <button className="flex-1 py-2.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-red-400">NO 58¢</button>
       </div>
       <div className="mb-4">
         <p className="text-neutral-500 text-[10px] uppercase tracking-wider mb-1.5">Amount (tokens)</p>
-        <div className="flex items-center bg-white/5 border rounded-lg px-3 py-2.5" style={{ borderColor: amount > 0 ? 'rgba(52,199,89,0.3)' : 'rgba(255,255,255,0.1)', transition: 'border-color 0.3s' }}>
+        <div className="flex items-center bg-white/5 border rounded-lg px-3 py-2.5" style={{ borderColor: amount > 0 ? 'rgba(242,183,31,0.3)' : 'rgba(255,255,255,0.1)', transition: 'border-color 0.3s' }}>
           <span className="text-sm font-mono" style={{ color: amount > 0 ? 'white' : '#525252' }}>{amount || '0'}</span>
           {amountT > 0 && amountT < 1 && <span className="text-white ml-0.5" style={{ animation: 'blink 0.8s step-end infinite' }}>|</span>}
           <span className="ml-auto text-[10px] text-neutral-500">Play Tokens</span>
@@ -320,14 +320,14 @@ function MockTradingPanel({ play }: { play: boolean }) {
       <div className="space-y-1.5 mb-4 overflow-hidden" style={{ maxHeight: `${breakdownT * 120}px`, opacity: breakdownT }}>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Avg price</span><span className="text-neutral-300 font-mono">{avgPrice.toFixed(2)}</span></div>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Shares</span><span className="text-neutral-300 font-mono">{shares}</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout if correct</span><span className="text-green-400 font-mono">{shares} tokens</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Profit</span><span className="text-green-400 font-mono">+{profit} tokens</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout if correct</span><span className="text-[#F2B71F] font-mono">{shares} tokens</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Profit</span><span className="text-[#F2B71F] font-mono">+{profit} tokens</span></div>
       </div>
-      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: confirmed ? '#34C759' : amount > 0 ? 'white' : 'rgba(255,255,255,0.1)', color: confirmed ? 'white' : amount > 0 ? 'black' : '#525252', transform: `scale(${buttonPress ? lerp(1, 0.96, pressT) : 1})` }}>
+      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: confirmed ? '#F2B71F' : amount > 0 ? 'white' : 'rgba(255,255,255,0.1)', color: confirmed ? 'black' : amount > 0 ? 'black' : '#525252', transform: `scale(${buttonPress ? lerp(1, 0.96, pressT) : 1})` }}>
         {confirmed ? '✓ Trade Placed!' : amount > 0 ? 'Place Trade' : 'Enter amount'}
       </button>
       <div className="mt-3 text-center" style={{ opacity: confirmT, transform: `translateY(${lerp(10, 0, confirmT)}px)` }}>
-        <p className="text-green-400 text-xs font-medium">Bought {shares} YES shares of &quot;GG&quot;</p>
+        <p className="text-[#F2B71F] text-xs font-medium">Bought {shares} YES shares of &quot;GG&quot;</p>
       </div>
     </div>
   )
@@ -354,24 +354,24 @@ function MockClaimPanel({ play }: { play: boolean }) {
           <div className="text-right"><p className="text-neutral-400 text-[10px]">Avg price</p><p className="text-white text-sm font-mono">0.43</p></div>
         </div>
       </div>
-      <div className="mb-4 p-3 rounded-xl" style={{ background: `rgba(52,199,89,${resolveT * 0.08})`, border: `1px solid rgba(52,199,89,${resolveT * 0.2})` }}>
+      <div className="mb-4 p-3 rounded-xl" style={{ background: `rgba(242,183,31,${resolveT * 0.08})`, border: `1px solid rgba(242,183,31,${resolveT * 0.2})` }}>
         <div className="flex items-center gap-2 mb-1">
-          <div className="w-2 h-2 rounded-full" style={{ background: `rgb(${lerp(82, 52, resolveT)},${lerp(82, 199, resolveT)},${lerp(82, 89, resolveT)})` }} />
-          <p className="text-xs font-semibold" style={{ color: resolved ? '#34C759' : '#a3a3a3' }}>{resolved ? 'Resolved: YES ✓' : 'Awaiting resolution...'}</p>
+          <div className="w-2 h-2 rounded-full" style={{ background: resolved ? '#F2B71F' : `rgba(163,163,163,${resolveT})` }} />
+          <p className="text-xs font-semibold" style={{ color: resolved ? '#F2B71F' : '#a3a3a3' }}>{resolved ? 'Resolved: YES ✓' : 'Awaiting resolution...'}</p>
         </div>
         <p className="text-neutral-500 text-[10px] ml-4">{resolved ? '"GG" was said during the broadcast' : 'Transcript will be checked after the event'}</p>
       </div>
       <div className="mb-4 space-y-1.5 overflow-hidden" style={{ maxHeight: `${payoutT * 120}px`, opacity: payoutT }}>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Your shares</span><span className="text-neutral-300 font-mono">116.2</span></div>
         <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Cost basis</span><span className="text-neutral-300 font-mono">$50.00</span></div>
-        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout</span><span className="text-green-400 font-mono">$116.20</span></div>
-        <div className="flex justify-between text-[11px] pt-1 border-t border-white/5"><span className="text-neutral-400 font-medium">Profit</span><span className="text-green-400 font-semibold font-mono">+$66.20 (+132%)</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Payout</span><span className="text-[#F2B71F] font-mono">$116.20</span></div>
+        <div className="flex justify-between text-[11px] pt-1 border-t border-white/5"><span className="text-neutral-400 font-medium">Profit</span><span className="text-[#F2B71F] font-semibold font-mono">+$66.20 (+132%)</span></div>
       </div>
-      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: claimed ? '#34C759' : claimReady ? 'linear-gradient(135deg, #34C759, #30d158)' : `rgba(255,255,255,${0.1 + claimT * 0.1})`, color: claimT > 0.3 ? 'white' : '#525252', transform: `scale(${lerp(1, 1.02, claimedT)})`, boxShadow: `0 0 ${claimT * 25}px rgba(52,199,89,${claimT * 0.2})` }}>
+      <button className="w-full py-3 rounded-lg text-sm font-semibold" style={{ background: claimed ? '#F2B71F' : claimReady ? 'linear-gradient(135deg, #F2B71F, #f5c93a)' : `rgba(255,255,255,${0.1 + claimT * 0.1})`, color: claimT > 0.3 ? 'black' : '#525252', transform: `scale(${lerp(1, 1.02, claimedT)})`, boxShadow: `0 0 ${claimT * 25}px rgba(242,183,31,${claimT * 0.2})` }}>
         {claimed ? '✓ Winnings Claimed!' : claimReady ? 'Claim Winnings' : 'Waiting for result...'}
       </button>
       <div className="mt-3 text-center" style={{ opacity: claimedT, transform: `translateY(${lerp(15, 0, claimedT)}px) scale(${lerp(0.95, 1, claimedT)})` }}>
-        <p className="text-green-400 text-sm font-semibold">+$66.20 earned!</p>
+        <p className="text-[#F2B71F] text-sm font-semibold">+$66.20 earned!</p>
         <p className="text-neutral-500 text-[10px] mt-0.5">33 points added to your score</p>
       </div>
     </div>
@@ -389,7 +389,7 @@ function MockChartSection({ play }: { play: boolean }) {
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div><p className="text-white text-sm font-semibold">&quot;GG&quot; YES price</p><p className="text-neutral-500 text-xs">VCT Masters: Grand Final</p></div>
-          <div className="flex items-center gap-1"><span className="text-green-400 text-lg font-mono font-bold">{Math.round(lerp(32, 85, ease(p)))}¢</span><span className="text-green-400 text-[10px]">▲</span></div>
+          <div className="flex items-center gap-1"><span className="text-[#F2B71F] text-lg font-mono font-bold">{Math.round(lerp(32, 85, ease(p)))}¢</span><span className="text-[#F2B71F] text-[10px]">▲</span></div>
         </div>
         <div className="h-48 md:h-56"><AnimatedChart play={play} /></div>
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
@@ -443,12 +443,12 @@ function MockAchievements() {
   ]
   return (
     <div className="glass rounded-2xl p-5 w-full">
-      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Achievements</h4><span className="text-[10px] text-green-400 font-mono">4/6 unlocked</span></div>
+      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Achievements</h4><span className="text-[10px] text-[#F2B71F] font-mono">4/6 unlocked</span></div>
       <div className="grid grid-cols-2 gap-2">
         {achievements.map((a) => (
-          <div key={a.name} className="p-3 rounded-xl relative overflow-hidden" style={{ background: a.unlocked ? 'rgba(52,199,89,0.06)' : 'rgba(255,255,255,0.03)', border: a.unlocked ? '1px solid rgba(52,199,89,0.15)' : '1px solid rgba(255,255,255,0.05)' }}>
+          <div key={a.name} className="p-3 rounded-xl relative overflow-hidden" style={{ background: a.unlocked ? 'rgba(242,183,31,0.06)' : 'rgba(255,255,255,0.03)', border: a.unlocked ? '1px solid rgba(242,183,31,0.15)' : '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ filter: a.unlocked ? undefined : 'blur(6px)', userSelect: 'none' }}>
-              <div className="text-lg mb-1">{a.icon}</div><p className="text-white text-xs font-semibold">{a.name}</p><p className="text-neutral-500 text-[10px]">{a.desc}</p><p className="text-green-400/70 text-[10px] font-mono mt-1">+{a.points} pts</p>
+              <div className="text-lg mb-1">{a.icon}</div><p className="text-white text-xs font-semibold">{a.name}</p><p className="text-neutral-500 text-[10px]">{a.desc}</p><p className="text-[#F2B71F]/70 text-[10px] font-mono mt-1">+{a.points} pts</p>
             </div>
           </div>
         ))}
@@ -465,7 +465,7 @@ function MockChat() {
   ]
   return (
     <div className="glass rounded-2xl p-5 w-full">
-      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Market Chat</h4><div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-green-400" style={{ animation: 'pulse 2s infinite' }} /><span className="text-[10px] text-neutral-500">24 online</span></div></div>
+      <div className="flex items-center justify-between mb-4"><h4 className="text-white text-sm font-semibold">Market Chat</h4><div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#F2B71F]" style={{ animation: 'pulse 2s infinite' }} /><span className="text-[10px] text-neutral-500">24 online</span></div></div>
       <div className="space-y-2.5">
         {messages.map((m, i) => { const isYou = m.user === 'you'; return (
           <div key={i} className="flex items-center gap-2">
@@ -494,7 +494,7 @@ function MockPointsBreakdown() {
       <div className="space-y-2">
         {items.map((item) => (
           <div key={item.action} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02]">
-            <span className="text-sm">{item.icon}</span><span className="flex-1 text-neutral-300 text-xs">{item.action}</span><span className="text-neutral-500 text-[10px] font-mono">{item.count}</span><span className="text-green-400 text-xs font-mono font-semibold">{item.points}</span>
+            <span className="text-sm">{item.icon}</span><span className="flex-1 text-neutral-300 text-xs">{item.action}</span><span className="text-neutral-500 text-[10px] font-mono">{item.count}</span><span className="text-[#F2B71F] text-xs font-mono font-semibold">{item.points}</span>
           </div>
         ))}
       </div>
@@ -502,6 +502,243 @@ function MockPointsBreakdown() {
     </div>
   )
 }
+
+
+/* ═══════════════════════════════════════════════
+   BACKGROUND: scrolling columns of fake markets
+   ═══════════════════════════════════════════════ */
+interface FakeMarket {
+  title: string
+  emoji: string
+  seed: string
+  badge: 'LIVE' | 'FREE' | 'LOCKED'
+  words: { word: string; yes: number }[]
+  traders: number
+  duration: string
+}
+
+const FAKE_MARKETS: FakeMarket[] = [
+  { title: 'Joe Rogan #2210: Elon Musk', emoji: '🎙️', seed: 'podcast-mic', badge: 'LIVE', traders: 847, duration: '2h 14m', words: [{ word: 'Mars', yes: 0.72 }, { word: 'simulation', yes: 0.58 }, { word: 'Neuralink', yes: 0.81 }, { word: 'aliens', yes: 0.31 }] },
+  { title: 'VCT Masters: Grand Final', emoji: '🎮', seed: 'esports-arena', badge: 'LIVE', traders: 1240, duration: '4h 02m', words: [{ word: 'clutch', yes: 0.67 }, { word: 'ace', yes: 0.29 }, { word: 'GG', yes: 0.91 }, { word: 'nerf', yes: 0.22 }] },
+  { title: 'Super Bowl LX: Chiefs vs Niners', emoji: '🏈', seed: 'football-stadium', badge: 'LIVE', traders: 3412, duration: '3h 45m', words: [{ word: 'touchdown', yes: 0.88 }, { word: 'penalty', yes: 0.74 }, { word: 'overtime', yes: 0.19 }, { word: 'fumble', yes: 0.41 }] },
+  { title: 'Fed Rate Decision: Powell Speaks', emoji: '💰', seed: 'federal-reserve', badge: 'LOCKED', traders: 612, duration: '1h 30m', words: [{ word: 'inflation', yes: 0.82 }, { word: 'recession', yes: 0.37 }, { word: 'cut', yes: 0.54 }, { word: 'hawkish', yes: 0.46 }] },
+  { title: 'Taylor Swift: Eras Tour Finale', emoji: '🎤', seed: 'concert-lights', badge: 'LIVE', traders: 2087, duration: '3h 20m', words: [{ word: 'encore', yes: 0.94 }, { word: 'engaged', yes: 0.23 }, { word: 'surprise', yes: 0.78 }, { word: 'cried', yes: 0.51 }] },
+  { title: 'Presidential Debate Night', emoji: '🗣️', seed: 'debate-podium', badge: 'LIVE', traders: 4521, duration: '2h 00m', words: [{ word: 'tariffs', yes: 0.69 }, { word: 'border', yes: 0.85 }, { word: 'China', yes: 0.72 }, { word: 'economy', yes: 0.91 }] },
+  { title: 'Oscars 2026 Ceremony', emoji: '🎬', seed: 'oscars-stage', badge: 'FREE', traders: 958, duration: '3h 30m', words: [{ word: 'historic', yes: 0.55 }, { word: 'overdue', yes: 0.48 }, { word: 'Nolan', yes: 0.27 }, { word: 'speechless', yes: 0.33 }] },
+  { title: 'League Worlds: Semifinals', emoji: '⚔️', seed: 'league-worlds', badge: 'LIVE', traders: 1876, duration: '2h 50m', words: [{ word: 'pentakill', yes: 0.15 }, { word: 'baron', yes: 0.82 }, { word: 'throw', yes: 0.44 }, { word: 'comeback', yes: 0.38 }] },
+  { title: 'Lex Fridman: OpenAI CEO', emoji: '🧠', seed: 'ai-brain', badge: 'LIVE', traders: 743, duration: '2h 45m', words: [{ word: 'AGI', yes: 0.71 }, { word: 'consciousness', yes: 0.62 }, { word: 'love', yes: 0.88 }, { word: 'existential', yes: 0.56 }] },
+  { title: 'H3 Podcast: Live Episode', emoji: '🎙️', seed: 'h3-studio', badge: 'LIVE', traders: 521, duration: '3h 00m', words: [{ word: 'lawsuit', yes: 0.42 }, { word: 'sponsor', yes: 0.79 }, { word: 'beef', yes: 0.66 }, { word: 'apology', yes: 0.31 }] },
+  { title: 'UFC 310: Title Fight', emoji: '🥊', seed: 'ufc-cage', badge: 'LIVE', traders: 2193, duration: '4h 00m', words: [{ word: 'knockout', yes: 0.58 }, { word: 'submission', yes: 0.34 }, { word: 'decision', yes: 0.41 }, { word: 'rematch', yes: 0.29 }] },
+  { title: 'Apple WWDC Keynote', emoji: '💻', seed: 'apple-keynote', badge: 'LOCKED', traders: 1402, duration: '2h 00m', words: [{ word: 'AI', yes: 0.96 }, { word: 'Vision', yes: 0.71 }, { word: 'iPhone', yes: 0.89 }, { word: 'one more thing', yes: 0.28 }] },
+  { title: 'NBA Finals Game 7', emoji: '🏀', seed: 'nba-court', badge: 'LIVE', traders: 3102, duration: '3h 15m', words: [{ word: 'overtime', yes: 0.37 }, { word: 'clutch', yes: 0.81 }, { word: 'triple-double', yes: 0.44 }, { word: 'ring', yes: 0.92 }] },
+  { title: 'Tesla Earnings Call', emoji: '📱', seed: 'tesla-factory', badge: 'LOCKED', traders: 687, duration: '1h 15m', words: [{ word: 'robotaxi', yes: 0.73 }, { word: 'delayed', yes: 0.68 }, { word: 'delivery', yes: 0.85 }, { word: 'FSD', yes: 0.77 }] },
+  { title: 'Twitch Rivals: Fortnite', emoji: '🎮', seed: 'twitch-gaming', badge: 'LIVE', traders: 892, duration: '4h 30m', words: [{ word: 'victory royale', yes: 0.62 }, { word: 'banned', yes: 0.18 }, { word: 'teamkill', yes: 0.39 }, { word: 'cracked', yes: 0.74 }] },
+  { title: 'Diary of a CEO: Tell All', emoji: '🎧', seed: 'ceo-interview', badge: 'LIVE', traders: 438, duration: '2h 10m', words: [{ word: 'breakdown', yes: 0.52 }, { word: 'divorce', yes: 0.31 }, { word: 'billion', yes: 0.67 }, { word: 'failure', yes: 0.83 }] },
+  { title: 'F1 Monaco Grand Prix', emoji: '🏎️', seed: 'f1-monaco', badge: 'LIVE', traders: 1654, duration: '2h 30m', words: [{ word: 'crash', yes: 0.58 }, { word: 'safety car', yes: 0.72 }, { word: 'podium', yes: 0.91 }, { word: 'pit stop', yes: 0.99 }] },
+  { title: 'SNL Cold Open', emoji: '🎤', seed: 'snl-studio', badge: 'LIVE', traders: 721, duration: '1h 30m', words: [{ word: 'Trump', yes: 0.79 }, { word: 'cringe', yes: 0.46 }, { word: 'applause', yes: 0.88 }, { word: 'politics', yes: 0.94 }] },
+  { title: 'All-In Podcast Live', emoji: '🎙️', seed: 'all-in-pod', badge: 'LIVE', traders: 963, duration: '2h 00m', words: [{ word: 'besties', yes: 0.92 }, { word: 'Sacks', yes: 0.68 }, { word: 'unbelievable', yes: 0.77 }, { word: 'tequila', yes: 0.41 }] },
+  { title: 'Crypto: Bitcoin Halving', emoji: '₿', seed: 'bitcoin-crypto', badge: 'LOCKED', traders: 1834, duration: '6h 00m', words: [{ word: 'bullish', yes: 0.81 }, { word: 'crash', yes: 0.24 }, { word: 'ETF', yes: 0.69 }, { word: 'moon', yes: 0.58 }] },
+]
+
+// Distribute markets across 5 columns with varied counts so they don't sync.
+const BG_COLUMNS: FakeMarket[][] = [
+  [FAKE_MARKETS[0], FAKE_MARKETS[5], FAKE_MARKETS[10], FAKE_MARKETS[15]],
+  [FAKE_MARKETS[1], FAKE_MARKETS[6], FAKE_MARKETS[11], FAKE_MARKETS[16], FAKE_MARKETS[19]],
+  [FAKE_MARKETS[2], FAKE_MARKETS[7], FAKE_MARKETS[12], FAKE_MARKETS[17]],
+  [FAKE_MARKETS[3], FAKE_MARKETS[8], FAKE_MARKETS[13], FAKE_MARKETS[18]],
+  [FAKE_MARKETS[4], FAKE_MARKETS[9], FAKE_MARKETS[14], FAKE_MARKETS[0], FAKE_MARKETS[11]],
+]
+
+// Seeds with non-.jpg extensions on disk; everything else defaults to .jpg
+const BG_IMG_EXT: Record<string, string> = {
+  'ai-brain': 'jpeg',
+  'bitcoin-crypto': 'jpeg',
+  'ceo-interview': 'jpeg',
+  'concert-lights': 'jpeg',
+}
+
+const FakeMarketCard = memo(function FakeMarketCard({ market }: { market: FakeMarket }) {
+  const badgeClass =
+    market.badge === 'LIVE' ? 'bg-apple-red/90' :
+    market.badge === 'LOCKED' ? 'bg-orange-500/80' :
+    'bg-apple-green/90'
+  const ext = BG_IMG_EXT[market.seed] ?? 'jpg'
+  const imgUrl = `/img/bg-markets/${market.seed}.${ext}`
+  return (
+    <div className="rounded-2xl overflow-hidden bg-white/[0.04] border border-white/10">
+      <div className="h-[90px] bg-neutral-900 relative overflow-hidden">
+        <Image
+          src={imgUrl}
+          alt=""
+          fill
+          sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw"
+          className="object-cover"
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40" />
+        <div className="absolute top-2 left-2 flex gap-1">
+          <span className={`px-2 py-0.5 rounded-full ${badgeClass} text-white text-[9px] font-bold uppercase tracking-wide`}>{market.badge}</span>
+        </div>
+        <div className="absolute top-2 right-2">
+          <span className="text-base drop-shadow-md">{market.emoji}</span>
+        </div>
+      </div>
+      <div className="p-3 flex flex-col gap-2">
+        <h3 className="text-white text-xs font-semibold leading-tight line-clamp-2 h-[2.2rem]">{market.title}</h3>
+        <div className="flex flex-col gap-1">
+          {market.words.map(w => {
+            const yesPct = Math.round(w.yes * 100)
+            return (
+              <div key={w.word} className="flex items-center gap-2 h-[22px] px-2 rounded-lg bg-white/5">
+                <span className="text-white text-[10px] font-medium truncate flex-1">{w.word}</span>
+                <span className="text-apple-green text-[10px] font-semibold tabular-nums w-7 text-right">{yesPct}c</span>
+                <span className="text-apple-red text-[10px] font-semibold tabular-nums w-7 text-right">{100 - yesPct}c</span>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-1.5 pt-2 border-t border-white/5">
+          <span className="px-1.5 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[9px] font-medium">{market.traders} traders</span>
+          <span className="px-1.5 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[9px] font-medium">{market.duration}</span>
+        </div>
+      </div>
+    </div>
+  )
+})
+
+const ScrollingColumn = memo(function ScrollingColumn({ markets, direction, duration }: { markets: FakeMarket[]; direction: 'up' | 'down'; duration: number }) {
+  const copyRef = useRef<HTMLDivElement>(null)
+  const [copyHeight, setCopyHeight] = useState(0)
+
+  useEffect(() => {
+    if (!copyRef.current) return
+    const update = () => {
+      if (copyRef.current) setCopyHeight(copyRef.current.offsetHeight)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(copyRef.current)
+    return () => ro.disconnect()
+  }, [])
+
+  // Distance to translate so copy2 lands exactly where copy1 started (including the gap).
+  const distance = copyHeight + 16 // gap-4 = 16px between the two copies
+
+  return (
+    <div
+      className="flex flex-col gap-4 bg-col-anim"
+      style={{
+        animation: copyHeight ? `bg-scroll-${direction} ${duration}s linear infinite` : undefined,
+        willChange: 'transform',
+        contain: 'layout paint',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ['--scroll-dist' as any]: `${distance}px`,
+      }}
+    >
+      <div ref={copyRef} className="flex flex-col gap-4">
+        {markets.map((m, i) => <FakeMarketCard key={`a${i}`} market={m} />)}
+      </div>
+      <div className="flex flex-col gap-4" aria-hidden>
+        {markets.map((m, i) => <FakeMarketCard key={`b${i}`} market={m} />)}
+      </div>
+      <div className="flex flex-col gap-4" aria-hidden>
+        {markets.map((m, i) => <FakeMarketCard key={`c${i}`} market={m} />)}
+      </div>
+    </div>
+  )
+})
+
+const HeroBackground = memo(function HeroBackground() {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    // Toggle paused class when the bg has faded out or the tab is hidden, so
+    // column animations stop consuming compositor work while invisible.
+    let paused = false
+    const updatePaused = () => {
+      const shouldPause =
+        document.hidden || window.scrollY >= window.innerHeight * 0.75
+      if (shouldPause !== paused) {
+        paused = shouldPause
+        el.classList.toggle('bg-paused', paused)
+      }
+    }
+    window.addEventListener('scroll', updatePaused, { passive: true })
+    document.addEventListener('visibilitychange', updatePaused)
+    updatePaused()
+
+    // Prefer native CSS scroll-driven animation if supported.
+    if (typeof CSS !== 'undefined' && CSS.supports('animation-timeline: scroll()')) {
+      el.classList.add('hero-bg-scroll-fade')
+      return () => {
+        window.removeEventListener('scroll', updatePaused)
+        document.removeEventListener('visibilitychange', updatePaused)
+      }
+    }
+    // JS fallback: rAF loop while in fade zone.
+    let rafId = 0
+    let running = true
+    const loop = () => {
+      if (!running) return
+      const fade = window.innerHeight * 0.75
+      const o = Math.max(0, 1 - window.scrollY / fade)
+      el.style.opacity = o.toFixed(3)
+      if (o > 0) {
+        rafId = requestAnimationFrame(loop)
+      } else {
+        running = false
+      }
+    }
+    const resume = () => {
+      if (running) return
+      if (window.scrollY < window.innerHeight * 0.75) {
+        running = true
+        rafId = requestAnimationFrame(loop)
+      }
+    }
+    rafId = requestAnimationFrame(loop)
+    window.addEventListener('scroll', resume, { passive: true })
+    return () => {
+      running = false
+      window.removeEventListener('scroll', resume)
+      window.removeEventListener('scroll', updatePaused)
+      document.removeEventListener('visibilitychange', updatePaused)
+      cancelAnimationFrame(rafId)
+    }
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="absolute inset-x-0 top-0 pointer-events-none overflow-hidden z-0"
+      style={{ height: '115vh' }}
+    >
+      <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 opacity-[0.5]">
+        {BG_COLUMNS.map((col, i) => (
+          <ScrollingColumn
+            key={i}
+            markets={col}
+            direction={i % 2 === 0 ? 'up' : 'down'}
+            duration={70 + i * 9}
+          />
+        ))}
+      </div>
+      {/* Center darken mask so hero text stays readable */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 77% 71% at center, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.8) 38%, rgba(0,0,0,0.3) 62%, rgba(0,0,0,0) 90%)',
+        }}
+      />
+    </div>
+  )
+})
 
 
 /* ═══════════════════════════════════════════════
@@ -544,16 +781,19 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen w-full bg-black" style={{ overflowX: 'clip' }}>
+      {/* Scrolling market previews behind hero (fades out on scroll) */}
+      <HeroBackground />
+
       {/* Header */}
       <div className="relative z-50 px-4 md:px-10 lg:px-20 flex justify-center">
         <div className="w-full max-w-7xl"><Header /></div>
       </div>
 
       {/* Hero */}
-      <section className="min-h-[85vh] flex flex-col items-center justify-center text-center px-4 md:px-10">
+      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center text-center px-4 md:px-10 -translate-y-16 md:-translate-y-20">
         <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
         <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
-        <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for live broadcasts.<br />Pick words. Trade against friends. Win.</p>
+        <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for any form of media.<br />Pick words. Trade against friends. Win.</p>
         <div className="mt-8 md:mt-10 flex items-center gap-3 hero-cta">
           <Link href="/markets" className="h-10 md:h-12 px-6 md:px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
           <Link href="/leaderboard" className="h-10 md:h-12 px-6 md:px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
@@ -565,7 +805,7 @@ export default function Home() {
       </section>
 
       {/* Auto-playing slideshow */}
-      <section ref={slideshowRef} className="relative overflow-hidden" style={{ height: '100vh', marginTop: '-15vh' }}>
+      <section ref={slideshowRef} className="relative z-10 overflow-hidden bg-black" style={{ height: '100vh', marginTop: '-15vh' }}>
         {SLIDES.map((slide, i) => {
           const isActive = activeSlide === i
           return (
@@ -663,7 +903,7 @@ export default function Home() {
                   <p className="text-neutral-400 text-sm">Real USDC. Trade on Polymarket&apos;s mention markets, powered by Solana. Connect your Phantom wallet and trade with real stakes.</p>
                 </div>
                 <div className="reveal reveal-right glass rounded-2xl p-7 text-left">
-                  <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center"><span className="text-base">🎮</span></div><h3 className="text-white text-base font-semibold">Free markets</h3></div>
+                  <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#F2B71F]/10 flex items-center justify-center"><span className="text-base">🎮</span></div><h3 className="text-white text-base font-semibold">Free markets</h3></div>
                   <p className="text-neutral-400 text-sm">Play tokens, no money needed. Same trading mechanics. Profit converts to platform points and leaderboard rank.</p>
                 </div>
               </div>
@@ -703,6 +943,14 @@ export default function Home() {
         .stagger-1 { transition-delay: 0.12s; }
         .stagger-2 { transition-delay: 0.24s; }
         .stagger-3 { transition-delay: 0.36s; }
+        @keyframes bg-scroll-up {
+          from { transform: translate3d(0, 0, 0); }
+          to { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
+        }
+        @keyframes bg-scroll-down {
+          from { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
+          to { transform: translate3d(0, 0, 0); }
+        }
       `}</style>
     </div>
   )
