@@ -497,7 +497,8 @@ function WeekCycleBanner({ countdown }: { countdown: string }) {
 function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
   // Seed ref from module-level cache so cross-navigation diffs work
   const prevRef = useRef<TrendingWord[]>(sidebarCache?.prevData?.trendingWords ?? [])
-  const [highlights, setHighlights] = useState<Map<string, number | 'new'>>(new Map())
+  const [shifts, setShifts] = useState<Map<string, number | 'new'>>(new Map())
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     const prev = prevRef.current
@@ -518,9 +519,14 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
 
     prevRef.current = words
     if (changed.size > 0) {
-      setHighlights(changed)
-      const timer = setTimeout(() => setHighlights(new Map()), 20_000)
-      return () => clearTimeout(timer)
+      setShifts(changed)
+      setVisible(false)
+      // Defer visibility so elements render at opacity:0 first, then fade in
+      const frameId = requestAnimationFrame(() => setVisible(true))
+      // After 20s, fade out (2s transition), then clear shift data
+      const fadeTimer = setTimeout(() => setVisible(false), 20_000)
+      const clearTimer = setTimeout(() => setShifts(new Map()), 22_000)
+      return () => { cancelAnimationFrame(frameId); clearTimeout(fadeTimer); clearTimeout(clearTimer) }
     }
   }, [words])
 
@@ -533,16 +539,16 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
       </div>
       <div className="flex flex-col gap-2">
         {words.map((w, i) => {
-          const shift = highlights.get(w.word)
-          const isHighlighted = shift !== undefined
+          const shift = shifts.get(w.word)
+          const hasShift = shift !== undefined
 
           return (
             <Link
               key={w.word}
               href={`/free/${w.slug}`}
-              className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-colors duration-700"
+              className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-all duration-[2000ms]"
               style={{
-                backgroundColor: isHighlighted ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
+                backgroundColor: hasShift && visible ? 'rgba(242, 183, 31, 0.12)' : 'transparent',
               }}
             >
               <span className="text-neutral-600 text-xs font-bold w-4 text-right tabular-nums shrink-0">#{i + 1}</span>
@@ -551,12 +557,12 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
                 <p className="text-neutral-500 text-[10px] truncate">{w.market_title}</p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {isHighlighted && (
-                  <span className={`text-[10px] font-semibold tabular-nums ${
+                {hasShift && (
+                  <span className={`text-[10px] font-semibold tabular-nums transition-opacity duration-[2000ms] ${
                     shift === 'new' ? 'text-[#F2B71F]'
                       : (shift as number) > 0 ? 'text-emerald-400'
                       : 'text-red-400'
-                  }`}>
+                  }`} style={{ opacity: visible ? 1 : 0 }}>
                     {shift === 'new' ? 'NEW' : (shift as number) > 0 ? `▲${shift}` : `▼${Math.abs(shift as number)}`}
                   </span>
                 )}
@@ -572,7 +578,8 @@ function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
 
 function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: boolean }) {
   const prevRef = useRef<TopTrader[]>(sidebarCache?.prevData?.topTraders ?? [])
-  const [highlights, setHighlights] = useState<Map<string, number | 'new'>>(new Map())
+  const [shifts, setShifts] = useState<Map<string, number | 'new'>>(new Map())
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     const prev = prevRef.current
@@ -593,9 +600,12 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
 
     prevRef.current = traders
     if (changed.size > 0) {
-      setHighlights(changed)
-      const timer = setTimeout(() => setHighlights(new Map()), 20_000)
-      return () => clearTimeout(timer)
+      setShifts(changed)
+      setVisible(false)
+      const frameId = requestAnimationFrame(() => setVisible(true))
+      const fadeTimer = setTimeout(() => setVisible(false), 20_000)
+      const clearTimer = setTimeout(() => setShifts(new Map()), 22_000)
+      return () => { cancelAnimationFrame(frameId); clearTimeout(fadeTimer); clearTimeout(clearTimer) }
     }
   }, [traders])
 
@@ -613,16 +623,16 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
       </div>
       <div className="flex flex-col gap-3">
         {traders.map((t, i) => {
-          const shift = highlights.get(t.wallet)
-          const isHighlighted = shift !== undefined
+          const shift = shifts.get(t.wallet)
+          const hasShift = shift !== undefined
 
           return (
             <Link
               key={t.wallet}
               href={`/profile/${t.username ?? t.wallet}`}
-              className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-colors duration-700"
+              className="flex items-center gap-3 group rounded-lg px-1 -mx-1 transition-all duration-[2000ms]"
               style={{
-                backgroundColor: isHighlighted ? 'rgba(242, 183, 31, 0.08)' : 'transparent',
+                backgroundColor: hasShift && visible ? 'rgba(242, 183, 31, 0.12)' : 'transparent',
               }}
             >
               <span className="text-sm w-5 text-center shrink-0">
@@ -637,12 +647,12 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {isHighlighted && (
-                  <span className={`text-[10px] font-semibold tabular-nums ${
+                {hasShift && (
+                  <span className={`text-[10px] font-semibold tabular-nums transition-opacity duration-[2000ms] ${
                     shift === 'new' ? 'text-[#F2B71F]'
                       : (shift as number) > 0 ? 'text-emerald-400'
                       : 'text-red-400'
-                  }`}>
+                  }`} style={{ opacity: visible ? 1 : 0 }}>
                     {shift === 'new' ? 'NEW' : (shift as number) > 0 ? `▲${shift}` : `▼${Math.abs(shift as number)}`}
                   </span>
                 )}
