@@ -111,7 +111,7 @@ function HowItWorks({ onRerunTutorial, upward }: { onRerunTutorial?: () => void;
     <div className="relative mb-3">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-apple-blue/10 border border-apple-blue/20 text-xs text-apple-blue hover:bg-apple-blue/15 transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-[#F2B71F]/10 border border-[#F2B71F]/20 text-xs text-[#F2B71F] hover:bg-[#F2B71F]/15 transition-colors"
       >
         <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-[13px] font-bold leading-none">?</span>
         <span className="font-medium">How does this work?</span>
@@ -146,7 +146,7 @@ function HowItWorks({ onRerunTutorial, upward }: { onRerunTutorial?: () => void;
             {onRerunTutorial && (
               <button
                 onClick={() => { setOpen(false); onRerunTutorial() }}
-                className="mt-3 w-full text-center text-[11px] text-apple-blue hover:text-apple-blue/80 transition-colors"
+                className="mt-3 w-full text-center text-[11px] text-[#F2B71F] hover:text-[#F2B71F] transition-colors"
               >
                 Rerun tutorial
               </button>
@@ -540,7 +540,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
           </div>
           <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
             <div
-              className="h-full bg-apple-blue/60 transition-all duration-300 rounded-full"
+              className="h-full bg-[#F2B71F]/70 transition-all duration-300 rounded-full"
               style={{ width: `${Math.max(0, Math.min(100, (balance / startingBalance) * 100))}%` }}
             />
           </div>
@@ -574,7 +574,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
             </div>
           </div>
           {currentProfit.total > 0 && (
-            <div className="mt-1.5 text-[11px] text-apple-blue font-medium">
+            <div className="mt-1.5 text-[11px] text-[#F2B71F] font-medium">
               = {Math.floor(currentProfit.total * VIRTUAL_MARKET_POINTS_MULTIPLIER)} points if resolved now
             </div>
           )}
@@ -583,7 +583,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
       {/* Selected word label */}
       <div className="mb-4">
-        <span className={`font-semibold text-sm ${side === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+        <span className={`font-semibold text-sm ${side === 'YES' ? 'text-[#F2B71F]' : 'text-apple-red'}`}>
           {tradeMode === 'buy' ? 'Buy' : 'Sell'} {side}
         </span>
         <span className="text-neutral-400 text-sm"> · </span>
@@ -680,7 +680,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               value={Math.round(sliderValue)}
               onChange={e => handleSliderChange(Number(e.target.value))}
               className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-              style={{ accentColor: side === 'YES' ? 'var(--apple-green, #30d158)' : 'var(--apple-red, #ff453a)' }}
+              style={{ accentColor: side === 'YES' ? '#F2B71F' : 'var(--apple-red, #ff453a)' }}
             />
           </div>
         )}
@@ -781,12 +781,12 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
           disabled={!amount || amountNum <= 0 || (tradeMode === 'buy' && amountNum < 1) || trading}
           className={`w-full py-3.5 text-white font-semibold text-base rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
             side === 'YES'
-              ? 'bg-apple-green hover:bg-apple-green/90'
+              ? 'bg-[#F2B71F] hover:bg-[#F2B71F]/90 text-black'
               : 'bg-apple-red hover:bg-apple-red/90'
           } ${
             selectedWordId !== null && amountNum > 0 && !(tradeMode === 'buy' && amountNum < 1) && !trading
               ? side === 'YES'
-                ? 'ring-2 ring-apple-green/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(52,199,89,0.45)] animate-pulse'
+                ? 'ring-2 ring-[#F2B71F]/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(242,183,31,0.45)] animate-pulse'
                 : 'ring-2 ring-apple-red/70 ring-offset-2 ring-offset-neutral-900 shadow-[0_0_16px_rgba(255,59,48,0.45)] animate-pulse'
               : ''
           }`}
@@ -813,18 +813,17 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       )}
 
       {/* User positions for this market */}
-      {connected && positions.length > 0 && (
+      {connected && isOpen && !lockTimePassed && positions.filter(p => p.yes_shares >= 1 || p.no_shares >= 1).length > 0 && (
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2 cursor-help" title="Your open positions in this market. Click a position to switch to sell mode and close it.">
-            Positions ({positions.length})
+            Positions ({positions.filter(p => p.yes_shares >= 1 || p.no_shares >= 1).length})
           </div>
           <div className="space-y-2">
             {positions.map(pos => {
               const pnl = pos.tokens_received - pos.tokens_spent
-              // Use 0.01 threshold — dust shares (<0.01) left by truncation aren't tradeable
-              const hasShares = pos.yes_shares >= 0.01 || pos.no_shares >= 0.01
-              // Hide if no shares remain unless market is resolved (where final P&L is worth showing)
-              if (!hasShares && (market?.status !== 'resolved' || pnl === 0)) return null
+              // Require at least 1 share — anything less is unsellable dust from rounding
+              const hasShares = pos.yes_shares >= 1 || pos.no_shares >= 1
+              if (!hasShares) return null
               const isClickable = isOpen && hasShares
               return (
                 <div
@@ -844,9 +843,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-neutral-400">
                     <span>
-                      {pos.yes_shares >= 0.01 && <span className="text-apple-green">{pos.yes_shares.toFixed(1)} YES</span>}
-                      {pos.yes_shares >= 0.01 && pos.no_shares >= 0.01 && ' · '}
-                      {pos.no_shares >= 0.01 && <span className="text-apple-red">{pos.no_shares.toFixed(1)} NO</span>}
+                      {pos.yes_shares >= 1 && <span className="text-apple-green">{pos.yes_shares.toFixed(1)} YES</span>}
+                      {pos.yes_shares >= 1 && pos.no_shares >= 1 && ' · '}
+                      {pos.no_shares >= 1 && <span className="text-apple-red">{pos.no_shares.toFixed(1)} NO</span>}
                     </span>
                     <span>spent {pos.tokens_spent.toFixed(1)}</span>
                   </div>
@@ -922,19 +921,6 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 text-xs md:text-sm text-neutral-400 font-medium mb-0.5">
-                    <span className="px-2 py-0.5 rounded-full bg-apple-green/90 text-white text-[10px] font-bold uppercase tracking-wide">
-                      Free
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                      market.status === 'open' ? 'bg-apple-green/15 text-apple-green' :
-                      market.status === 'locked' ? 'bg-orange-500/15 text-orange-400' :
-                      market.status === 'resolved' ? 'bg-white/10 text-neutral-300' :
-                      'bg-white/10 text-neutral-400'
-                    }`}>
-                      {getStatusLabel(market.status)}
-                    </span>
-                  </div>
                   <h1 className="text-lg md:text-xl font-semibold text-white leading-tight">
                     {market.title}
                   </h1>
@@ -949,6 +935,14 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
                 <span className="text-neutral-700">·</span>
                 <span>{words.length} words</span>
+                <span className="text-neutral-700">·</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                  market.status === 'resolved' ? 'bg-blue-500/15 text-blue-400' :
+                  (market.status === 'locked' || lockTimePassed) ? 'bg-white/10 text-neutral-400' :
+                  'bg-[#F2B71F]/15 text-[#F2B71F]'
+                }`}>
+                  {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
+                </span>
                 {market.lock_time && isOpen && !lockTimePassed && (
                   <>
                     <span className="text-neutral-700">·</span>
