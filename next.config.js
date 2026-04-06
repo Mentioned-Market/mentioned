@@ -37,8 +37,8 @@ const nextConfig = {
   compress: true,
   // Generate ETags
   generateEtags: true,
-  // Optimize fonts
-  optimizeFonts: true,
+  // Disable font optimization — Material Symbols variable font axes aren't supported by Next.js optimizer
+  optimizeFonts: false,
 }
 
 module.exports = nextConfig

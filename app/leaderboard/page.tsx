@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -9,15 +9,6 @@ import InfoTooltip from '@/components/InfoTooltip'
 import MentionedSpinner from '@/components/MentionedSpinner'
 
 // ── Types ──────────────────────────────────────────────────
-
-interface LeaderboardEntry {
-  wallet: string
-  username: string | null
-  pnl: number
-  winningTrades: number
-  totalTrades: number
-  volume: number
-}
 
 interface PointsEntry {
   wallet: string
@@ -30,170 +21,193 @@ interface PointsEntry {
 
 // ── Helpers ────────────────────────────────────────────────
 
-function microToUsdSigned(micro: number): string {
-  if (!Number.isFinite(micro) || micro === 0) return '$0.00'
-  const sign = micro > 0 ? '+' : '-'
-  return `${sign}$${(Math.abs(micro) / 1_000_000).toFixed(2)}`
+function getMsUntilNextMonday(): number {
+  const now = new Date()
+  const day = now.getUTCDay()
+  const daysUntilMonday = day === 0 ? 1 : 8 - day
+  const next = new Date(now)
+  next.setUTCDate(now.getUTCDate() + daysUntilMonday)
+  next.setUTCHours(0, 0, 0, 0)
+  return next.getTime() - now.getTime()
 }
 
-function formatVolume(micro: number): string {
-  if (!Number.isFinite(micro) || micro === 0) return '$0'
-  const usd = Math.abs(micro) / 1_000_000
-  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`
-  if (usd >= 1_000) return `$${(usd / 1_000).toFixed(1)}K`
-  return `$${usd.toFixed(0)}`
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '00:00:00'
+  const s = Math.floor(ms / 1000)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (d > 0) return `${d}d ${String(h).padStart(2,'0')}h ${String(m).padStart(2,'0')}m ${String(sec).padStart(2,'0')}s`
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
 }
 
-function truncateWallet(w: string): string {
+function truncateWallet(w: string) {
   return `${w.slice(0, 4)}...${w.slice(-4)}`
 }
 
-function formatWeekRange(weekStartIso: string): string {
-  const start = new Date(weekStartIso)
+function formatWeekRange(iso: string) {
+  const start = new Date(iso)
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + 6)
-  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-  return `${start.toLocaleDateString(undefined, opts)} – ${end.toLocaleDateString(undefined, opts)}`
+  const o: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  return `${start.toLocaleDateString(undefined, o)} – ${end.toLocaleDateString(undefined, o)}`
 }
 
-function winRate(entry: LeaderboardEntry): number {
-  if (entry.totalTrades === 0) return 0
-  return entry.winningTrades / entry.totalTrades
-}
-
-type SortKey = 'pnl' | 'volume' | 'winRate'
 type PointsSortKey = 'weekly' | 'alltime'
-type Tab = 'trading' | 'points'
 
-// ── Prize config ───────────────────────────────────────────
+// ── Accent palette per rank ────────────────────────────────
+
+const ACCENTS = {
+  1: { color: '#F2B71F', ring: 'rgba(242,183,31,0.5)',  glow: 'rgba(242,183,31,0.18)', bg: 'rgba(242,183,31,0.06)',  label: '1st' },
+  2: { color: '#9ba8b5', ring: 'rgba(155,168,181,0.4)', glow: 'rgba(155,168,181,0.12)', bg: 'rgba(155,168,181,0.04)', label: '2nd' },
+  3: { color: '#c07b3a', ring: 'rgba(192,123,58,0.4)',  glow: 'rgba(192,123,58,0.12)', bg: 'rgba(192,123,58,0.04)',  label: '3rd' },
+} as const
 
 const PRIZES = [
-  { place: 1, amount: '$40', medal: '🥇', color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20' },
-  { place: 2, amount: '$25', medal: '🥈', color: 'text-neutral-300', bg: 'bg-neutral-300/10', border: 'border-neutral-300/20' },
-  { place: 3, amount: '$18', medal: '🥉', color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
-  { place: 4, amount: '$10', medal: null, color: 'text-neutral-400', bg: 'bg-white/5', border: 'border-white/10' },
-  { place: 5, amount: '$7',  medal: null, color: 'text-neutral-400', bg: 'bg-white/5', border: 'border-white/10' },
+  { place: 1, amount: '$40' },
+  { place: 2, amount: '$25' },
+  { place: 3, amount: '$18' },
+  { place: 4, amount: '$10' },
+  { place: 5, amount: '$7'  },
 ]
 
-function prizeForRank(rank: number) {
-  return PRIZES.find(p => p.place === rank) ?? null
-}
+// ── Avatar circle ─────────────────────────────────────────
 
-// ── Rank cell ──────────────────────────────────────────────
-
-function RankCell({ rank }: { rank: number }) {
-  const prize = prizeForRank(rank)
-  if (prize?.medal) {
-    return <span className="text-xl md:text-2xl leading-none">{prize.medal}</span>
-  }
+function AvatarCircle({ emoji, rank, large = false }: { emoji?: string | null; rank: number; large?: boolean }) {
+  const a = ACCENTS[rank as keyof typeof ACCENTS]
+  const size = large ? 'w-[88px] h-[88px] text-5xl' : 'w-16 h-16 text-3xl'
   return (
-    <span className={`text-base font-bold tabular-nums ${rank <= 5 ? 'text-neutral-300' : 'text-neutral-600'}`}>
-      {rank}
-    </span>
+    <div
+      className={`${size} rounded-full flex items-center justify-center flex-shrink-0`}
+      style={{
+        background: a ? a.bg : 'rgba(255,255,255,0.04)',
+        boxShadow: a
+          ? `0 0 0 2.5px ${a.ring}, 0 0 28px ${a.glow}`
+          : '0 0 0 1.5px rgba(255,255,255,0.08)',
+      }}
+    >
+      {emoji ?? '⚪'}
+    </div>
   )
 }
 
-// ── Avatar placeholder ─────────────────────────────────────
+// ── Podium ─────────────────────────────────────────────────
 
-function Avatar({ pfpEmoji }: { name: string; pfpEmoji?: string | null; size?: number }) {
+function Podium({ top3, sort, you }: { top3: PointsEntry[]; sort: PointsSortKey; you?: string | null }) {
+  const slots = [
+    { entry: top3[1], rank: 2, shift: 'mt-10' },
+    { entry: top3[0], rank: 1, shift: 'mt-0'  },
+    { entry: top3[2], rank: 3, shift: 'mt-16' },
+  ]
+
   return (
-    <span className="text-lg md:text-xl leading-none flex-shrink-0 w-7 md:w-9 flex items-center justify-center">
-      {pfpEmoji ?? '⚪'}
-    </span>
+    <div className="flex items-end justify-center gap-8 md:gap-16 py-6">
+      {slots.map(({ entry, rank, shift }) => {
+        if (!entry) return <div key={rank} className="w-32" />
+        const a = ACCENTS[rank as keyof typeof ACCENTS]
+        const pts = sort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
+        const name = entry.username || truncateWallet(entry.wallet)
+        const isYou = you === entry.wallet
+        const isFirst = rank === 1
+
+        return (
+          <div key={rank} className={`flex flex-col items-center gap-2 ${shift}`}>
+            {isFirst && (
+              <span className="text-xl mb-0.5" style={{ filter: 'drop-shadow(0 2px 8px rgba(242,183,31,0.5))' }}>👑</span>
+            )}
+            <Link href={`/profile/${entry.username ?? entry.wallet}`}>
+              <AvatarCircle emoji={entry.pfpEmoji} rank={rank} large={isFirst} />
+            </Link>
+            <div className="flex flex-col items-center gap-0.5 mt-1">
+              <Link
+                href={`/profile/${entry.username ?? entry.wallet}`}
+                className="hover:underline font-semibold text-center leading-snug max-w-[120px] truncate"
+                style={{ color: isYou ? '#fb923c' : 'white', fontSize: isFirst ? 15 : 13 }}
+              >
+                {name}
+              </Link>
+              <span className="text-[11px] font-medium" style={{ color: a.color }}>{a.label}</span>
+            </div>
+            <div className="text-center">
+              <p className="font-bold tabular-nums leading-none" style={{ color: a.color, fontSize: isFirst ? 24 : 18 }}>
+                {pts.toLocaleString()}
+              </p>
+              <p className="text-[9px] text-neutral-700 uppercase tracking-widest mt-0.5">pts</p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
-// ── Row highlight for current user ─────────────────────────
-
-function rowClass(isYou: boolean) {
-  if (isYou) return 'bg-white/[0.06] border-l-2 border-l-apple-blue'
-  return 'hover:bg-white/[0.03]'
-}
-
-// ── Component ──────────────────────────────────────────────
+// ── Page ───────────────────────────────────────────────────
 
 export default function LeaderboardPage() {
   const { publicKey } = useWallet()
-  const [tab, setTab] = useState<Tab>('points')
-
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([])
-  const [weekStart, setWeekStart] = useState<string>('')
+  const [entries, setEntries] = useState<PointsEntry[]>([])
+  const [weekStart, setWeekStart] = useState('')
   const [loading, setLoading] = useState(true)
-  const [sortBy, setSortBy] = useState<SortKey>('pnl')
-  const [tradingPeriod, setTradingPeriod] = useState<'weekly' | 'alltime'>('weekly')
-
-  const [pointsEntries, setPointsEntries] = useState<PointsEntry[]>([])
-  const [pointsWeekStart, setPointsWeekStart] = useState<string>('')
-  const [pointsLoading, setPointsLoading] = useState(true)
-  const [pointsSort, setPointsSort] = useState<PointsSortKey>('weekly')
+  const [sort, setSort] = useState<PointsSortKey>('weekly')
+  const [countdown, setCountdown] = useState('')
 
   useEffect(() => {
-    if (tab !== 'trading') return
-    let mounted = true
-    async function fetch_() {
-      try {
-        const res = await fetch(`/api/polymarket/leaderboard?period=${tradingPeriod}`)
-        const json = await res.json()
-        if (mounted) { setEntries(json.data || []); setWeekStart(json.weekStart || '') }
-      } catch { /* ignore */ } finally { if (mounted) setLoading(false) }
-    }
-    setLoading(true); fetch_()
-    const iv = setInterval(fetch_, 60_000)
-    return () => { mounted = false; clearInterval(iv) }
-  }, [tab, tradingPeriod])
+    const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
-    let mounted = true
-    async function fetch_() {
-      try {
-        const res = await fetch(`/api/polymarket/leaderboard/points?sort=${pointsSort}`)
-        const json = await res.json()
-        if (mounted) { setPointsEntries(json.data || []); setPointsWeekStart(json.weekStart || '') }
-      } catch { /* ignore */ } finally { if (mounted) setPointsLoading(false) }
-    }
-    setPointsLoading(true); fetch_()
-    return () => { mounted = false }
-  }, [pointsSort])
+    let live = true
+    setLoading(true)
+    fetch(`/api/polymarket/leaderboard/points?sort=${sort}`)
+      .then(r => r.json())
+      .then(j => { if (live) { setEntries(j.data ?? []); setWeekStart(j.weekStart ?? '') } })
+      .catch(() => {})
+      .finally(() => { if (live) setLoading(false) })
+    return () => { live = false }
+  }, [sort])
 
-  const sorted = useMemo(() => {
-    const copy = [...entries]
-    if (sortBy === 'volume') return copy.sort((a, b) => b.volume - a.volume)
-    if (sortBy === 'winRate') return copy.sort((a, b) => winRate(b) - winRate(a))
-    return copy.sort((a, b) => b.pnl - a.pnl)
-  }, [entries, sortBy])
-
-  // Find "you" in the points list
-  const youPointsIndex = publicKey ? pointsEntries.findIndex(e => e.wallet === publicKey) : -1
-  const youPoints = youPointsIndex >= 0 ? pointsEntries[youPointsIndex] : null
-  const youPointsRank = youPointsIndex >= 0 ? youPointsIndex + 1 : null
+  const youIdx   = publicKey ? entries.findIndex(e => e.wallet === publicKey) : -1
+  const youEntry = youIdx >= 0 ? entries[youIdx] : null
+  const youRank  = youIdx >= 0 ? youIdx + 1 : null
 
   return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
+    <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-black">
       <div className="layout-container flex h-full grow flex-col">
         <div className="px-4 md:px-10 lg:px-20 flex justify-center">
-          <div className="w-full max-w-7xl">
-            <Header />
-          </div>
+          <div className="w-full max-w-7xl"><Header /></div>
         </div>
-        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
-          <div className="layout-content-container flex flex-col w-full max-w-4xl flex-1">
-            <main className="py-6 animate-fade-in">
 
-              {/* ── Page header ─────────────────────────────── */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">Leaderboard</h1>
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="flex flex-col w-full max-w-6xl flex-1">
+            <main className="py-10 space-y-0">
+
+              {/* ── Header row ──────────────────────────────── */}
+              <div
+                className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-2 animate-fade-in"
+                style={{ animationDelay: '0ms', animationFillMode: 'both' }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <h1 className="text-4xl md:text-5xl font-black tracking-tight" style={{ color: '#F2B71F' }}>
+                    Leaderboard
+                  </h1>
                   <InfoTooltip position="below">
-                    <div className="space-y-2">
-                      <p>Link your Discord on your profile to earn points! The top 5 point earners each week win real USDC. Week ends Sunday night GMT, winners notified via Discord.</p>
+                    <div className="space-y-2 text-[13px]">
+                      <p>
+                        <span className="text-[#F2B71F] font-semibold">Link your Discord</span> on your profile to earn points!
+                        The <span className="text-white font-semibold">top 5</span> point earners each week win{' '}
+                        <span className="text-[#F2B71F] font-semibold">real USDC</span>. Week ends{' '}
+                        <span className="text-white font-semibold">Sunday night GMT</span>, winners notified via Discord.
+                      </p>
                       <table className="w-full text-xs mt-1">
-                        <thead>
-                          <tr className="text-neutral-500">
-                            <th className="text-left font-medium pb-1">Place</th>
-                            <th className="text-right font-medium pb-1">Prize</th>
-                            <th className="text-right font-medium pb-1">%</th>
-                          </tr>
-                        </thead>
+                        <thead><tr className="text-neutral-500">
+                          <th className="text-left font-medium pb-1">Place</th>
+                          <th className="text-right font-medium pb-1">Prize</th>
+                          <th className="text-right font-medium pb-1">%</th>
+                        </tr></thead>
                         <tbody className="text-neutral-200">
                           <tr><td className="py-0.5">1st</td><td className="text-right text-yellow-400 font-semibold">$40</td><td className="text-right">40%</td></tr>
                           <tr><td className="py-0.5">2nd</td><td className="text-right text-neutral-300 font-semibold">$25</td><td className="text-right">25%</td></tr>
@@ -205,280 +219,196 @@ export default function LeaderboardPage() {
                     </div>
                   </InfoTooltip>
                 </div>
-                <p className="text-neutral-500 text-sm mt-1" suppressHydrationWarning>
-                  {tab === 'points'
-                    ? pointsWeekStart ? `Week of ${formatWeekRange(pointsWeekStart)}` : 'This week'
-                    : tradingPeriod === 'alltime' ? 'All time' : weekStart ? formatWeekRange(weekStart) : 'This week'}
+
+                {/* Countdown */}
+                <div className="flex items-center gap-2" suppressHydrationWarning>
+                  <span className="text-[11px] text-neutral-600 uppercase tracking-widest">Resets in</span>
+                  <span className="text-2xl font-black tabular-nums" style={{ color: '#F2B71F' }} suppressHydrationWarning>
+                    {countdown}
+                  </span>
+                </div>
+              </div>
+
+              {/* week label */}
+              {weekStart && (
+                <p
+                  className="text-neutral-700 text-xs pb-2 animate-fade-in"
+                  style={{ animationDelay: '60ms', animationFillMode: 'both' }}
+                  suppressHydrationWarning
+                >
+                  {`Week of ${formatWeekRange(weekStart)}`}
                 </p>
-              </div>
+              )}
 
-              {/* ── How to earn points link ──────────────────── */}
-              <Link
-                href="/points"
-                className="flex items-center justify-between gap-3 mb-5 px-4 py-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
+              {/* ── Sort + table ─────────────────────────────── */}
+              <div
+                className="pt-8 animate-fade-in"
+                style={{ animationDelay: '120ms', animationFillMode: 'both' }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-apple-blue flex-shrink-0" />
-                  <span className="text-sm font-medium text-white">How to earn points</span>
-                  <span className="text-xs text-neutral-500">chat, free markets, daily streaks, achievements</span>
+                {/* Sort toggle */}
+                <div className="flex items-center justify-between mb-1 pb-3">
+                  <span className="text-xs font-medium text-neutral-600 uppercase tracking-widest">All rankings</span>
+                  <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.05]">
+                    {([['weekly','This Week'],['alltime','All Time']] as const).map(([k, lbl]) => (
+                      <button
+                        key={k}
+                        onClick={() => setSort(k)}
+                        className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
+                        style={sort === k
+                          ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }
+                          : { color: '#6b7280' }
+                        }
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <svg className="w-4 h-4 text-neutral-600 group-hover:text-neutral-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </Link>
 
-              {/* ── Tab pills ────────────────────────────────── */}
-              <div className="flex items-center gap-1 mb-4 border-b border-white/5 pb-4">
-                {([['points', 'Points'], ['trading', 'P&L / Volume']] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setTab(key)}
-                    className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-150 ${
-                      tab === key ? 'bg-white text-black' : 'text-neutral-500 hover:text-white'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {/* Loading */}
+                {loading && <MentionedSpinner className="py-20" />}
 
-                {/* Sub-sort pills */}
-                <div className="ml-auto flex items-center gap-1">
-                  {tab === 'points' && (
-                    <>
-                      {([['weekly', 'This Week'], ['alltime', 'All Time']] as const).map(([key, label]) => (
-                        <button
-                          key={key}
-                          onClick={() => setPointsSort(key)}
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 ${
-                            pointsSort === key ? 'bg-white/10 text-white' : 'text-neutral-600 hover:text-neutral-300'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {tab === 'trading' && (
-                    <>
-                      {([['pnl', 'P&L'], ['volume', 'Volume'], ['winRate', 'Win Rate']] as const).map(([key, label]) => (
-                        <button
-                          key={key}
-                          onClick={() => setSortBy(key)}
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 ${
-                            sortBy === key ? 'bg-white/10 text-white' : 'text-neutral-600 hover:text-neutral-300'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                      {([['weekly', 'Week'], ['alltime', 'All Time']] as const).map(([key, label]) => (
-                        <button
-                          key={key}
-                          onClick={() => setTradingPeriod(key)}
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 ${
-                            tradingPeriod === key ? 'bg-white/10 text-white' : 'text-neutral-600 hover:text-neutral-300'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </div>
+                {/* Empty */}
+                {!loading && entries.length === 0 && (
+                  <div className="flex flex-col items-center py-20 gap-3">
+                    <p className="text-neutral-500 text-sm">No points earned yet this week</p>
+                    <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
+                      Start trading to earn points
+                    </Link>
+                  </div>
+                )}
 
-              {/* ── Points leaderboard ───────────────────────── */}
-              {tab === 'points' && (
-                <>
-                  {pointsLoading && (
-                    <MentionedSpinner className="py-24" />
-                  )}
-
-                  {!pointsLoading && pointsEntries.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-24 gap-3">
-                      <span className="text-neutral-500 text-sm">No points earned yet this week</span>
-                      <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">
-                        Start trading to earn points
-                      </Link>
+                {/* Table */}
+                {!loading && entries.length > 0 && (
+                  <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                    {/* Col headers */}
+                    <div className="grid grid-cols-[64px_minmax(0,1fr)_90px_74px] md:grid-cols-[80px_minmax(0,1fr)_120px_90px] px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                      <div className="text-center">Rank</div>
+                      <div>Player</div>
+                      <div className="text-center">Points</div>
+                      <div className="text-center">Prize</div>
                     </div>
-                  )}
 
-                  {!pointsLoading && pointsEntries.length > 0 && (
-                    <div className="rounded-2xl border border-white/8 overflow-hidden">
+                    {/* Pinned out-of-view you */}
+                    {publicKey && youEntry && youRank && youRank > entries.length && (
+                      <Row rank={youRank} entry={youEntry} sort={sort} isYou />
+                    )}
 
-                      {/* Column headers */}
-                      <div className="grid grid-cols-[40px_minmax(0,1fr)_80px_56px] md:grid-cols-[56px_minmax(0,1fr)_120px_80px] px-3 md:px-5 py-3 text-[11px] text-neutral-600 font-semibold uppercase tracking-widest border-b border-white/5 bg-white/[0.015]">
-                        <div>#</div>
-                        <div>Trader</div>
-                        <div className="text-right">{pointsSort === 'weekly' ? 'Weekly Pts' : 'All-Time Pts'}</div>
-                        <div className="text-right">Prize</div>
-                      </div>
-
-                      {/* Pinned "you" row if not in top view */}
-                      {youPoints && youPointsRank && youPointsRank > pointsEntries.length && (
-                        <div className="grid grid-cols-[40px_minmax(0,1fr)_80px_56px] md:grid-cols-[56px_minmax(0,1fr)_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/8 bg-white/[0.06] border-l-2 border-l-apple-blue">
-                          <div className="flex items-center"><RankCell rank={youPointsRank} /></div>
-                          <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                            <Avatar name={youPoints.username || youPoints.wallet} pfpEmoji={youPoints.pfpEmoji} />
-                            <div className="min-w-0">
-                              <span className="text-white font-semibold text-sm truncate block">
-                                {youPoints.username || truncateWallet(youPoints.wallet)}
-                              </span>
-                              <span className="text-[10px] text-apple-blue font-medium">you</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-end font-bold text-white text-sm">
-                            {(pointsSort === 'weekly' ? youPoints.weeklyPoints : youPoints.allTimePoints).toLocaleString()}
-                          </div>
-                          <div className="flex items-center justify-end text-neutral-600 text-xs">—</div>
+                    {/* Unranked you */}
+                    {publicKey && !youEntry && (
+                      <div className="grid grid-cols-[64px_minmax(0,1fr)_90px_74px] md:grid-cols-[80px_minmax(0,1fr)_120px_90px] px-4 py-4 border-b border-white/[0.04] bg-white/[0.02]">
+                        <div className="flex items-center justify-center">
+                          <span className="text-xs text-neutral-700">—</span>
                         </div>
-                      )}
-
-                      {pointsEntries.map((entry, i) => {
-                        const rank = i + 1
-                        const prize = prizeForRank(rank)
-                        const pts = pointsSort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
-                        const isYou = publicKey === entry.wallet
-                        const displayName = entry.username || truncateWallet(entry.wallet)
-
-                        return (
-                          <div
-                            key={entry.wallet}
-                            className={`grid grid-cols-[40px_minmax(0,1fr)_80px_56px] md:grid-cols-[56px_minmax(0,1fr)_120px_80px] px-3 md:px-5 py-3 md:py-4 border-b border-white/5 last:border-b-0 transition-colors duration-100 ${rowClass(isYou)}`}
-                          >
-                            <div className="flex items-center">
-                              <RankCell rank={rank} />
-                            </div>
-
-                            <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                              <Avatar name={displayName} pfpEmoji={entry.pfpEmoji} />
-                              <div className="min-w-0">
-                                <Link
-                                  href={`/profile/${entry.username ?? entry.wallet}`}
-                                  className="text-white font-semibold text-sm md:text-[15px] hover:underline truncate block"
-                                >
-                                  {displayName}
-                                </Link>
-                                {isYou && (
-                                  <span className="text-[10px] text-apple-blue font-medium">you</span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-end">
-                              <span className={`text-[15px] font-bold tabular-nums ${rank === 1 ? 'text-yellow-400' : 'text-white'}`}>
-                                {pts.toLocaleString()}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-end">
-                              {prize ? (
-                                <span className={`text-sm font-bold ${prize.color}`}>{prize.amount}</span>
-                              ) : (
-                                <span className="text-neutral-700 text-xs">—</span>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── Trading leaderboard ──────────────────────── */}
-              {tab === 'trading' && (
-                <>
-                  {loading && (
-                    <MentionedSpinner className="py-24" />
-                  )}
-
-                  {!loading && sorted.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-24 gap-3">
-                      <span className="text-neutral-500 text-sm">No trades this period</span>
-                      <Link href="/polymarkets" className="text-apple-blue text-sm font-medium hover:underline">
-                        Browse markets
-                      </Link>
-                    </div>
-                  )}
-
-                  {!loading && sorted.length > 0 && (
-                    <div className="rounded-2xl border border-white/8 overflow-hidden">
-                      <div className="hidden md:grid grid-cols-[56px_1fr_120px_100px_100px_100px] px-5 py-3 text-[11px] text-neutral-600 font-semibold uppercase tracking-widest border-b border-white/5 bg-white/[0.015]">
-                        <div>#</div>
-                        <div>Trader</div>
-                        <div className="text-right">P&L</div>
-                        <div className="text-right">Win Rate</div>
-                        <div className="text-right">Wins / Total</div>
-                        <div className="text-right">Volume</div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-white/[0.04] flex items-center justify-center text-sm">⚪</div>
+                          <span className="text-orange-400 font-semibold text-sm">You</span>
+                        </div>
+                        <div className="flex items-center justify-center text-neutral-700 text-sm">0</div>
+                        <div className="flex items-center justify-center text-neutral-700 text-sm">—</div>
                       </div>
+                    )}
 
-                      {sorted.map((entry, i) => {
-                        const rank = i + 1
-                        const wr = winRate(entry)
-                        const isYou = publicKey === entry.wallet
-                        const displayName = entry.username || truncateWallet(entry.wallet)
-                        const pnlColor = entry.pnl > 0 ? 'text-apple-green' : entry.pnl < 0 ? 'text-apple-red' : 'text-neutral-400'
-
-                        return (
-                          <div
-                            key={entry.wallet}
-                            className={`grid grid-cols-1 md:grid-cols-[56px_1fr_120px_100px_100px_100px] px-5 py-4 border-b border-white/5 last:border-b-0 transition-colors duration-100 ${rowClass(isYou)}`}
-                          >
-                            {/* Mobile */}
-                            <div className="flex md:hidden items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <RankCell rank={rank} />
-                                <Avatar name={displayName} />
-                                <div>
-                                  <Link href={`/profile/${entry.username ?? entry.wallet}`} className="text-white font-semibold text-sm hover:underline">
-                                    {displayName}
-                                  </Link>
-                                  {isYou && <span className="ml-1 text-[10px] text-apple-blue">you</span>}
-                                </div>
-                              </div>
-                              <span className={`text-sm font-bold ${pnlColor}`}>{microToUsdSigned(entry.pnl)}</span>
-                            </div>
-                            <div className="flex md:hidden items-center justify-between text-xs text-neutral-500 mt-1.5">
-                              <span>{(wr * 100).toFixed(0)}% win · {entry.winningTrades}/{entry.totalTrades}</span>
-                              <span>{formatVolume(entry.volume)}</span>
-                            </div>
-
-                            {/* Desktop */}
-                            <div className="hidden md:flex items-center"><RankCell rank={rank} /></div>
-                            <div className="hidden md:flex items-center gap-3">
-                              <Avatar name={displayName} />
-                              <div>
-                                <Link href={`/profile/${entry.username ?? entry.wallet}`} className="text-white font-semibold text-[15px] hover:underline">
-                                  {displayName}
-                                </Link>
-                                {isYou && <span className="ml-2 text-[10px] text-apple-blue">you</span>}
-                              </div>
-                            </div>
-                            <div className={`hidden md:flex items-center justify-end text-[15px] font-bold ${pnlColor}`}>
-                              {microToUsdSigned(entry.pnl)}
-                            </div>
-                            <div className="hidden md:flex items-center justify-end text-sm text-neutral-300">
-                              {entry.totalTrades > 0 ? `${(wr * 100).toFixed(0)}%` : '—'}
-                            </div>
-                            <div className="hidden md:flex items-center justify-end text-sm text-neutral-400">
-                              {entry.winningTrades}/{entry.totalTrades}
-                            </div>
-                            <div className="hidden md:flex items-center justify-end text-sm text-neutral-400">
-                              {formatVolume(entry.volume)}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
+                    {entries.map((e, i) => (
+                      <Row key={e.wallet} rank={i + 1} entry={e} sort={sort} isYou={publicKey === e.wallet} index={i} />
+                    ))}
+                  </div>
+                )}
+              </div>
 
             </main>
             <Footer />
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Table row ──────────────────────────────────────────────
+
+function Row({ rank, entry, sort, isYou, index = 0 }: { rank: number; entry: PointsEntry; sort: PointsSortKey; isYou: boolean; index?: number }) {
+  const pts  = sort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
+  const name = entry.username || truncateWallet(entry.wallet)
+  const prize = PRIZES.find(p => p.place === rank)
+  const a = ACCENTS[rank as keyof typeof ACCENTS]
+  const isTop3 = rank <= 3
+  const isEven = index % 2 === 0
+
+  const prizeColors: Record<number, string> = { 1: '#F2B71F', 2: '#9ba8b5', 3: '#c07b3a', 4: '#6b7280', 5: '#6b7280' }
+
+  let rowBg: string
+  if (isYou) {
+    rowBg = 'rgba(242,183,31,0.05)'
+  } else if (isTop3) {
+    rowBg = a.bg
+  } else {
+    rowBg = isEven ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)'
+  }
+
+  const leftBorder = isYou
+    ? '2px solid rgba(242,183,31,0.4)'
+    : isTop3
+    ? `2px solid ${a.ring}`
+    : '2px solid transparent'
+
+  return (
+    <div
+      className="group grid grid-cols-[64px_minmax(0,1fr)_90px_74px] md:grid-cols-[80px_minmax(0,1fr)_120px_90px] px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+      style={{ background: rowBg, borderLeft: leftBorder }}
+    >
+      {/* Rank */}
+      <div className="flex items-center justify-center">
+        {isTop3 ? (
+          <span className="text-lg font-black" style={{ color: a.color }}>{rank}</span>
+        ) : (
+          <span className="text-sm text-neutral-600 tabular-nums">{rank}</span>
+        )}
+      </div>
+
+      {/* Player */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+          style={
+            isTop3
+              ? { boxShadow: `0 0 0 1.5px ${a.ring}`, background: a.bg }
+              : { background: 'rgba(255,255,255,0.04)' }
+          }
+        >
+          {entry.pfpEmoji ?? '⚪'}
+        </div>
+        <div className="min-w-0">
+          <Link
+            href={`/profile/${entry.username ?? entry.wallet}`}
+            className="font-semibold text-sm hover:underline truncate block leading-snug"
+            style={{ color: isYou ? '#fb923c' : isTop3 ? 'white' : '#d4d4d4' }}
+          >
+            {name}
+          </Link>
+          {isYou && <span className="text-[10px] text-neutral-700">you</span>}
+        </div>
+      </div>
+
+      {/* Points */}
+      <div className="flex items-center justify-center">
+        <span
+          className="font-bold tabular-nums"
+          style={{ color: isTop3 ? a.color : '#737373', fontSize: isTop3 ? 15 : 14 }}
+        >
+          {pts.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Prize */}
+      <div className="flex items-center justify-center">
+        {prize ? (
+          <span className="text-sm font-semibold" style={{ color: prizeColors[rank] ?? '#6b7280' }}>
+            {prize.amount}
+          </span>
+        ) : (
+          <span className="text-neutral-800 text-sm">—</span>
+        )}
       </div>
     </div>
   )

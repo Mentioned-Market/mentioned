@@ -32,21 +32,21 @@ export default function InfoTooltip({ children, position = 'above' }: InfoToolti
         i
       </button>
       {open && position === 'above' && (
-        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 rounded-xl bg-neutral-900 border border-white/10 shadow-xl z-50 text-xs text-neutral-300 leading-relaxed">
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 rounded-xl bg-[#1a1a1a] border border-white/10 shadow-2xl z-50 text-xs text-neutral-300 leading-relaxed">
           {children}
-          <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-neutral-900" />
+          <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-[#1a1a1a]" />
         </div>
       )}
       {open && position === 'below' && (
-        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 p-3 rounded-xl bg-neutral-900 border border-white/10 shadow-xl z-50 text-xs text-neutral-300 leading-relaxed">
+        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 p-3 rounded-xl bg-[#1a1a1a] border border-white/10 shadow-2xl z-50 text-xs text-neutral-300 leading-relaxed">
           {children}
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-neutral-900" />
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-[#1a1a1a]" />
         </div>
       )}
       {open && position === 'right' && (
-        <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 w-72 p-3 rounded-xl bg-neutral-900 border border-white/10 shadow-xl z-50 text-xs text-neutral-300 leading-relaxed">
+        <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 w-72 p-3 rounded-xl bg-[#1a1a1a] border border-white/10 shadow-2xl z-50 text-xs text-neutral-300 leading-relaxed">
           {children}
-          <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-neutral-900" />
+          <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-[#1a1a1a]" />
         </div>
       )}
     </div>

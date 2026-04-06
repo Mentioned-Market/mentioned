@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import CustomEventCard from '@/components/CustomEventCard'
-import InfoTooltip from '@/components/InfoTooltip'
 import MentionedSpinner from '@/components/MentionedSpinner'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -134,13 +133,14 @@ function getMsUntilNextMonday(): number {
 }
 
 function formatCountdown(ms: number): string {
-  if (ms <= 0) return '0h 0m'
+  if (ms <= 0) return '0h 0m 0s'
   const totalSeconds = Math.floor(ms / 1000)
   const days = Math.floor(totalSeconds / 86400)
   const hours = Math.floor((totalSeconds % 86400) / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`
-  return `${hours}h ${minutes}m`
+  const seconds = totalSeconds % 60
+  if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`
+  return `${hours}h ${minutes}m ${seconds}s`
 }
 
 // ── Subcomponents ──────────────────────────────────────────────────────────
@@ -283,6 +283,82 @@ function EventCard({ event }: { event: PolyEvent }) {
   )
 }
 
+// Prize split tooltip — uses fixed positioning to escape backdrop-filter stacking contexts
+function PrizeTooltip() {
+  const [visible, setVisible] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const ref = useRef<HTMLSpanElement>(null)
+
+  const show = useCallback(() => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 8, left: r.left })
+    }
+    setVisible(true)
+  }, [])
+
+  return (
+    <span className="relative inline-block">
+      <span
+        ref={ref}
+        className="text-apple-green font-semibold underline decoration-dotted cursor-default"
+        onMouseEnter={show}
+        onMouseLeave={() => setVisible(false)}
+      >
+        USDC prize pool
+      </span>
+      {visible && (
+        <div
+          className="fixed w-36 bg-neutral-900 border border-white/10 rounded-xl p-2.5 shadow-lg z-[9999] pointer-events-none"
+          style={{ top: pos.top, left: pos.left }}
+        >
+          <p className="text-neutral-400 text-[10px] font-medium uppercase tracking-wide mb-1.5">Weekly prizes</p>
+          <div className="flex justify-between text-[11px] mb-1"><span className="text-yellow-400">1st</span><span className="text-white font-semibold">$40</span></div>
+          <div className="flex justify-between text-[11px] mb-1"><span className="text-neutral-300">2nd</span><span className="text-white font-semibold">$25</span></div>
+          <div className="flex justify-between text-[11px] mb-1"><span className="text-orange-400">3rd</span><span className="text-white font-semibold">$18</span></div>
+          <div className="flex justify-between text-[11px] mb-1"><span className="text-neutral-400">4th</span><span className="text-white font-semibold">$10</span></div>
+          <div className="flex justify-between text-[11px]"><span className="text-neutral-400">5th</span><span className="text-white font-semibold">$7</span></div>
+        </div>
+      )}
+    </span>
+  )
+}
+
+// Points explainer banner — shown at top of free markets column
+function PointsExplainerBanner() {
+  return (
+    <div className="rounded-2xl glass p-4 mb-4" style={{ background: '#0d0d0d' }}>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-[#F2B71F] animate-pulse" />
+          <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Weekly Competition</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <h2 className="text-xl font-bold leading-tight">
+            <span className="text-white">Earn </span>
+            <span className="text-[#F2B71F]">Points</span>
+            <span className="text-white">, Win </span>
+            <span className="bg-gradient-to-r from-[#F2B71F] to-apple-green bg-clip-text text-transparent">Prizes.</span>
+          </h2>
+          <Link
+            href="/points"
+            className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#F2B71F]/15 text-[#F2B71F] text-xs font-semibold hover:bg-[#F2B71F]/25 transition-colors whitespace-nowrap"
+          >
+            How to earn
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
+        <p className="text-neutral-500 text-[11px] mt-2">
+          Get <span className="text-[#F2B71F] font-semibold">500 free tokens</span> per market. Link your{' '}
+          <span className="text-[#5865F2] font-semibold">Discord</span> to earn points. Top traders share the <PrizeTooltip />.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // Featured market — large hero card for one free market
 function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
@@ -373,24 +449,21 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
 
 function WeekCycleBanner({ countdown }: { countdown: string }) {
   return (
-    <div className="rounded-2xl glass p-4 mb-4">
+    <div className="rounded-2xl glass p-4 mb-4" style={{ background: '#0d0d0d' }}>
       <div className="flex items-center gap-2 mb-1">
         <div className="w-2 h-2 rounded-full bg-[#F2B71F] animate-pulse" />
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Week Cycle</span>
       </div>
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-neutral-400 text-xs mb-0.5">Resets in</p>
-          <p className="text-[#F2B71F] text-xl font-bold tabular-nums">{countdown}</p>
-        </div>
+      <div className="flex items-center justify-between gap-2 mt-1">
+        <p className="text-[#F2B71F] text-xl font-bold tabular-nums whitespace-nowrap">{countdown}</p>
         <Link
           href="/leaderboard"
           className="px-3 py-2 rounded-xl bg-[#F2B71F]/15 text-[#F2B71F] text-xs font-semibold hover:bg-[#F2B71F]/25 transition-colors whitespace-nowrap"
         >
-          View Leaderboard
+          Leaderboard
         </Link>
       </div>
-      <p className="text-neutral-500 text-[11px] mt-2">Top 5 this week share the USDC prize pool</p>
+      <p className="text-neutral-500 text-[11px] mt-2">Resets every Monday. Top 5 share the prize pool.</p>
     </div>
   )
 }
@@ -398,7 +471,7 @@ function WeekCycleBanner({ countdown }: { countdown: string }) {
 function TrendingWordsWidget({ words }: { words: TrendingWord[] }) {
   if (words.length === 0) return null
   return (
-    <div className="rounded-2xl glass overflow-hidden p-4 mb-4">
+    <div className="rounded-2xl glass overflow-hidden p-4 mb-4" style={{ background: '#0d0d0d' }}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Trending Words</span>
         <span className="text-neutral-600 text-[10px]">7d</span>
@@ -429,7 +502,7 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
   const medals = ['🥇', '🥈', '🥉', null, null]
 
   return (
-    <div className={`rounded-2xl glass p-4 ${grow ? 'flex-1' : 'mb-4'}`}>
+    <div className={`rounded-2xl glass p-4 ${grow ? 'flex-1' : 'mb-4'}`} style={{ background: '#0d0d0d' }}>
       <div className="flex items-center justify-between mb-3">
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Top Traders</span>
         <Link href="/leaderboard" className="text-[#F2B71F] text-[10px] font-medium hover:underline">
@@ -464,12 +537,52 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
   )
 }
 
+// ── Animated background blobs ──────────────────────────────────────────────
+
+function AnimatedBackground() {
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes mkt-blob1 {
+          0%   { transform: translate(0px, 0px); }
+          25%  { transform: translate(320px, -120px); }
+          50%  { transform: translate(220px, 260px); }
+          75%  { transform: translate(-160px, 180px); }
+          100% { transform: translate(0px, 0px); }
+        }
+        @keyframes mkt-blob2 {
+          0%   { transform: translate(0px, 0px); }
+          25%  { transform: translate(-240px, 160px); }
+          50%  { transform: translate(-120px, -200px); }
+          75%  { transform: translate(200px, -120px); }
+          100% { transform: translate(0px, 0px); }
+        }
+        @keyframes mkt-blob3 {
+          0%   { transform: translate(0px, 0px); }
+          33%  { transform: translate(200px, -220px); }
+          66%  { transform: translate(-220px, -100px); }
+          100% { transform: translate(0px, 0px); }
+        }
+        #mkt-blob1 { animation: mkt-blob1 20s ease-in-out infinite; }
+        #mkt-blob2 { animation: mkt-blob2 25s ease-in-out infinite; }
+        #mkt-blob3 { animation: mkt-blob3 18s ease-in-out infinite; }
+      `}} />
+      <div aria-hidden="true" style={{ position: 'fixed', top: 40, left: 0, right: 0, bottom: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+        <div id="mkt-blob1" style={{ position: 'absolute', top: '-10%', left: '-10%', width: '45%', height: '50%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,183,31,0.20) 0%, rgba(242,183,31,0.06) 60%, transparent 100%)', filter: 'blur(40px)' }} />
+        <div id="mkt-blob2" style={{ position: 'absolute', top: '20%', right: '-10%', width: '40%', height: '45%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,183,31,0.18) 0%, rgba(242,183,31,0.05) 60%, transparent 100%)', filter: 'blur(40px)' }} />
+        <div id="mkt-blob3" style={{ position: 'absolute', bottom: '5%', left: '-5%', width: '30%', height: '35%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,183,31,0.12) 0%, rgba(242,183,31,0.03) 60%, transparent 100%)', filter: 'blur(35px)' }} />
+      </div>
+    </>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function MarketsPage() {
   const [events, setEvents] = useState<PolyEvent[]>([])
   const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
   const [sidebarData, setSidebarData] = useState<SidebarData | null>(null)
+  const [sidebarLoading, setSidebarLoading] = useState(true)
   const [polyLoading, setPolyLoading] = useState(false)
   const [customLoading, setCustomLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -481,7 +594,7 @@ export default function MarketsPage() {
   useEffect(() => {
     const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
     tick()
-    const id = setInterval(tick, 60_000)
+    const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
   }, [])
 
@@ -502,6 +615,7 @@ export default function MarketsPage() {
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) setSidebarData(data) })
       .catch(() => {})
+      .finally(() => setSidebarLoading(false))
   }, [])
 
   // Fetch paid markets only when the section is expanded
@@ -520,69 +634,69 @@ export default function MarketsPage() {
   const liveEvents = activeEvents.filter(e => e.isLive)
   const upcomingEvents = activeEvents.filter(e => !e.isLive)
 
+  const pageReady = !customLoading && !sidebarLoading
   const featuredMarket = customMarkets.find(m => m.is_featured) ?? null
   const remainingMarkets = customMarkets.filter(m => featuredMarket ? m.id !== featuredMarket.id : true)
 
   return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
-      <div className="layout-container flex h-full grow flex-col">
+    <>
+    <AnimatedBackground />
+    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden">
+      <div className="layout-container flex h-full grow flex-col" style={{ position: 'relative', zIndex: 1 }}>
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
             <Header />
             <main className="flex-1 pt-6 pb-4">
 
-              {/* Free section heading — full width, above the two-column layout */}
-              <div className="flex items-center gap-2 mb-4">
-                <h2 className="text-white text-lg font-semibold">Free to Play Prediction Markets</h2>
-                <InfoTooltip position="right">
-                  Play prediction markets for free each week. Earn points by winning and compete for a chance to win real money from the weekly USDC prize pool!
-                </InfoTooltip>
-              </div>
+              {!pageReady ? (
+                <div className="flex items-center justify-center py-32">
+                  <MentionedSpinner />
+                </div>
+              ) : (
+                <div className="animate-fade-up">
+                  {/* Free markets + sidebar — two columns */}
+                  <div className="flex gap-6 items-stretch mb-8">
 
-              {/* Free markets + sidebar — two columns, sidebar ends with free markets */}
-              <div className="flex gap-6 items-stretch mb-8">
-
-                {/* Free markets */}
-                <div className="flex-1 min-w-0">
-                  {customLoading ? (
-                    <MentionedSpinner />
-                  ) : (
-                    <>
-                      {featuredMarket && <FeaturedMarket market={featuredMarket} />}
+                    {/* Free markets */}
+                    <div className="flex-1 min-w-0">
+                      <PointsExplainerBanner />
+                      {featuredMarket && (
+                        <div style={{ background: '#000', borderRadius: '1rem' }}>
+                          <FeaturedMarket market={featuredMarket} />
+                        </div>
+                      )}
                       {remainingMarkets.filter(m => m.status !== 'resolved').length > 0 && (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                           {remainingMarkets
                             .filter(m => m.status !== 'resolved')
                             .map(market => (
-                              <CustomEventCard key={`custom-${market.id}`} market={market} />
+                              <div key={`custom-${market.id}`} style={{ background: '#000', borderRadius: '1rem' }}>
+                                <CustomEventCard market={market} />
+                              </div>
                             ))}
                         </div>
                       )}
                       {customMarkets.filter(m => m.status !== 'resolved').length === 0 && (
                         <p className="text-neutral-500 text-sm py-4">No free markets available right now</p>
                       )}
-                    </>
-                  )}
-                </div>
-
-                {/* Sidebar — stretches to match free markets height only */}
-                <aside className="hidden lg:flex lg:flex-col w-72 shrink-0">
-                  <WeekCycleBanner countdown={countdown} />
-                  {sidebarData ? (
-                    <>
-                      <TrendingWordsWidget words={sidebarData.trendingWords} />
-                      <TopTradersWidget traders={sidebarData.topTraders} grow />
-                    </>
-                  ) : (
-                    <div className="rounded-2xl glass flex-1 flex items-center justify-center">
-                      <MentionedSpinner />
                     </div>
-                  )}
-                </aside>
-              </div>
+
+                    {/* Sidebar */}
+                    <aside className="hidden lg:flex lg:flex-col w-72 shrink-0">
+                      <WeekCycleBanner countdown={countdown} />
+                      {sidebarData && (
+                        <>
+                          <TrendingWordsWidget words={sidebarData.trendingWords} />
+                          <TopTradersWidget traders={sidebarData.topTraders} grow />
+                        </>
+                      )}
+                    </aside>
+                  </div>
+                </div>
+              )}
 
               {/* Paid Markets — collapsible, loads on expand */}
-              <section className="border-t border-white/10 pt-6 mt-2">
+              {pageReady && <section className="border-t border-white/10 pt-6 mt-2">
                 <button
                   onClick={() => setPaidOpen(o => !o)}
                   className="flex items-center gap-3 w-full text-left mb-4 group"
@@ -645,18 +759,20 @@ export default function MarketsPage() {
                     </>
                   )
                 )}
-              </section>
+              </section>}
 
               {/* Mobile sidebar widgets — stacked below main content */}
-              <div className="lg:hidden mt-8 space-y-4">
-                <WeekCycleBanner countdown={countdown} />
-                {sidebarData && (
-                  <>
-                    <TrendingWordsWidget words={sidebarData.trendingWords} />
-                    <TopTradersWidget traders={sidebarData.topTraders} />
-                  </>
-                )}
-              </div>
+              {pageReady && (
+                <div className="lg:hidden mt-8 space-y-4">
+                  <WeekCycleBanner countdown={countdown} />
+                  {sidebarData && (
+                    <>
+                      <TrendingWordsWidget words={sidebarData.trendingWords} />
+                      <TopTradersWidget traders={sidebarData.topTraders} />
+                    </>
+                  )}
+                </div>
+              )}
 
             </main>
             <Footer />
@@ -664,5 +780,6 @@ export default function MarketsPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
