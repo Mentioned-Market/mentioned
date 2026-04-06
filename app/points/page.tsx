@@ -3,8 +3,29 @@
 import { useState, useEffect } from 'react'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
+import HowItWorksModal from '@/components/HowItWorksModal'
 import Link from 'next/link'
 import { useWallet } from '@/contexts/WalletContext'
+
+function getMsUntilNextMonday(): number {
+  const now = new Date()
+  const day = now.getUTCDay()
+  const daysUntilMonday = day === 0 ? 1 : 8 - day
+  const nextMonday = new Date(now)
+  nextMonday.setUTCDate(now.getUTCDate() + daysUntilMonday)
+  nextMonday.setUTCHours(0, 0, 0, 0)
+  return nextMonday.getTime() - now.getTime()
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '0h 0m'
+  const totalSeconds = Math.floor(ms / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  return `${hours}h ${minutes}m`
+}
 
 interface Achievement {
   id: string
@@ -19,6 +40,16 @@ export default function PointsPage() {
   const { publicKey, connect } = useWallet()
   const [achievements, setAchievements] = useState<Achievement[]>([])
   const [achLoaded, setAchLoaded] = useState(false)
+  const [countdown, setCountdown] = useState('')
+  const [showHowItWorks, setShowHowItWorks] = useState(false)
+
+  // Live countdown to weekly reset
+  useEffect(() => {
+    const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
+    tick()
+    const id = setInterval(tick, 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (!publicKey) {
@@ -55,10 +86,13 @@ export default function PointsPage() {
               {/* ── Hero ────────────────────────────────────── */}
               <div className="mb-8 max-w-2xl">
                 <h1 className="text-3xl md:text-5xl font-bold text-white tracking-tight">Points</h1>
-                <p className="text-neutral-300 text-base md:text-lg mt-3 leading-relaxed">
+                <p className="text-neutral-300 text-sm md:text-lg mt-3 leading-relaxed whitespace-nowrap">
                   Top of the{' '}
                   <Link href="/leaderboard" className="text-white font-semibold underline underline-offset-4 decoration-[#F2B71F] hover:decoration-white transition-colors">leaderboard</Link>{' '}
-                  wins real USDC every week. Resets Monday midnight UTC.
+                  wins real USDC every week.
+                  {countdown && (
+                    <span className="text-[#F2B71F] text-xs md:text-base font-bold tabular-nums ml-2"> <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#F2B71F] animate-pulse align-middle" /> Resets in {countdown}</span>
+                  )}
                 </p>
               </div>
 
@@ -222,6 +256,12 @@ export default function PointsPage() {
                 >
                   View leaderboard
                 </Link>
+                <button
+                  onClick={() => setShowHowItWorks(true)}
+                  className="flex-1 flex items-center justify-center h-12 rounded-xl border border-white/10 bg-white/[0.03] text-white text-base font-medium hover:bg-white/[0.07] transition-colors"
+                >
+                  How it works
+                </button>
               </div>
 
             </main>
@@ -233,6 +273,7 @@ export default function PointsPage() {
           </div>
         </div>
       </div>
+      <HowItWorksModal open={showHowItWorks} onClose={() => setShowHowItWorks(false)} />
     </div>
   )
 }
