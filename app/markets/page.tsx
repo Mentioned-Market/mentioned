@@ -7,6 +7,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import CustomEventCard from '@/components/CustomEventCard'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import { useWallet } from '@/contexts/WalletContext'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -286,32 +287,18 @@ function EventCard({ event }: { event: PolyEvent }) {
 // Prize split tooltip — uses fixed positioning to escape backdrop-filter stacking contexts
 function PrizeTooltip() {
   const [visible, setVisible] = useState(false)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
-  const ref = useRef<HTMLSpanElement>(null)
-
-  const show = useCallback(() => {
-    if (ref.current) {
-      const r = ref.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 8, left: r.left })
-    }
-    setVisible(true)
-  }, [])
 
   return (
-    <span className="relative inline-block">
-      <span
-        ref={ref}
-        className="text-apple-green font-semibold underline decoration-dotted cursor-default"
-        onMouseEnter={show}
-        onMouseLeave={() => setVisible(false)}
-      >
+    <span
+      className="relative inline-block"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <span className="text-apple-green font-semibold underline decoration-dotted cursor-default">
         USDC prize pool
       </span>
       {visible && (
-        <div
-          className="fixed w-36 bg-neutral-900 border border-white/10 rounded-xl p-2.5 shadow-lg z-[9999] pointer-events-none"
-          style={{ top: pos.top, left: pos.left }}
-        >
+        <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-36 bg-neutral-900 border border-white/10 rounded-xl p-2.5 shadow-lg z-[9999] pointer-events-none">
           <p className="text-neutral-400 text-[10px] font-medium uppercase tracking-wide mb-1.5">Weekly prizes</p>
           <div className="flex justify-between text-[11px] mb-1"><span className="text-yellow-400">1st</span><span className="text-white font-semibold">$40</span></div>
           <div className="flex justify-between text-[11px] mb-1"><span className="text-neutral-300">2nd</span><span className="text-white font-semibold">$25</span></div>
@@ -326,8 +313,10 @@ function PrizeTooltip() {
 
 // Points explainer banner — shown at top of free markets column
 function PointsExplainerBanner() {
+  const { connected, discordLinked, setShowConnectModal, publicKey } = useWallet()
+
   return (
-    <div className="rounded-2xl glass p-4 mb-4" style={{ background: '#0d0d0d' }}>
+    <div className="rounded-2xl border border-white/10 p-4 mb-4 relative z-10" style={{ background: '#0d0d0d' }}>
       <div>
         <div className="flex items-center gap-2 mb-1">
           <div className="w-2 h-2 rounded-full bg-[#F2B71F] animate-pulse" />
@@ -338,7 +327,7 @@ function PointsExplainerBanner() {
             <span className="text-white">Earn </span>
             <span className="text-[#F2B71F]">Points</span>
             <span className="text-white">, Win </span>
-            <span className="bg-gradient-to-r from-[#F2B71F] to-apple-green bg-clip-text text-transparent">Prizes.</span>
+            <span className="text-apple-green">Prizes.</span>
           </h2>
           <Link
             href="/points"
@@ -351,8 +340,40 @@ function PointsExplainerBanner() {
           </Link>
         </div>
         <p className="text-neutral-500 text-[11px] mt-2">
-          Get <span className="text-[#F2B71F] font-semibold">500 free tokens</span> per market. Link your{' '}
-          <span className="text-[#5865F2] font-semibold">Discord</span> to earn points. Top traders share the <PrizeTooltip />.
+          Get <Link href="/points" className="text-[#F2B71F] font-semibold hover:underline">500 tokens</Link> to use per free market.{' '}
+          {!connected ? (
+            <>
+              <button
+                onClick={() => setShowConnectModal(true)}
+                className="text-[#F2B71F] font-semibold hover:underline"
+              >
+                Log in
+              </button>
+              {' and '}
+              <button
+                onClick={() => setShowConnectModal(true)}
+                className="text-[#5865F2] font-semibold hover:underline"
+              >
+                link Discord
+              </button>
+              {' to earn points.'}
+            </>
+          ) : !discordLinked ? (
+            <>
+              <Link
+                href={`/profile/${publicKey}`}
+                className="text-[#5865F2] font-semibold hover:underline"
+              >
+                Link Discord
+              </Link>
+              {' to earn points.'}
+            </>
+          ) : (
+            <>
+              Trade to earn <span className="text-[#F2B71F] font-semibold">points</span>.
+            </>
+          )}
+          {' '}Top traders share the <PrizeTooltip />.
         </p>
       </div>
     </div>

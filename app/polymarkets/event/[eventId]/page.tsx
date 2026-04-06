@@ -976,7 +976,7 @@ export default function PolymarketEventPage() {
                         <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
                           <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Outcome</span>
                           <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1">Chance</span>
-                          <span className="text-xs md:text-sm text-neutral-400 font-medium text-right w-[180px] md:w-[240px]">Buy</span>
+                          <span className="text-xs md:text-sm text-neutral-400 font-medium text-right w-[148px] md:w-[240px]">Buy</span>
                         </div>
 
                         {event.markets.map(m => {
@@ -1010,7 +1010,7 @@ export default function PolymarketEventPage() {
                                 <span className="text-white font-bold text-base md:text-lg">{pct}%</span>
                               </div>
 
-                              <div className="flex items-center gap-1.5 md:gap-2 w-[180px] md:w-[240px] justify-end">
+                              <div className="flex items-center gap-1.5 md:gap-2 w-[148px] md:w-[240px] justify-end">
                                 {m.status === 'open' ? (
                                   <>
                                     <span

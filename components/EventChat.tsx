@@ -380,9 +380,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           </div>
         )}
         {!hasMore && messages.length > 0 && (
-          <div className="text-center py-2">
-            <span className="text-neutral-600 text-[10px]">Beginning of chat</span>
-          </div>
+          <div className="py-2" />
         )}
 
         {messages.length === 0 && !loadingOlder && (
