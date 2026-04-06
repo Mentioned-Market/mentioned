@@ -459,6 +459,7 @@ export default function MarketsPage() {
   const [customLoading, setCustomLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
+  const [paidOpen, setPaidOpen] = useState(false)
   const polyFetchedRef = useRef(false)
 
   // Live countdown
@@ -488,9 +489,9 @@ export default function MarketsPage() {
       .catch(() => {})
   }, [])
 
-  // Fetch paid markets on mount
+  // Fetch paid markets only when the section is expanded
   useEffect(() => {
-    if (polyFetchedRef.current) return
+    if (!paidOpen || polyFetchedRef.current) return
     polyFetchedRef.current = true
     setPolyLoading(true)
     fetch('/api/polymarket?category=mentions')
@@ -498,7 +499,7 @@ export default function MarketsPage() {
       .then(data => setEvents(data.data || []))
       .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
       .finally(() => setPolyLoading(false))
-  }, [])
+  }, [paidOpen])
 
   const activeEvents = events.filter(e => e.isActive)
   const liveEvents = activeEvents.filter(e => e.isLive)
@@ -565,58 +566,69 @@ export default function MarketsPage() {
                 </aside>
               </div>
 
-              {/* Paid Markets — full width below */}
-              <section>
-                <div className="flex items-center gap-2 mb-4">
+              {/* Paid Markets — collapsible, loads on expand */}
+              <section className="border-t border-white/10 pt-6 mt-2">
+                <button
+                  onClick={() => setPaidOpen(o => !o)}
+                  className="flex items-center gap-3 w-full text-left mb-4 group"
+                >
                   <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
-                  <h2 className="text-white text-lg font-semibold">Paid Prediction Markets</h2>
-                </div>
-                {polyLoading ? (
-                  <MentionedSpinner />
-                ) : error ? (
-                  <div className="flex flex-col items-start gap-2 py-4">
-                    <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
-                    <button
-                      onClick={() => {
-                        polyFetchedRef.current = false
-                        setError(null)
-                        setPolyLoading(true)
-                        fetch('/api/polymarket?category=mentions')
-                          .then(res => { if (!res.ok) throw new Error('Failed'); return res.json() })
-                          .then(data => setEvents(data.data || []))
-                          .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
-                          .finally(() => setPolyLoading(false))
-                      }}
-                      className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {liveEvents.length > 0 && (
-                      <div className="mb-6">
-                        <div className="flex items-center gap-2 mb-4">
-                          <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                          <h3 className="text-white text-base font-semibold">Live Now</h3>
+                  <h2 className="text-white text-lg font-semibold flex-1">Paid Prediction Markets</h2>
+                  <svg
+                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    className={`text-neutral-400 group-hover:text-white transition-all duration-200 ${paidOpen ? 'rotate-180' : ''}`}
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                {paidOpen && (
+                  polyLoading ? (
+                    <MentionedSpinner />
+                  ) : error ? (
+                    <div className="flex flex-col items-start gap-2 py-4">
+                      <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
+                      <button
+                        onClick={() => {
+                          polyFetchedRef.current = false
+                          setError(null)
+                          setPolyLoading(true)
+                          fetch('/api/polymarket?category=mentions')
+                            .then(res => { if (!res.ok) throw new Error('Failed'); return res.json() })
+                            .then(data => setEvents(data.data || []))
+                            .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
+                            .finally(() => setPolyLoading(false))
+                        }}
+                        className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {liveEvents.length > 0 && (
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                            <h3 className="text-white text-base font-semibold">Live Now</h3>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {liveEvents.map(event => <EventCard key={event.eventId} event={event} />)}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {liveEvents.map(event => <EventCard key={event.eventId} event={event} />)}
+                      )}
+                      {upcomingEvents.length > 0 && (
+                        <div>
+                          {liveEvents.length > 0 && <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {upcomingEvents.map(event => <EventCard key={event.eventId} event={event} />)}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {upcomingEvents.length > 0 && (
-                      <div>
-                        {liveEvents.length > 0 && <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {upcomingEvents.map(event => <EventCard key={event.eventId} event={event} />)}
-                        </div>
-                      </div>
-                    )}
-                    {activeEvents.length === 0 && !polyLoading && (
-                      <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
-                    )}
-                  </>
+                      )}
+                      {activeEvents.length === 0 && !polyLoading && (
+                        <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
+                      )}
+                    </>
+                  )
                 )}
               </section>
 
