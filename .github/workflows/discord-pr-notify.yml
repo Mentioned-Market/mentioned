@@ -11,26 +11,27 @@ jobs:
       - name: Send PR notification to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
-
-          # Truncate body if too long for Discord
-          PR_BODY_SHORT=$(echo "$PR_BODY" | head -c 500)
+          PAYLOAD=$(jq -n \
+            --arg title "🔀 New PR: $PR_TITLE" \
+            --arg desc "${PR_BODY:0:500}" \
+            --arg url "$PR_URL" \
+            --arg author "$PR_AUTHOR" \
+            '{
+              embeds: [{
+                title: $title,
+                description: $desc,
+                url: $url,
+                color: 5814783,
+                fields: [{ name: "Author", value: $author, inline: true }],
+                footer: { text: "mentioned · GitHub" }
+              }]
+            }')
 
           curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"embeds\": [{
-                \"title\": \"🔀 New PR: $PR_TITLE\",
-                \"description\": \"$PR_BODY_SHORT\",
-                \"url\": \"$PR_URL\",
-                \"color\": 5814783,
-                \"fields\": [
-                  {\"name\": \"Author\", \"value\": \"$PR_AUTHOR\", \"inline\": true}
-                ],
-                \"footer\": {\"text\": \"mentioned · GitHub\"}
-              }]
-            }"
+            -d "$PAYLOAD"
