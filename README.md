@@ -1,6 +1,6 @@
 # Mentioned
 
-Trade on what gets said.
+Trade on what gets said
 
 Mentioned is a prediction market platform on Solana where users trade YES/NO outcomes on whether specific words will be mentioned in live events — speeches, podcasts, earnings calls, and more.
 
