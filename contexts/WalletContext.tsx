@@ -100,6 +100,10 @@ interface WalletContextType {
   authenticated: boolean
   /** True once wallet connection state has been determined (safe to render connected/login UI) */
   walletReady: boolean
+  /** True while a wallet connection is actively in progress (between user action and state update) */
+  connecting: boolean
+  /** True once the Privy SDK is initialized and ready to accept logins */
+  privyReady: boolean
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -231,6 +235,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     null
   )
   const [showConnectModal, setShowConnectModal] = useState(false)
+  const [connecting, setConnecting] = useState(false)
 
   // Auth session state
   const [authenticated, setAuthenticated] = useState(false)
@@ -245,6 +250,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const profileFetchedForRef = useRef<string | null>(null)
 
   const walletRef = useRef<Wallet | null>(null)
+  const walletTypeRef = useRef<'phantom' | 'privy' | null>(null)
   const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
   const disconnectingRef = useRef(false)
 
@@ -273,6 +279,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const applyPhantomAccount = useCallback(
     (wallet: Wallet, account: WalletAccount) => {
       walletRef.current = wallet
+      walletTypeRef.current = 'phantom'
       setPubkey(account.address)
       setConnected(true)
       setSigner(buildPhantomSigner(wallet, account))
@@ -297,6 +304,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     authInFlightRef.current = null
     privyWalletRef.current = null
     walletRef.current = null
+    walletTypeRef.current = null
   }, [])
 
   useEffect(() => {
@@ -348,7 +356,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           const accounts = props.accounts ?? wallet.accounts
           if (accounts.length > 0) {
             applyPhantomAccount(wallet, accounts[0])
-          } else if (walletType === 'phantom') {
+          } else if (walletTypeRef.current === 'phantom') {
             clearState()
           }
         })
@@ -384,7 +392,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       unsub()
       unsubChange?.()
     }
-  }, [applyPhantomAccount, clearState, walletType])
+  }, [applyPhantomAccount, clearState])
 
   // ── Privy wallet sync ──────────────────────────────────
 
@@ -394,6 +402,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (walletType === 'privy') clearState()
       disconnectingRef.current = false
       setWalletReady(true)
+      setConnecting(false)
       return
     }
 
@@ -412,10 +421,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     setPrivySolanaProvider(embeddedWallet)
 
+    walletTypeRef.current = 'privy'
     setPubkey(addr)
     setConnected(true)
     setWalletType('privy')
     setProfileLoading(true)
+    setConnecting(false)
 
     const encoder = getTransactionEncoder()
     const privySigner: TransactionSendingSigner = {
@@ -473,7 +484,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     fetch(`/api/profile?wallet=${wallet}`)
       .then(r => r.json())
       .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null); setDiscordLinked(!!d.discordId) })
-      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(null) })
+      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(false) })
       .finally(() => setProfileLoading(false))
     profileFetchedForRef.current = wallet
   }, [])
@@ -599,14 +610,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const feat = wallet.features[FEAT_CONNECT] as ConnectFeature | undefined
     if (!feat) return
 
-    const accounts = await feat.connect()
-    if (accounts.length > 0) {
-      applyPhantomAccount(wallet, accounts[0])
+    setConnecting(true)
+    try {
+      const accounts = await feat.connect()
+      const resolved = accounts.length > 0 ? accounts : wallet.accounts
+      if (resolved.length > 0) {
+        applyPhantomAccount(wallet, resolved[0])
+      }
+    } catch (err) {
+      console.error('Phantom connect failed:', err)
+    } finally {
+      setConnecting(false)
     }
   }, [applyPhantomAccount])
 
   const connectPrivyFn = useCallback(() => {
     setShowConnectModal(false)
+    setConnecting(true)
     privyLogin()
   }, [privyLogin])
 
@@ -666,6 +686,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         walletReady,
         refreshProfile,
         authenticated,
+        connecting,
+        privyReady,
       }}
     >
       {children}

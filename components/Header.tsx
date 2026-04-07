@@ -3,6 +3,7 @@
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import ConnectModal from '@/components/ConnectModal'
+import UsernameModal from '@/components/UsernameModal'
 import PrivyFundsModal from '@/components/PrivyFundsModal'
 import HowItWorksModal from '@/components/HowItWorksModal'
 import Image from 'next/image'
@@ -10,7 +11,7 @@ import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
-  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType } = useWallet()
+  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType, connecting } = useWallet()
   const { showAchievementToast } = useAchievements()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -126,7 +127,7 @@ export default function Header() {
               )}
             </div>
           )}
-          {!walletReady || (connected && discordLinked === null) ? (
+          {!walletReady || connecting || (connected && profileLoading) ? (
             <div className="h-8 md:h-9 px-3 md:px-4 glass rounded-lg flex items-center">
               <span className="text-neutral-500 text-sm tracking-widest">···</span>
             </div>
@@ -302,6 +303,7 @@ export default function Header() {
         </div>
       </header>
       <ConnectModal />
+      <UsernameModal />
       <PrivyFundsModal open={showFundsModal} onClose={() => setShowFundsModal(false)} />
       <HowItWorksModal open={showHowItWorks} onClose={() => setShowHowItWorks(false)} />
     </>
