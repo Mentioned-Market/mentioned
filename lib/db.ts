@@ -320,6 +320,14 @@ export async function getProfileByUsername(username: string): Promise<(ProfileRo
   return result.rows[0] || null
 }
 
+export async function searchProfiles(query: string): Promise<Pick<ProfileRow, 'wallet' | 'username' | 'pfp_emoji'>[]> {
+  const result = await pool.query(
+    `SELECT wallet, username, pfp_emoji FROM user_profiles WHERE username ILIKE $1 ORDER BY username LIMIT 10`,
+    [`%${query}%`],
+  )
+  return result.rows
+}
+
 export async function getProfileByWallet(wallet: string): Promise<(ProfileRow & { created_at: string }) | null> {
   const result = await pool.query(
     `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE wallet = $1`,
