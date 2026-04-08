@@ -1,12 +1,16 @@
 'use client'
 
 import { useWallet } from '@/contexts/WalletContext'
+import { useAchievements } from '@/contexts/AchievementContext'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Image from 'next/image'
 
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
+
 export default function UsernameModal() {
-  const { authenticated, username, profileLoading, refreshProfile } = useWallet()
+  const { authenticated, username, profileLoading, refreshProfile, setCachedUsername, publicKey } = useWallet()
+  const { showAchievementToast } = useAchievements()
   const [mounted, setMounted] = useState(false)
   const [visible, setVisible] = useState(false)
   const [usernameInput, setUsernameInput] = useState('')
@@ -32,9 +36,10 @@ export default function UsernameModal() {
   }
 
   async function handleSave() {
+    if (!publicKey) return
     const trimmed = usernameInput.trim()
-    if (!trimmed) {
-      setError('Username cannot be empty')
+    if (!USERNAME_RE.test(trimmed)) {
+      setError('3-20 characters, letters/numbers/underscores only')
       return
     }
     setSaving(true)
@@ -43,13 +48,19 @@ export default function UsernameModal() {
       const res = await fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: trimmed }),
+        body: JSON.stringify({ wallet: publicKey, username: trimmed }),
       })
       const data = await res.json()
       if (!res.ok) {
         setError(data.error || 'Failed to save username')
         return
       }
+      if (data.newAchievements?.length) {
+        for (const ach of data.newAchievements) showAchievementToast(ach)
+      }
+      // Immediately update WalletContext username so the visibility effect
+      // won't reopen the modal if refreshProfile returns null (timing/race).
+      setCachedUsername(trimmed)
       refreshProfile()
       close()
     } catch {

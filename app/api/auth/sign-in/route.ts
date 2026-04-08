@@ -18,11 +18,11 @@ export async function POST(req: NextRequest) {
   let wallet: string | null = null
 
   if (type === 'privy') {
-    const { token } = body as { token?: string }
+    const { token, wallet: requestedWallet } = body as { token?: string; wallet?: string }
     if (!token) {
       return NextResponse.json({ error: 'Token is required' }, { status: 400 })
     }
-    wallet = await verifyPrivyToken(token)
+    wallet = await verifyPrivyToken(token, requestedWallet)
   } else if (type === 'phantom') {
     const { wallet: w, signature, message } = body as {
       wallet?: string
