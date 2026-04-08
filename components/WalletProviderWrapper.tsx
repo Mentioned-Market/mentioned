@@ -19,6 +19,7 @@ export default function WalletProviderWrapper({
           theme: 'dark',
           accentColor: '#FFFFFF',
         },
+        loginMethods: ['email', 'google', 'twitter'],
         embeddedWallets: {
           solana: {
             createOnLogin: 'all-users',
