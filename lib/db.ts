@@ -328,6 +328,14 @@ export async function searchProfiles(query: string): Promise<Pick<ProfileRow, 'w
   return result.rows
 }
 
+export async function searchCustomMarkets(query: string): Promise<{ id: number; title: string; slug: string; status: string; cover_image_url: string | null }[]> {
+  const result = await pool.query(
+    `SELECT id, title, slug, status, cover_image_url FROM custom_markets WHERE title ILIKE $1 AND status != 'draft' ORDER BY status, title LIMIT 10`,
+    [`%${query}%`],
+  )
+  return result.rows
+}
+
 export async function getProfileByWallet(wallet: string): Promise<(ProfileRow & { created_at: string }) | null> {
   const result = await pool.query(
     `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE wallet = $1`,
