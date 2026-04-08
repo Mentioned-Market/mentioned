@@ -297,8 +297,8 @@ export default function UserSearch() {
                 value={query}
                 onChange={e => handleChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="absolute inset-0 bg-transparent text-white text-xs w-full h-full"
-                style={{ outline: 'none', boxShadow: 'none', caretColor: query.length === 0 ? 'transparent' : undefined }}
+                className="absolute inset-0 bg-transparent text-white text-xs w-full h-full !border-0 !outline-none !ring-0 !shadow-none"
+                style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
                 maxLength={44}
               />
             </div>
@@ -336,8 +336,8 @@ export default function UserSearch() {
                     value={query}
                     onChange={e => handleChange(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="absolute inset-0 bg-transparent text-white text-sm w-full h-full"
-                    style={{ outline: 'none', boxShadow: 'none', caretColor: query.length === 0 ? 'transparent' : undefined }}
+                    className="absolute inset-0 bg-transparent text-white text-sm w-full h-full !border-0 !outline-none !ring-0 !shadow-none"
+                    style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
                     maxLength={44}
                   />
                 </div>
