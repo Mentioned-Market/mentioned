@@ -18,7 +18,7 @@ interface MarketResult {
 }
 
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
-const PLACEHOLDERS = ['Search users...', 'Search markets...']
+const CYCLING_WORDS = ['users...', 'markets...']
 
 function SearchIcon({ className }: { className?: string }) {
   return (
@@ -34,6 +34,25 @@ function Spinner() {
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
+  )
+}
+
+function AnimatedPlaceholder({ show, wordIdx, className }: { show: boolean; wordIdx: number; className?: string }) {
+  if (!show) return null
+  return (
+    <span className={`pointer-events-none select-none text-neutral-500 flex items-center ${className ?? ''}`} aria-hidden>
+      Search{'\u00A0'}
+      <span className="relative overflow-hidden inline-flex" style={{ height: '1.2em' }}>
+        <span
+          className="flex flex-col transition-transform duration-300 ease-in-out"
+          style={{ transform: `translateY(-${wordIdx * 1.2}em)` }}
+        >
+          {CYCLING_WORDS.map(word => (
+            <span key={word} className="block" style={{ height: '1.2em', lineHeight: '1.2em' }}>{word}</span>
+          ))}
+        </span>
+      </span>
+    </span>
   )
 }
 
@@ -133,16 +152,16 @@ export default function UserSearch() {
   const [focused, setFocused] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
-  const [placeholderIdx, setPlaceholderIdx] = useState(0)
+  const [wordIdx, setWordIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const mobileRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const mobileInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Cycle placeholder text
+  // Cycle placeholder word
   useEffect(() => {
-    const id = setInterval(() => setPlaceholderIdx(i => (i + 1) % PLACEHOLDERS.length), 3000)
+    const id = setInterval(() => setWordIdx(i => (i + 1) % CYCLING_WORDS.length), 3000)
     return () => clearInterval(id)
   }, [])
 
@@ -254,7 +273,6 @@ export default function UserSearch() {
   }, [mobileOpen])
 
   const showDropdown = open && (totalResults > 0 || (query.length >= 2 && !loading))
-  const placeholder = PLACEHOLDERS[placeholderIdx]
 
   return (
     <>
@@ -269,18 +287,20 @@ export default function UserSearch() {
             <SearchIcon className="w-4 h-4" />
           </button>
         ) : (
-          <div className="flex items-center gap-2 h-8 md:h-9 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]" style={{ width: 240 }}>
+          <div className="flex items-center gap-2 h-8 md:h-9 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15] relative" style={{ width: 240 }}>
             <SearchIcon className="w-3.5 h-3.5 text-neutral-500 flex-shrink-0" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={e => handleChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              className="bg-transparent text-white text-xs flex-1 outline-none ring-0 focus:outline-none focus:ring-0 placeholder-neutral-500 min-w-0"
-              maxLength={44}
-            />
+            <div className="relative flex-1 min-w-0">
+              <AnimatedPlaceholder show={query.length === 0} wordIdx={wordIdx} className="absolute inset-0 text-xs" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={e => handleChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="bg-transparent text-white text-xs w-full outline-none ring-0 focus:outline-none focus:ring-0 relative z-10"
+                maxLength={44}
+              />
+            </div>
             {loading && <Spinner />}
           </div>
         )}
@@ -305,18 +325,20 @@ export default function UserSearch() {
         {mobileOpen && (
           <div className="fixed inset-x-0 top-0 z-[60] bg-black/95 backdrop-blur-sm px-4 pt-3 pb-2 border-b border-white/10 animate-fade-in">
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]">
+              <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15] relative">
                 <SearchIcon className="w-4 h-4 text-neutral-500 flex-shrink-0" />
-                <input
-                  ref={mobileInputRef}
-                  type="text"
-                  value={query}
-                  onChange={e => handleChange(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={placeholder}
-                  className="bg-transparent text-white text-sm flex-1 outline-none ring-0 focus:outline-none focus:ring-0 placeholder-neutral-500 min-w-0"
-                  maxLength={44}
-                />
+                <div className="relative flex-1 min-w-0">
+                  <AnimatedPlaceholder show={query.length === 0} wordIdx={wordIdx} className="absolute inset-0 text-sm" />
+                  <input
+                    ref={mobileInputRef}
+                    type="text"
+                    value={query}
+                    onChange={e => handleChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="bg-transparent text-white text-sm w-full outline-none ring-0 focus:outline-none focus:ring-0 relative z-10"
+                    maxLength={44}
+                  />
+                </div>
                 {loading && <Spinner />}
               </div>
               <button onClick={close} className="text-neutral-400 text-sm font-medium px-2 py-1">
