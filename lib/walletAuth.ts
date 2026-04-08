@@ -77,18 +77,40 @@ export const SESSION_MAX_AGE = SESSION_MAX_AGE_S
 
 // ── Privy verification ──────────────────────────────────────
 
-/** Verify a Privy access token and return the user's Solana wallet address. */
-export async function verifyPrivyToken(token: string): Promise<string | null> {
+/**
+ * Verify a Privy access token and return the user's Solana wallet address.
+ * If `requestedWallet` is provided, verify it belongs to this Privy user and
+ * return it — this ensures the session is created for the exact wallet the
+ * client is using, not whichever address Privy returns first.
+ */
+export async function verifyPrivyToken(token: string, requestedWallet?: string): Promise<string | null> {
   try {
     const privy = getPrivyClient()
     const claims = await privy.verifyAuthToken(token)
-    const user = await privy.getUser(claims.userId)
 
-    // Find the user's Solana wallet (embedded wallets created on login)
-    const solanaWallet = user.linkedAccounts.find(
-      (a: any) => a.type === 'wallet' && a.chainType === 'solana',
-    )
-    return (solanaWallet as any)?.address ?? null
+    // Retry up to 3 times — embedded wallet creation can lag behind
+    // Privy's REST API by a second or two after a fresh OAuth login
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const user = await privy.getUser(claims.userId)
+      const solanaWallets = user.linkedAccounts.filter(
+        (a: any) => a.type === 'wallet' && a.chainType === 'solana',
+      )
+      if (solanaWallets.length === 0) {
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1500))
+        continue
+      }
+      // If the client told us which wallet it's using, verify it belongs to this user.
+      if (requestedWallet) {
+        const match = solanaWallets.find((a: any) => a.address === requestedWallet)
+        if (match) return requestedWallet
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1500))
+        continue
+      }
+      // Fallback: prefer embedded Privy wallet, then any Solana wallet.
+      const embedded = solanaWallets.find((a: any) => a.walletClientType === 'privy')
+      return ((embedded ?? solanaWallets[0]) as any).address
+    }
+    return null
   } catch {
     return null
   }

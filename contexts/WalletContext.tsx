@@ -7,6 +7,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
   type ReactNode,
 } from 'react'
 import { getWallets } from '@wallet-standard/app'
@@ -99,6 +100,8 @@ interface WalletContextType {
   profileLoading: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
   refreshProfile: () => void
+  /** Directly update the cached username (e.g. after a successful save, before refetch) */
+  setCachedUsername: (username: string | null) => void
   /** Whether the session has been verified server-side */
   authenticated: boolean
   /** True once wallet connection state has been determined (safe to render connected/login UI) */
@@ -271,6 +274,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { signAndSendTransaction: privySignAndSend } =
     useSignAndSendTransaction()
   const { createWallet: createSolanaWallet } = useCreateSolanaWallet()
+  const createSolanaWalletRef = useRef(createSolanaWallet)
+  useEffect(() => { createSolanaWalletRef.current = createSolanaWallet }, [createSolanaWallet])
 
   const privySignAndSendRef = useRef(privySignAndSend)
   useEffect(() => {
@@ -404,6 +409,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [applyPhantomAccount, clearState])
 
+  // Keep a stable ref to the wallets array for reading inside the effect
+  // without including the unstable array reference in deps.
+  const privySolanaWalletsRef = useRef(privySolanaWallets)
+  useEffect(() => { privySolanaWalletsRef.current = privySolanaWallets }, [privySolanaWallets])
+
+  // Derive a stable string address from the wallets array.
+  // Strings compare by value (Object.is), so the effect below only re-runs
+  // when the actual wallet address changes — not on every new array reference
+  // that Privy emits on each render.
+  const embeddedWalletAddress = useMemo(() => {
+    const w = privySolanaWallets.find((w: any) => w.standardWallet?.isPrivyWallet === true) ?? privySolanaWallets[0]
+    return (w as any)?.address as string | undefined
+  }, [privySolanaWallets])
+
+  // Track whether we've already attempted wallet creation to prevent repeated calls
+  const walletCreationAttemptedRef = useRef(false)
+
   // ── Privy wallet sync ──────────────────────────────────
 
   useEffect(() => {
@@ -411,6 +433,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!privyAuthenticated) {
       if (walletType === 'privy') clearState()
       disconnectingRef.current = false
+      walletCreationAttemptedRef.current = false
       setWalletReady(true)
       setConnecting(false)
       return
@@ -418,33 +441,41 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     if (disconnectingRef.current) return
 
-    const embeddedWallet =
-      privySolanaWallets.find(
-        (w: any) => w.standardWallet?.isPrivyWallet === true
-      ) ?? privySolanaWallets[0]
-    if (!embeddedWallet) {
-      // Wallet not created yet (e.g. first OAuth login) — create it now
-      createSolanaWallet().catch(() => {})
+    if (!embeddedWalletAddress) {
+      // Wallet not created yet — attempt creation once
+      if (!walletCreationAttemptedRef.current) {
+        walletCreationAttemptedRef.current = true
+        createSolanaWalletRef.current().catch(() => {
+          walletCreationAttemptedRef.current = false
+        })
+      }
       return
     }
 
     if (walletType === 'phantom' && connected) return
 
-    const addr = embeddedWallet.address
+    // Already fully connected to this wallet — skip re-setup
+    if (walletType === 'privy' && connected && pubkey === embeddedWalletAddress) return
+
+    const wallets = privySolanaWalletsRef.current
+    const embeddedWallet = wallets.find((w: any) => w.standardWallet?.isPrivyWallet === true) ?? wallets[0]
+    if (!embeddedWallet) return
+
     privyWalletRef.current = embeddedWallet
+    walletCreationAttemptedRef.current = false
 
     setPrivySolanaProvider(embeddedWallet)
 
     walletTypeRef.current = 'privy'
     try { localStorage.setItem('preferred_wallet', 'privy') } catch {}
-    setPubkey(addr)
+    setPubkey(embeddedWalletAddress)
     setConnected(true)
     setWalletType('privy')
     setConnecting(false)
 
     const encoder = getTransactionEncoder()
     const privySigner: TransactionSendingSigner = {
-      address: toAddress(addr),
+      address: toAddress(embeddedWalletAddress),
       signAndSendTransactions: async (transactions) => {
         const results = []
         for (const tx of transactions) {
@@ -465,11 +496,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     privyAuthenticated,
     privyReady,
     privySolanaReady,
-    privySolanaWallets,
+    embeddedWalletAddress,
     walletType,
     connected,
+    pubkey,
     clearState,
-    createSolanaWallet,
   ])
 
   // ── Balance polling ────────────────────────────────────
@@ -546,16 +577,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const establishSession = async () => {
       try {
         if (walletType === 'privy') {
-          // Privy: get access token (already authenticated) and verify server-side
+          // Privy: get access token (already authenticated) and verify server-side.
+          // Retry up to 3 times — embedded wallet may lag Privy's REST API on first login.
           const token = await getAccessToken()
           if (!token) throw new Error('No Privy access token')
-          const res = await fetch('/api/auth/sign-in', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'privy', token }),
-          })
-          if (!res.ok) throw new Error('Privy sign-in failed')
-          setAuthenticated(true)
+          let lastStatus = 0
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const res = await fetch('/api/auth/sign-in', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'privy', token, wallet: pubkey }),
+            })
+            lastStatus = res.status
+            if (res.ok) { setAuthenticated(true); break }
+            if (res.status !== 401) break // non-retriable error
+            if (attempt < 2) await new Promise(r => setTimeout(r, 2000))
+          }
+          if (lastStatus !== 200 && lastStatus !== 0) throw new Error(`Privy sign-in failed: ${lastStatus}`)
         } else if (walletType === 'phantom') {
           // Phantom: sign a message to prove wallet ownership
           const wallet = walletRef.current
@@ -719,6 +757,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         profileLoading,
         walletReady,
         refreshProfile,
+        setCachedUsername: setUsername,
         authenticated,
         connecting,
         privyReady,
