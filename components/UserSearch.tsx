@@ -223,17 +223,24 @@ export default function UserSearch() {
   }
 
   // Close on outside click (desktop + mobile)
+  // Delay listener attachment by one frame so the click that triggered
+  // the focused/open state doesn't immediately fire the close handler.
   useEffect(() => {
+    if (!(focused || open || mobileOpen)) return
+    let raf: number
     const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        close()
-      }
-      if (mobileRef.current && !mobileRef.current.contains(e.target as Node)) {
-        close()
-      }
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (mobileRef.current?.contains(target)) return
+      close()
     }
-    if (focused || open || mobileOpen) document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    raf = requestAnimationFrame(() => {
+      document.addEventListener('mousedown', handleClick)
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      document.removeEventListener('mousedown', handleClick)
+    }
   }, [focused, open, mobileOpen])
 
   // Auto-focus desktop input when expanded
