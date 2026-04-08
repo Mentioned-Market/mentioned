@@ -11,6 +11,7 @@ import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import Pagination, { usePagination } from '@/components/Pagination'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -887,6 +888,29 @@ export default function ProfilePage() {
     return closedPositions.filter(h => !q || (h.marketMetadata?.title ?? h.marketId).toLowerCase().includes(q))
   }, [profile, posFilter, search, closedPositions])
 
+  // ── Pagination ────────────────────────────────────────
+  const ownerPosPg = usePagination(ownerPositions)
+  const ownerOrdersPg = usePagination(openOrders)
+  const ownerHistPg = usePagination(ownerHistory)
+  const publicPosPg = usePagination<PublicPosition | HistoryEvent>(filteredPublicPositions)
+  const publicHistPg = usePagination(profile?.history ?? [])
+  const freePosPg = usePagination(profile?.freeMarket?.positions ?? [])
+  const freeTradesPg = usePagination(profile?.freeMarket?.trades ?? [])
+
+  // Reset to page 1 on tab / mode changes
+  useEffect(() => {
+    ownerPosPg.setPage(1); ownerOrdersPg.setPage(1); ownerHistPg.setPage(1)
+    publicPosPg.setPage(1); publicHistPg.setPage(1)
+    freePosPg.setPage(1); freeTradesPg.setPage(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerTab, publicTab, freeOwnerTab, freePublicTab, profileMode])
+
+  // Reset public positions page when filter/search changes
+  useEffect(() => {
+    publicPosPg.setPage(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posFilter, search])
+
   // ── Layout shell ───────────────────────────────────────
   const shell = (children: React.ReactNode) => (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -1699,7 +1723,7 @@ export default function ProfilePage() {
                 <span className="text-right">Settlement</span>
                 <span />
               </div>
-              {ownerPositions.map(pos => {
+              {ownerPosPg.paged.map(pos => {
                 const contracts = Number(pos.contracts || 0)
                 const payoutIfRight = contracts * 1_000_000
                 const isClosing = closingPubkey === pos.pubkey
@@ -1791,6 +1815,7 @@ export default function ProfilePage() {
                   </div>
                 )
               })}
+              <Pagination page={ownerPosPg.page} totalPages={ownerPosPg.totalPages} totalItems={ownerPosPg.totalItems} onPageChange={ownerPosPg.setPage} />
             </>
           )}
         </div>
@@ -1814,7 +1839,7 @@ export default function ProfilePage() {
                 <span className="text-right">Size</span>
                 <span className="text-right">Created</span>
               </div>
-              {openOrders.map(order => (
+              {ownerOrdersPg.paged.map(order => (
                 <div
                   key={order.pubkey}
                   className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
@@ -1851,6 +1876,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
               ))}
+              <Pagination page={ownerOrdersPg.page} totalPages={ownerOrdersPg.totalPages} totalItems={ownerOrdersPg.totalItems} onPageChange={ownerOrdersPg.setPage} />
             </>
           )}
         </div>
@@ -1876,7 +1902,7 @@ export default function ProfilePage() {
                 <span className="text-right">PNL</span>
                 <span className="text-right">Fee</span>
               </div>
-              {ownerHistory.map(h => {
+              {ownerHistPg.paged.map(h => {
                 const { label, color } = eventLabel(h.eventType)
                 let depositWithdraw = '-'
                 if (h.depositAmountUsd > 0)      depositWithdraw = `-${microToUsd(h.depositAmountUsd)}`
@@ -1934,6 +1960,7 @@ export default function ProfilePage() {
                   </div>
                 )
               })}
+              <Pagination page={ownerHistPg.page} totalPages={ownerHistPg.totalPages} totalItems={ownerHistPg.totalItems} onPageChange={ownerHistPg.setPage} />
             </>
           )}
         </div>
@@ -1990,7 +2017,7 @@ export default function ProfilePage() {
                   <span className="text-right">Value</span>
                   <span className="text-right">Settlement</span>
                 </div>
-                {(filteredPublicPositions as PublicPosition[]).map(pos => (
+                {(publicPosPg.paged as PublicPosition[]).map(pos => (
                   <div key={pos.pubkey} className="grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3.5 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${pos.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
@@ -2022,6 +2049,7 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 ))}
+                <Pagination page={publicPosPg.page} totalPages={publicPosPg.totalPages} totalItems={publicPosPg.totalItems} onPageChange={publicPosPg.setPage} />
               </div>
             )
           )}
@@ -2041,7 +2069,7 @@ export default function ProfilePage() {
                   <span className="text-right">P&L</span>
                   <span className="text-right">Date</span>
                 </div>
-                {(filteredPublicPositions as HistoryEvent[]).map(h => {
+                {(publicPosPg.paged as HistoryEvent[]).map(h => {
                   const { label, color } = eventLabel(h.eventType)
                   const pnl = h.realizedPnl
                   return (
@@ -2071,6 +2099,7 @@ export default function ProfilePage() {
                     </div>
                   )
                 })}
+                <Pagination page={publicPosPg.page} totalPages={publicPosPg.totalPages} totalItems={publicPosPg.totalItems} onPageChange={publicPosPg.setPage} />
               </div>
             )
           )}
@@ -2093,7 +2122,7 @@ export default function ProfilePage() {
               <span className="text-right">Amount</span>
               <span className="text-right">P&L</span>
             </div>
-            {profile.history.map(h => {
+            {publicHistPg.paged.map(h => {
               const { label, color } = eventLabel(h.eventType)
               let amount = '—'
               if (h.depositAmountUsd > 0)      amount = `-${microToUsd(h.depositAmountUsd)}`
@@ -2145,6 +2174,7 @@ export default function ProfilePage() {
                 </div>
               )
             })}
+            <Pagination page={publicHistPg.page} totalPages={publicHistPg.totalPages} totalItems={publicHistPg.totalItems} onPageChange={publicHistPg.setPage} />
           </div>
         )}
       </div>
@@ -2170,7 +2200,7 @@ export default function ProfilePage() {
               <span className="text-right">Tokens Received</span>
               <span className="text-right">Status</span>
             </div>
-            {profile.freeMarket.positions.map(pos => {
+            {freePosPg.paged.map((pos: typeof profile.freeMarket.positions[0]) => {
               const pnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
               return (
                 <div
@@ -2223,6 +2253,7 @@ export default function ProfilePage() {
                 </div>
               )
             })}
+              <Pagination page={freePosPg.page} totalPages={freePosPg.totalPages} totalItems={freePosPg.totalItems} onPageChange={freePosPg.setPage} />
           </>
         )}
       </div>
@@ -2244,7 +2275,7 @@ export default function ProfilePage() {
               <span className="text-right">Price After</span>
               <span className="text-right">Date</span>
             </div>
-            {profile.freeMarket.trades.map(t => (
+            {freeTradesPg.paged.map((t: typeof profile.freeMarket.trades[0]) => (
               <div
                 key={t.id}
                 className="grid grid-cols-1 md:grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
@@ -2290,6 +2321,7 @@ export default function ProfilePage() {
                 </div>
               </div>
             ))}
+              <Pagination page={freeTradesPg.page} totalPages={freeTradesPg.totalPages} totalItems={freeTradesPg.totalItems} onPageChange={freeTradesPg.setPage} />
           </>
         )}
       </div>
