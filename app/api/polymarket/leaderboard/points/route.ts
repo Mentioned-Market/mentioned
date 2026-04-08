@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { pool, getBulkPointTotals } from '@/lib/db'
 import { getWeekStart } from '@/lib/points'
 
+const LEADERBOARD_LIMIT = 100
+
 export async function GET(req: NextRequest) {
   const sort = req.nextUrl.searchParams.get('sort') ?? 'weekly'
+  const wallet = req.nextUrl.searchParams.get('wallet')
   const weekStart = getWeekStart()
 
   try {
@@ -14,7 +17,7 @@ export async function GET(req: NextRequest) {
     const wallets: string[] = walletsResult.rows.map((r: { wallet: string }) => r.wallet)
 
     if (wallets.length === 0) {
-      return NextResponse.json({ data: [], weekStart: weekStart.toISOString() })
+      return NextResponse.json({ data: [], userEntry: null, weekStart: weekStart.toISOString() })
     }
 
     // 2. Aggregate point totals in one query
@@ -31,7 +34,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Build response rows
-    const data = totals.map((t) => ({
+    const buildEntry = (t: { wallet: string; weekly: number; all_time: number; chat_count: number }) => ({
       wallet: t.wallet,
       username: profileMap[t.wallet]?.username ?? null,
       pfpEmoji: profileMap[t.wallet]?.pfp_emoji ?? null,
@@ -40,7 +43,9 @@ export async function GET(req: NextRequest) {
       breakdown: {
         chats: t.chat_count,
       },
-    }))
+    })
+
+    const data = totals.map(buildEntry)
 
     // 5. Sort
     if (sort === 'alltime') {
@@ -49,7 +54,21 @@ export async function GET(req: NextRequest) {
       data.sort((a, b) => b.weeklyPoints - a.weeklyPoints)
     }
 
-    return NextResponse.json({ data, weekStart: weekStart.toISOString() })
+    // 6. Find user entry before truncating, if they're outside the top N
+    let userEntry = null
+    if (wallet) {
+      const userIdx = data.findIndex(e => e.wallet === wallet)
+      if (userIdx >= LEADERBOARD_LIMIT) {
+        userEntry = data[userIdx]
+      }
+      // If userIdx is -1 (no points) or within top N, userEntry stays null
+      // (frontend handles the no-points case, and top-N users appear in data)
+    }
+
+    // 7. Truncate to top N
+    const top = data.slice(0, LEADERBOARD_LIMIT)
+
+    return NextResponse.json({ data: top, userEntry, weekStart: weekStart.toISOString() })
   } catch (err) {
     console.error('Points leaderboard error:', err)
     return NextResponse.json({ error: 'Failed to fetch points leaderboard' }, { status: 500 })

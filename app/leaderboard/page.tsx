@@ -159,20 +159,27 @@ export default function LeaderboardPage() {
     return () => clearInterval(id)
   }, [])
 
+  const [userEntry, setUserEntry] = useState<PointsEntry | null>(null)
+
   useEffect(() => {
     let live = true
     setLoading(true)
-    fetch(`/api/polymarket/leaderboard/points?sort=${sort}`)
+    const params = new URLSearchParams({ sort })
+    if (publicKey) params.set('wallet', publicKey)
+    fetch(`/api/polymarket/leaderboard/points?${params}`)
       .then(r => r.json())
-      .then(j => { if (live) { setEntries(j.data ?? []); setWeekStart(j.weekStart ?? '') } })
+      .then(j => {
+        if (!live) return
+        setEntries(j.data ?? [])
+        setUserEntry(j.userEntry ?? null)
+        setWeekStart(j.weekStart ?? '')
+      })
       .catch(() => {})
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
-  }, [sort])
+  }, [sort, publicKey])
 
-  const youIdx   = publicKey ? entries.findIndex(e => e.wallet === publicKey) : -1
-  const youEntry = youIdx >= 0 ? entries[youIdx] : null
-  const youRank  = youIdx >= 0 ? youIdx + 1 : null
+  const youInTop = publicKey ? entries.some(e => e.wallet === publicKey) : false
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -289,29 +296,19 @@ export default function LeaderboardPage() {
                       <div className="text-center">Prize</div>
                     </div>
 
-                    {/* Pinned out-of-view you */}
-                    {publicKey && youEntry && youRank && youRank > entries.length && (
-                      <Row rank={youRank} entry={youEntry} sort={sort} isYou />
-                    )}
-
-                    {/* Unranked you */}
-                    {publicKey && !youEntry && (
-                      <div className="grid grid-cols-[64px_minmax(0,1fr)_90px_74px] md:grid-cols-[80px_minmax(0,1fr)_120px_90px] px-4 py-4 border-b border-white/[0.04] bg-white/[0.02]">
-                        <div className="flex items-center justify-center">
-                          <span className="text-xs text-neutral-700">—</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-white/[0.04] flex items-center justify-center text-sm">⚪</div>
-                          <span className="text-orange-400 font-semibold text-sm">You</span>
-                        </div>
-                        <div className="flex items-center justify-center text-neutral-700 text-sm">0</div>
-                        <div className="flex items-center justify-center text-neutral-700 text-sm">—</div>
-                      </div>
-                    )}
-
                     {entries.map((e, i) => (
                       <Row key={e.wallet} rank={i + 1} entry={e} sort={sort} isYou={publicKey === e.wallet} index={i} />
                     ))}
+
+                    {/* User outside top 100 — pinned at bottom without rank */}
+                    {publicKey && userEntry && (
+                      <UserPinnedRow entry={userEntry} sort={sort} />
+                    )}
+
+                    {/* User has no points at all */}
+                    {publicKey && !youInTop && !userEntry && (
+                      <UserPinnedRow entry={null} sort={sort} />
+                    )}
                   </div>
                 )}
               </div>
@@ -326,6 +323,67 @@ export default function LeaderboardPage() {
 }
 
 // ── Table row ──────────────────────────────────────────────
+
+function UserPinnedRow({ entry, sort }: { entry: PointsEntry | null; sort: PointsSortKey }) {
+  const pts = entry
+    ? sort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
+    : 0
+  const name = entry?.username || (entry ? truncateWallet(entry.wallet) : null)
+
+  return (
+    <>
+      {/* Separator dots */}
+      <div className="flex items-center justify-center py-2 border-b border-white/[0.04]">
+        <span className="text-neutral-700 text-xs tracking-[0.3em]">...</span>
+      </div>
+      <div
+        className="grid grid-cols-[64px_minmax(0,1fr)_90px_74px] md:grid-cols-[80px_minmax(0,1fr)_120px_90px] px-4 py-4 last:border-b-0 transition-colors duration-100"
+        style={{ background: 'rgba(242,183,31,0.05)', borderLeft: '2px solid rgba(242,183,31,0.4)' }}
+      >
+        {/* No rank */}
+        <div className="flex items-center justify-center">
+          <span className="text-xs text-neutral-700">&mdash;</span>
+        </div>
+
+        {/* Player */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+            style={{ background: 'rgba(255,255,255,0.04)' }}
+          >
+            {entry?.pfpEmoji ?? '⚪'}
+          </div>
+          <div className="min-w-0">
+            {entry ? (
+              <Link
+                href={`/profile/${entry.username ?? entry.wallet}`}
+                className="font-semibold text-sm hover:underline truncate block leading-snug"
+                style={{ color: '#fb923c' }}
+              >
+                {name}
+              </Link>
+            ) : (
+              <span className="font-semibold text-sm" style={{ color: '#fb923c' }}>You</span>
+            )}
+            <span className="text-[10px] text-neutral-700">you</span>
+          </div>
+        </div>
+
+        {/* Points */}
+        <div className="flex items-center justify-center">
+          <span className="font-bold tabular-nums text-sm" style={{ color: pts > 0 ? '#737373' : '#525252' }}>
+            {pts.toLocaleString()}
+          </span>
+        </div>
+
+        {/* Prize */}
+        <div className="flex items-center justify-center">
+          <span className="text-neutral-800 text-sm">&mdash;</span>
+        </div>
+      </div>
+    </>
+  )
+}
 
 function Row({ rank, entry, sort, isYou, index = 0 }: { rank: number; entry: PointsEntry; sort: PointsSortKey; isYou: boolean; index?: number }) {
   const pts  = sort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
