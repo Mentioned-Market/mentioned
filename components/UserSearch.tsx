@@ -191,7 +191,7 @@ export default function UserSearch() {
               onChange={e => handleChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search users..."
-              className="bg-transparent text-white text-xs flex-1 outline-none placeholder-neutral-500 min-w-0"
+              className="bg-transparent text-white text-xs flex-1 outline-none ring-0 focus:outline-none focus:ring-0 placeholder-neutral-500 min-w-0"
               maxLength={44}
             />
             {loading && <Spinner />}
