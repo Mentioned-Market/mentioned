@@ -289,7 +289,7 @@ export default function UserSearch() {
         ) : (
           <div className="flex items-center gap-2 h-8 md:h-9 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15] relative" style={{ width: 240 }}>
             <SearchIcon className="w-3.5 h-3.5 text-neutral-500 flex-shrink-0" />
-            <div className="relative flex-1 min-w-0">
+            <div className="relative flex-1 min-w-0 flex items-center">
               <AnimatedPlaceholder show={query.length === 0} wordIdx={wordIdx} className="text-xs" />
               <input
                 ref={inputRef}
@@ -297,8 +297,8 @@ export default function UserSearch() {
                 value={query}
                 onChange={e => handleChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="absolute inset-0 bg-transparent text-white text-xs w-full outline-none ring-0 focus:outline-none focus:ring-0"
-                style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
+                className="absolute inset-0 bg-transparent text-white text-xs w-full h-full"
+                style={{ outline: 'none', boxShadow: 'none', caretColor: query.length === 0 ? 'transparent' : undefined }}
                 maxLength={44}
               />
             </div>
@@ -328,7 +328,7 @@ export default function UserSearch() {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15] relative">
                 <SearchIcon className="w-4 h-4 text-neutral-500 flex-shrink-0" />
-                <div className="relative flex-1 min-w-0">
+                <div className="relative flex-1 min-w-0 flex items-center">
                   <AnimatedPlaceholder show={query.length === 0} wordIdx={wordIdx} className="text-sm" />
                   <input
                     ref={mobileInputRef}
@@ -336,8 +336,8 @@ export default function UserSearch() {
                     value={query}
                     onChange={e => handleChange(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="absolute inset-0 bg-transparent text-white text-sm w-full outline-none ring-0 focus:outline-none focus:ring-0"
-                    style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
+                    className="absolute inset-0 bg-transparent text-white text-sm w-full h-full"
+                    style={{ outline: 'none', boxShadow: 'none', caretColor: query.length === 0 ? 'transparent' : undefined }}
                     maxLength={44}
                   />
                 </div>
