@@ -8,6 +8,7 @@ import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import Pagination, { usePagination } from '@/components/Pagination'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -471,6 +472,21 @@ export default function PositionsPage() {
   // Free market derived
   const freeTotalSpent = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_spent), 0)
 
+  // ── Pagination ────────────────────────────────────────────
+
+  const posPg = usePagination(positions)
+  const ordersPg = usePagination(openOrders)
+  const historyPg = usePagination(history)
+  const freePosPg = usePagination(freePositions)
+  const freeTradesPg = usePagination(freeTrades)
+
+  // Reset to page 1 on tab or market mode change
+  useEffect(() => {
+    posPg.setPage(1); ordersPg.setPage(1); historyPg.setPage(1)
+    freePosPg.setPage(1); freeTradesPg.setPage(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, marketMode])
+
   // ── Tab counts ────────────────────────────────────────────
 
   const tabs: { key: Tab; label: string; count: number }[] = [
@@ -646,7 +662,7 @@ export default function PositionsPage() {
                           <div className="text-right">Tokens Received</div>
                           <div className="text-right">Status</div>
                         </div>
-                        {freePositions.map((pos, i) => (
+                        {freePosPg.paged.map((pos, i) => (
                           <div
                             key={pos.id}
                             className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
@@ -697,6 +713,7 @@ export default function PositionsPage() {
                             </div>
                           </div>
                         ))}
+                        <Pagination page={freePosPg.page} totalPages={freePosPg.totalPages} totalItems={freePosPg.totalItems} onPageChange={freePosPg.setPage} />
                       </div>
                     )}
                   </div>
@@ -722,7 +739,7 @@ export default function PositionsPage() {
                           <div className="text-right">Cost (tokens)</div>
                           <div className="text-right">Date</div>
                         </div>
-                        {freeTrades.map((t, i) => (
+                        {freeTradesPg.paged.map((t, i) => (
                           <div
                             key={t.id}
                             className="group grid grid-cols-1 md:grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
@@ -764,6 +781,7 @@ export default function PositionsPage() {
                             </div>
                           </div>
                         ))}
+                        <Pagination page={freeTradesPg.page} totalPages={freeTradesPg.totalPages} totalItems={freeTradesPg.totalItems} onPageChange={freeTradesPg.setPage} />
                       </div>
                     )}
                   </div>
@@ -804,7 +822,7 @@ export default function PositionsPage() {
                               <div></div>
                             </div>
 
-                            {positions.map((pos, i) => {
+                            {posPg.paged.map((pos, i) => {
                               const contracts = Number(pos.contracts || 0)
                               const payoutIfRight = contracts * 1_000_000
                               const isClosing = closingPubkey === pos.pubkey
@@ -917,6 +935,7 @@ export default function PositionsPage() {
                                 </div>
                               )
                             })}
+                            <Pagination page={posPg.page} totalPages={posPg.totalPages} totalItems={posPg.totalItems} onPageChange={posPg.setPage} />
                           </div>
                         </>
                       )}
@@ -944,7 +963,7 @@ export default function PositionsPage() {
                             <div className="text-right">Created</div>
                           </div>
 
-                          {openOrders.map((order, i) => (
+                          {ordersPg.paged.map((order, i) => (
                             <div
                               key={order.pubkey}
                               className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
@@ -992,6 +1011,7 @@ export default function PositionsPage() {
                               </div>
                             </div>
                           ))}
+                          <Pagination page={ordersPg.page} totalPages={ordersPg.totalPages} totalItems={ordersPg.totalItems} onPageChange={ordersPg.setPage} />
                         </div>
                       )}
                     </div>
@@ -1019,7 +1039,7 @@ export default function PositionsPage() {
                             <div className="text-right">Fee</div>
                           </div>
 
-                          {history.map((h, i) => {
+                          {historyPg.paged.map((h, i) => {
                             const { label: statusLabel, color: statusColor } = eventTypeToStatus(h.eventType)
 
                             let depositWithdraw: string = '-'
@@ -1122,6 +1142,7 @@ export default function PositionsPage() {
                               </div>
                             )
                           })}
+                          <Pagination page={historyPg.page} totalPages={historyPg.totalPages} totalItems={historyPg.totalItems} onPageChange={historyPg.setPage} />
                         </div>
                       )}
                     </div>
