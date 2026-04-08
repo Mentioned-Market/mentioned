@@ -18,10 +18,11 @@ import {
   mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
-import { usePrivy } from '@privy-io/react-auth'
+import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth'
 import {
   useWallets as usePrivySolanaWallets,
   useSignAndSendTransaction,
+  useCreateWallet as useCreateSolanaWallet,
 } from '@privy-io/react-auth/solana'
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
 
@@ -86,6 +87,8 @@ interface WalletContextType {
   setShowConnectModal: (show: boolean) => void
   connectPhantom: () => Promise<void>
   connectPrivy: () => void
+  connectGoogle: () => void
+  connectX: () => void
   /** Cached profile username (fetched once on connect) */
   username: string | null
   /** Cached profile emoji (fetched once on connect) */
@@ -262,10 +265,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     ready: privyReady,
     getAccessToken,
   } = usePrivy()
+  const { initOAuth } = useLoginWithOAuth()
   const { wallets: privySolanaWallets, ready: privySolanaReady } =
     usePrivySolanaWallets()
   const { signAndSendTransaction: privySignAndSend } =
     useSignAndSendTransaction()
+  const { createWallet: createSolanaWallet } = useCreateSolanaWallet()
 
   const privySignAndSendRef = useRef(privySignAndSend)
   useEffect(() => {
@@ -323,7 +328,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         try { return localStorage.getItem('phantom_disconnected') === '1' } catch { return false }
       })()
 
-      if (wasDisconnected) {
+      // User last logged in via Privy — let Privy restore the session
+      const preferPrivy = (() => {
+        try { return localStorage.getItem('preferred_wallet') === 'privy' } catch { return false }
+      })()
+
+      if (wasDisconnected || preferPrivy) {
         setWalletReady(true)
         return
       }
@@ -412,7 +422,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       privySolanaWallets.find(
         (w: any) => w.standardWallet?.isPrivyWallet === true
       ) ?? privySolanaWallets[0]
-    if (!embeddedWallet) return
+    if (!embeddedWallet) {
+      // Wallet not created yet (e.g. first OAuth login) — create it now
+      createSolanaWallet().catch(() => {})
+      return
+    }
 
     if (walletType === 'phantom' && connected) return
 
@@ -422,10 +436,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setPrivySolanaProvider(embeddedWallet)
 
     walletTypeRef.current = 'privy'
+    try { localStorage.setItem('preferred_wallet', 'privy') } catch {}
     setPubkey(addr)
     setConnected(true)
     setWalletType('privy')
-    setProfileLoading(true)
     setConnecting(false)
 
     const encoder = getTransactionEncoder()
@@ -455,6 +469,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     walletType,
     connected,
     clearState,
+    createSolanaWallet,
   ])
 
   // ── Balance polling ────────────────────────────────────
@@ -596,6 +611,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setShowConnectModal(false)
     disconnectingRef.current = false
     try { localStorage.removeItem('phantom_disconnected') } catch {}
+    try { localStorage.removeItem('preferred_wallet') } catch {}
     let wallet = walletRef.current
     if (!wallet) {
       const { get } = getWallets()
@@ -630,6 +646,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     privyLogin()
   }, [privyLogin])
 
+  const connectGoogle = useCallback(async () => {
+    setShowConnectModal(false)
+    setConnecting(true)
+    if (privyAuthenticated) await privyLogout()
+    initOAuth({ provider: 'google' })
+  }, [initOAuth, privyAuthenticated, privyLogout])
+
+  const connectX = useCallback(async () => {
+    setShowConnectModal(false)
+    setConnecting(true)
+    if (privyAuthenticated) await privyLogout()
+    initOAuth({ provider: 'twitter' })
+  }, [initOAuth, privyAuthenticated, privyLogout])
+
   const connect = useCallback(() => {
     setShowConnectModal(true)
   }, [])
@@ -642,6 +672,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     if (walletType === 'privy') {
       disconnectingRef.current = true
+      try { localStorage.removeItem('preferred_wallet') } catch {}
       setPrivySolanaProvider(null)
       try {
         await privyLogout()
@@ -653,6 +684,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       disconnectingRef.current = true
       // Persist disconnect intent so silent reconnect doesn't fire on refresh
       try { localStorage.setItem('phantom_disconnected', '1') } catch {}
+      try { localStorage.removeItem('preferred_wallet') } catch {}
       const wallet = walletRef.current
       if (wallet && FEAT_DISCONNECT in wallet.features) {
         const feat = wallet.features[FEAT_DISCONNECT] as DisconnectFeature
@@ -679,6 +711,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setShowConnectModal,
         connectPhantom,
         connectPrivy: connectPrivyFn,
+        connectGoogle,
+        connectX,
         username,
         pfpEmoji,
         discordLinked,
