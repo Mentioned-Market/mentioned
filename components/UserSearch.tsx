@@ -119,6 +119,7 @@ export default function UserSearch() {
     setQuery('')
     setResults([])
     setOpen(false)
+    setFocused(false)
     setMobileOpen(false)
     setActiveIdx(-1)
     inputRef.current?.blur()
@@ -142,19 +143,24 @@ export default function UserSearch() {
     }
   }
 
-  // Close desktop dropdown on outside click
+  // Close on outside click (desktop + mobile)
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
+        close()
       }
       if (mobileRef.current && !mobileRef.current.contains(e.target as Node)) {
         close()
       }
     }
-    if (open || mobileOpen) document.addEventListener('mousedown', handleClick)
+    if (focused || open || mobileOpen) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [open, mobileOpen])
+  }, [focused, open, mobileOpen])
+
+  // Auto-focus desktop input when expanded
+  useEffect(() => {
+    if (focused) inputRef.current?.focus()
+  }, [focused])
 
   // Auto-focus mobile input when opened
   useEffect(() => {
@@ -165,34 +171,35 @@ export default function UserSearch() {
 
   return (
     <>
-      {/* ── Desktop: inline search bar ── */}
+      {/* ── Desktop: icon that expands to search bar ── */}
       <div ref={containerRef} className="relative hidden md:block">
-        <div
-          className="flex items-center gap-2 h-8 rounded-lg px-3 transition-all duration-200"
-          style={{
-            background: focused ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
-            border: focused ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.06)',
-            width: focused ? 240 : 180,
-          }}
-        >
-          <SearchIcon className="w-3.5 h-3.5 text-neutral-500 flex-shrink-0" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={e => handleChange(e.target.value)}
-            onFocus={() => { setFocused(true); if (query.length >= 2 && results.length > 0) setOpen(true) }}
-            onBlur={() => setFocused(false)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search users..."
-            className="bg-transparent text-white text-xs flex-1 outline-none placeholder-neutral-600 min-w-0"
-            maxLength={44}
-          />
-          {loading && <Spinner />}
-        </div>
+        {!focused ? (
+          <button
+            onClick={() => setFocused(true)}
+            className="flex items-center justify-center w-8 h-8 md:w-9 md:h-9 rounded-lg text-neutral-400 hover:text-white transition-colors duration-200"
+            aria-label="Search users"
+          >
+            <SearchIcon className="w-4 h-4" />
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 h-8 md:h-9 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]" style={{ width: 240 }}>
+            <SearchIcon className="w-3.5 h-3.5 text-neutral-500 flex-shrink-0" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={e => handleChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search users..."
+              className="bg-transparent text-white text-xs flex-1 outline-none placeholder-neutral-500 min-w-0"
+              maxLength={44}
+            />
+            {loading && <Spinner />}
+          </div>
+        )}
 
         {showDropdown && (
-          <div className="absolute top-full left-0 mt-1.5 w-64 bg-neutral-900 rounded-xl overflow-hidden z-50 shadow-card-hover border border-white/10 animate-scale-in">
+          <div className="absolute top-full right-0 mt-1.5 w-64 bg-neutral-900 rounded-xl overflow-hidden z-50 shadow-card-hover border border-white/10 animate-scale-in">
             <ResultsList results={results} activeIdx={activeIdx} onNavigate={navigate} onHover={setActiveIdx} />
           </div>
         )}

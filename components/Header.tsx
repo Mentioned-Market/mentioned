@@ -87,9 +87,9 @@ export default function Header() {
           <Link href="/markets" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Markets</Link>
           <Link href="/leaderboard" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Leaderboard</Link>
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
-          <UserSearch />
         </div>
         <div className="flex items-center gap-2 md:gap-3">
+          <UserSearch />
           {/* How it works button — desktop only */}
           <button
             onClick={() => setShowHowItWorks(true)}
