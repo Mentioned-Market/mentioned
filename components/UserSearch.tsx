@@ -287,17 +287,21 @@ export default function UserSearch() {
             <SearchIcon className="w-4 h-4" />
           </button>
         ) : (
-          <div className="flex items-center gap-2 h-8 md:h-9 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15] relative" style={{ width: 240 }}>
+          <div className="flex items-center gap-2 h-8 md:h-9 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]" style={{ width: 240 }}>
             <SearchIcon className="w-3.5 h-3.5 text-neutral-500 flex-shrink-0" />
-            <div className="relative flex-1 min-w-0 flex items-center">
-              <AnimatedPlaceholder show={query.length === 0} wordIdx={wordIdx} className="text-xs" />
+            <div className="relative flex-1 min-w-0 h-full">
+              {query.length === 0 && (
+                <div className="absolute inset-0 flex items-center">
+                  <AnimatedPlaceholder show wordIdx={wordIdx} className="text-xs" />
+                </div>
+              )}
               <input
                 ref={inputRef}
                 type="text"
                 value={query}
                 onChange={e => handleChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="absolute inset-0 bg-transparent text-white text-xs w-full h-full !border-0 !outline-none !ring-0 !shadow-none"
+                className="relative w-full h-full bg-transparent text-white text-xs !border-0 !outline-none !ring-0 !shadow-none"
                 style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
                 maxLength={44}
               />
@@ -326,17 +330,21 @@ export default function UserSearch() {
         {mobileOpen && (
           <div className="fixed inset-x-0 top-0 z-[60] bg-black/95 backdrop-blur-sm px-4 pt-3 pb-2 border-b border-white/10 animate-fade-in">
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15] relative">
+              <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]">
                 <SearchIcon className="w-4 h-4 text-neutral-500 flex-shrink-0" />
-                <div className="relative flex-1 min-w-0 flex items-center">
-                  <AnimatedPlaceholder show={query.length === 0} wordIdx={wordIdx} className="text-sm" />
+                <div className="relative flex-1 min-w-0 h-full">
+                  {query.length === 0 && (
+                    <div className="absolute inset-0 flex items-center">
+                      <AnimatedPlaceholder show wordIdx={wordIdx} className="text-sm" />
+                    </div>
+                  )}
                   <input
                     ref={mobileInputRef}
                     type="text"
                     value={query}
                     onChange={e => handleChange(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="absolute inset-0 bg-transparent text-white text-sm w-full h-full !border-0 !outline-none !ring-0 !shadow-none"
+                    className="relative w-full h-full bg-transparent text-white text-sm !border-0 !outline-none !ring-0 !shadow-none"
                     style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
                     maxLength={44}
                   />
