@@ -37,7 +37,7 @@ interface Achievement {
 }
 
 export default function PointsPage() {
-  const { publicKey, connect } = useWallet()
+  const { publicKey, connect, discordLinked } = useWallet()
   const [achievements, setAchievements] = useState<Achievement[]>([])
   const [achLoaded, setAchLoaded] = useState(false)
   const [countdown, setCountdown] = useState('')
@@ -113,6 +113,23 @@ export default function PointsPage() {
                   )}
                 </p>
               </div>
+
+              {/* ── Discord link banner ──────────────────────── */}
+              {publicKey && discordLinked === false && (
+                <a
+                  href={`/api/discord/link?wallet=${publicKey}`}
+                  className="flex items-center gap-3 mb-6 px-4 py-3 rounded-xl border border-yellow-500/30 bg-yellow-500/[0.06] hover:border-yellow-500/50 transition-colors"
+                >
+                  <span className="text-lg">⚠️</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-yellow-400">Link your Discord to earn points</p>
+                    <p className="text-xs text-neutral-400">Points won&apos;t count toward the leaderboard until Discord is linked.</p>
+                  </div>
+                  <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </a>
+              )}
 
               {/* ── Featured: Free markets ───────────────────── */}
               <Link
