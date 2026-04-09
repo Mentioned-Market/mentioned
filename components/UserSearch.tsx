@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 
 interface UserResult {
@@ -155,6 +156,7 @@ export default function UserSearch() {
   const [wordIdx, setWordIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const mobileRef = useRef<HTMLDivElement>(null)
+  const mobileOverlayRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const mobileInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -251,6 +253,7 @@ export default function UserSearch() {
       const target = e.target as Node
       if (containerRef.current?.contains(target)) return
       if (mobileRef.current?.contains(target)) return
+      if (mobileOverlayRef.current?.contains(target)) return
       close()
     }
     raf = requestAnimationFrame(() => {
@@ -301,8 +304,8 @@ export default function UserSearch() {
                 value={query}
                 onChange={e => handleChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="relative w-full h-full bg-transparent text-white text-xs !border-0 !outline-none !ring-0 !shadow-none"
-                style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
+                className="relative w-full h-full bg-transparent text-white text-xs"
+                style={{ border: 'none', outline: 'none', boxShadow: 'none', WebkitAppearance: 'none', caretColor: query.length === 0 ? 'transparent' : undefined }}
                 maxLength={44}
               />
             </div>
@@ -317,7 +320,7 @@ export default function UserSearch() {
         )}
       </div>
 
-      {/* ── Mobile: search icon + overlay ── */}
+      {/* ── Mobile: search icon + portal overlay ── */}
       <div ref={mobileRef} className="md:hidden">
         <button
           onClick={() => setMobileOpen(true)}
@@ -326,44 +329,46 @@ export default function UserSearch() {
         >
           <SearchIcon className="w-4 h-4" />
         </button>
-
-        {mobileOpen && (
-          <div className="fixed inset-x-0 top-0 z-[60] bg-black/95 backdrop-blur-sm px-4 pt-3 pb-2 border-b border-white/10 animate-fade-in">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]">
-                <SearchIcon className="w-4 h-4 text-neutral-500 flex-shrink-0" />
-                <div className="relative flex-1 min-w-0 h-full">
-                  {query.length === 0 && (
-                    <div className="absolute inset-0 flex items-center">
-                      <AnimatedPlaceholder show wordIdx={wordIdx} className="text-sm" />
-                    </div>
-                  )}
-                  <input
-                    ref={mobileInputRef}
-                    type="text"
-                    value={query}
-                    onChange={e => handleChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="relative w-full h-full bg-transparent text-white text-sm !border-0 !outline-none !ring-0 !shadow-none"
-                    style={{ caretColor: query.length === 0 ? 'transparent' : undefined }}
-                    maxLength={44}
-                  />
-                </div>
-                {loading && <Spinner />}
-              </div>
-              <button onClick={close} className="text-neutral-400 text-sm font-medium px-2 py-1">
-                Cancel
-              </button>
-            </div>
-
-            {showDropdown && (
-              <div className="mt-2 bg-neutral-900 rounded-xl overflow-hidden border border-white/10 max-h-[60vh] overflow-y-auto">
-                <DropdownContent users={users} markets={markets} activeIdx={activeIdx} onNavigateUser={navigateUser} onNavigateMarket={navigateMarket} onHover={setActiveIdx} />
-              </div>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Portal the mobile overlay to document.body so it's not clipped by overflow-hidden ancestors */}
+      {mobileOpen && typeof document !== 'undefined' && createPortal(
+        <div ref={mobileOverlayRef} className="fixed inset-x-0 top-0 z-[9999] bg-black/95 backdrop-blur-sm px-4 pt-3 pb-2 border-b border-white/10" style={{ animation: 'fadeIn 150ms ease-out' }}>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-1 h-10 rounded-lg px-3 bg-white/[0.08] border border-white/[0.15]">
+              <SearchIcon className="w-4 h-4 text-neutral-500 flex-shrink-0" />
+              <div className="relative flex-1 min-w-0 h-full">
+                {query.length === 0 && (
+                  <div className="absolute inset-0 flex items-center">
+                    <AnimatedPlaceholder show wordIdx={wordIdx} className="text-sm" />
+                  </div>
+                )}
+                <input
+                  ref={mobileInputRef}
+                  type="text"
+                  value={query}
+                  onChange={e => handleChange(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="relative w-full h-full bg-transparent text-white text-sm"
+                  style={{ border: 'none', outline: 'none', boxShadow: 'none', WebkitAppearance: 'none', caretColor: query.length === 0 ? 'transparent' : undefined }}
+                  maxLength={44}
+                />
+              </div>
+              {loading && <Spinner />}
+            </div>
+            <button onClick={close} className="text-neutral-400 text-sm font-medium px-2 py-1">
+              Cancel
+            </button>
+          </div>
+
+          {showDropdown && (
+            <div className="mt-2 bg-neutral-900 rounded-xl overflow-hidden border border-white/10 max-h-[60vh] overflow-y-auto">
+              <DropdownContent users={users} markets={markets} activeIdx={activeIdx} onNavigateUser={navigateUser} onNavigateMarket={navigateMarket} onHover={setActiveIdx} />
+            </div>
+          )}
+        </div>,
+        document.body,
+      )}
     </>
   )
 }
