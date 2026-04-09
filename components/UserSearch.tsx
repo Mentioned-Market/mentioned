@@ -161,7 +161,7 @@ export default function UserSearch() {
 
   // Cycle placeholder word
   useEffect(() => {
-    const id = setInterval(() => setWordIdx(i => (i + 1) % CYCLING_WORDS.length), 3000)
+    const id = setInterval(() => setWordIdx(i => (i + 1) % CYCLING_WORDS.length), 2000)
     return () => clearInterval(id)
   }, [])
 
