@@ -37,11 +37,17 @@ interface Achievement {
 }
 
 export default function PointsPage() {
-  const { publicKey, connect } = useWallet()
+  const { publicKey, connect, discordLinked } = useWallet()
   const [achievements, setAchievements] = useState<Achievement[]>([])
   const [achLoaded, setAchLoaded] = useState(false)
   const [countdown, setCountdown] = useState('')
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+
+  // Referral state
+  const [referralCode, setReferralCode] = useState<string | null>(null)
+  const [referralCount, setReferralCount] = useState(0)
+  const [bonusPointsEarned, setBonusPointsEarned] = useState(0)
+  const [referralCopied, setReferralCopied] = useState(false)
 
   // Live countdown to weekly reset
   useEffect(() => {
@@ -55,6 +61,9 @@ export default function PointsPage() {
     if (!publicKey) {
       setAchievements([])
       setAchLoaded(false)
+      setReferralCode(null)
+      setReferralCount(0)
+      setBonusPointsEarned(0)
       return
     }
     fetch(`/api/achievements?wallet=${publicKey}`)
@@ -64,6 +73,15 @@ export default function PointsPage() {
         setAchLoaded(true)
       })
       .catch(() => setAchLoaded(true))
+
+    fetch(`/api/referral?wallet=${publicKey}`)
+      .then(r => r.json())
+      .then(data => {
+        setReferralCode(data.referralCode ?? null)
+        setReferralCount(data.referralCount ?? 0)
+        setBonusPointsEarned(data.bonusPointsEarned ?? 0)
+      })
+      .catch(() => {})
   }, [publicKey])
 
   // Separate daily login tiers from action achievements
@@ -95,6 +113,43 @@ export default function PointsPage() {
                   )}
                 </p>
               </div>
+
+              {/* ── Login CTA ──────────────────────────────── */}
+              {!publicKey && (
+                <button
+                  onClick={connect}
+                  className="group w-full mb-6 rounded-2xl border border-[#F2B71F]/30 bg-gradient-to-br from-[#F2B71F]/[0.10] via-[#F2B71F]/[0.03] to-transparent hover:border-[#F2B71F]/50 transition-colors overflow-hidden"
+                >
+                  <div className="px-5 md:px-6 py-6 flex items-center justify-between gap-4">
+                    <div className="text-left">
+                      <p className="text-xl md:text-2xl font-bold text-white">Log in to start earning</p>
+                      <p className="text-sm text-neutral-400 mt-1.5">Trade, chat, complete achievements — earn points and win weekly USDC prizes.</p>
+                    </div>
+                    <div className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-xl bg-[#F2B71F] group-hover:scale-105 transition-transform">
+                      <svg className="w-5 h-5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {/* ── Discord link banner ──────────────────────── */}
+              {publicKey && discordLinked === false && (
+                <a
+                  href={`/api/discord/link?wallet=${publicKey}`}
+                  className="flex items-center gap-3 mb-6 px-4 py-3 rounded-xl border border-yellow-500/30 bg-yellow-500/[0.06] hover:border-yellow-500/50 transition-colors"
+                >
+                  <span className="text-lg">⚠️</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-yellow-400">Link your Discord to earn points</p>
+                    <p className="text-xs text-neutral-400">Points won&apos;t count toward the leaderboard until Discord is linked.</p>
+                  </div>
+                  <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </a>
+              )}
 
               {/* ── Featured: Free markets ───────────────────── */}
               <Link
@@ -241,6 +296,54 @@ export default function PointsPage() {
                   )}
                 </div>
               </div>
+
+              {/* ── Refer Friends ──────────────────────────────── */}
+              {publicKey && referralCode && (
+                <div className="rounded-2xl border border-[#F2B71F]/30 bg-gradient-to-br from-[#F2B71F]/[0.06] via-transparent to-transparent overflow-hidden mb-10">
+                  <div className="px-5 md:px-6 py-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">🤝</span>
+                      <h2 className="text-lg md:text-xl font-bold text-white">Refer Friends</h2>
+                    </div>
+                    <p className="text-sm text-neutral-400 mb-4">You both earn 10% of each other&apos;s points</p>
+
+                    {/* Copy link */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5">
+                        <p className="text-xs text-neutral-300 font-mono truncate">mentioned.market/ref/{referralCode}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`https://www.mentioned.market/ref/${referralCode}`)
+                          setReferralCopied(true)
+                          setTimeout(() => setReferralCopied(false), 2000)
+                        }}
+                        className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                          referralCopied
+                            ? 'bg-apple-green/20 text-apple-green border border-apple-green/30'
+                            : 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
+                        }`}
+                      >
+                        {referralCopied ? 'Copied!' : 'Copy link'}
+                      </button>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="flex items-center gap-6 mt-4">
+                      <div>
+                        <p className="text-[11px] text-neutral-500 uppercase tracking-wide">Referrals</p>
+                        <p className={`text-xl font-bold tabular-nums ${referralCount > 0 ? 'text-white' : 'text-neutral-600'}`}>{referralCount}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-neutral-500 uppercase tracking-wide">Bonus points</p>
+                        <p className={`text-xl font-bold tabular-nums ${bonusPointsEarned > 0 ? 'text-apple-green' : 'text-neutral-600'}`}>
+                          {bonusPointsEarned > 0 ? `+${bonusPointsEarned.toLocaleString()}` : '0'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ── CTA ───────────────────────────────────────── */}
               <div className="flex flex-col sm:flex-row gap-3">
