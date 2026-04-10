@@ -8,6 +8,23 @@ import Image from 'next/image'
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 
+function isDismissedCookie(publicKey: string | null) {
+  if (!publicKey || typeof document === 'undefined') return false
+  return document.cookie.split('; ').some(c => c === `username_modal_dismissed=${publicKey}`)
+}
+
+/** Verify the session cookie is established for the expected wallet. */
+function sessionMatchesWallet(publicKey: string | null) {
+  if (!publicKey || typeof document === 'undefined') return false
+  const match = document.cookie.split('; ').find(c => c.startsWith('session_wallet='))
+  const sessionWallet = match?.split('=')[1]
+  return sessionWallet === publicKey
+}
+
+function setDismissedCookie(publicKey: string) {
+  document.cookie = `username_modal_dismissed=${publicKey}; max-age=${30 * 24 * 60 * 60}; path=/; SameSite=Lax`
+}
+
 export default function UsernameModal() {
   const { authenticated, username, profileLoading, refreshProfile, setCachedUsername, publicKey } = useWallet()
   const { showAchievementToast } = useAchievements()
@@ -21,11 +38,20 @@ export default function UsernameModal() {
   useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
-    if (authenticated && username === null && !profileLoading) {
+    if (!mounted) return
+    if (
+      authenticated &&
+      username === null &&
+      !profileLoading &&
+      !isDismissedCookie(publicKey) &&
+      sessionMatchesWallet(publicKey)
+    ) {
       setVisible(true)
       setFadeOut(false)
+    } else if (username !== null || !authenticated) {
+      setVisible(false)
     }
-  }, [authenticated, username, profileLoading])
+  }, [authenticated, username, profileLoading, mounted, publicKey])
 
   function close() {
     setFadeOut(true)
@@ -35,8 +61,13 @@ export default function UsernameModal() {
     }, 300)
   }
 
+  function dismiss() {
+    if (publicKey) setDismissedCookie(publicKey)
+    close()
+  }
+
   async function handleSave() {
-    if (!publicKey) return
+    if (!publicKey || !sessionMatchesWallet(publicKey)) return
     const trimmed = usernameInput.trim()
     if (!USERNAME_RE.test(trimmed)) {
       setError('3-20 characters, letters/numbers/underscores only')
@@ -58,8 +89,6 @@ export default function UsernameModal() {
       if (data.newAchievements?.length) {
         for (const ach of data.newAchievements) showAchievementToast(ach)
       }
-      // Immediately update WalletContext username so the visibility effect
-      // won't reopen the modal if refreshProfile returns null (timing/race).
       setCachedUsername(trimmed)
       refreshProfile()
       close()
@@ -90,7 +119,16 @@ export default function UsernameModal() {
       >
         <div className="px-8 pt-8 pb-7 space-y-6">
           {/* Header */}
-          <div className="text-center space-y-3">
+          <div className="relative text-center space-y-3">
+            <button
+              onClick={dismiss}
+              aria-label="Close"
+              className="absolute -top-1 -right-2 p-1.5 text-neutral-500 hover:text-white transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
             <div className="flex justify-center">
               <Image src="/src/img/White Logo.svg" alt="Mentioned" width={140} height={23} className="h-6 w-auto" />
             </div>
