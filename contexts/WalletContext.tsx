@@ -581,15 +581,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           // Retry up to 3 times — embedded wallet may lag Privy's REST API on first login.
           const token = await getAccessToken()
           if (!token) throw new Error('No Privy access token')
+          // Capture the pubkey we're signing in for at this moment.
+          // pubkey in state may change during async retries (Privy re-renders)
+          // so we use a local const and verify the server confirms the same wallet.
+          const signingForWallet = pubkey
           let lastStatus = 0
           for (let attempt = 0; attempt < 3; attempt++) {
             const res = await fetch('/api/auth/sign-in', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'privy', token, wallet: pubkey }),
+              body: JSON.stringify({ type: 'privy', token, wallet: signingForWallet }),
             })
             lastStatus = res.status
-            if (res.ok) { setAuthenticated(true); break }
+            if (res.ok) {
+              const data = await res.json()
+              // Verify the server established the session for the wallet we expect.
+              // If pubkey drifted during the async call, do not mark as authenticated.
+              if (data.wallet !== signingForWallet) {
+                console.error(`Session wallet mismatch: expected ${signingForWallet}, got ${data.wallet}`)
+                throw new Error('Session wallet mismatch')
+              }
+              setAuthenticated(true)
+              break
+            }
             if (res.status !== 401) break // non-retriable error
             if (attempt < 2) await new Promise(r => setTimeout(r, 2000))
           }
@@ -602,6 +616,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           }
           const account = wallet.accounts[0]
           if (!account) throw new Error('No wallet account')
+
+          // Capture wallet address before async signing — protects against
+          // pubkey state changing if the user switches accounts mid-flight.
+          const signingForWallet = pubkey
 
           const timestamp = Math.floor(Date.now() / 1000)
           const message = `Sign in to Mentioned\nTimestamp: ${timestamp}`
@@ -623,12 +641,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               type: 'phantom',
-              wallet: pubkey,
+              wallet: signingForWallet,
               signature: signatureBase64,
               message,
             }),
           })
           if (!res.ok) throw new Error('Phantom sign-in failed')
+          const data = await res.json()
+          if (data.wallet !== signingForWallet) {
+            console.error(`Session wallet mismatch: expected ${signingForWallet}, got ${data.wallet}`)
+            throw new Error('Session wallet mismatch')
+          }
           setAuthenticated(true)
         }
       } catch (err) {
