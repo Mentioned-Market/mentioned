@@ -613,9 +613,10 @@ export default function ProfilePage() {
         .then(r => r.json())
         .then(d => setDiscordUsername(d.discordUsername ?? null))
         .catch(() => {})
+      refreshProfile()
     }
     setTimeout(() => setDiscordStatus(null), 5000)
-  }, [pendingDiscordStatus, publicKey, profile])
+  }, [pendingDiscordStatus, publicKey, profile, refreshProfile])
 
   // ── Close PFP picker on outside click ─────────────────
   useEffect(() => {
