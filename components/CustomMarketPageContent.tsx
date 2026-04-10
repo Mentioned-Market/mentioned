@@ -172,7 +172,7 @@ function HowItWorks({ onRerunTutorial, upward, compact }: { onRerunTutorial?: ()
           </button>
         </div>
         <div className="space-y-3 text-xs text-neutral-400 leading-relaxed">
-          <p>You get <span className="text-[#F2B71F] font-semibold">free play tokens</span> — no real money involved.</p>
+          <p>You get <span className="text-[#F2B71F] font-semibold">500 free play tokens</span> for each market. No real money involved.</p>
           <p>Pick <span className="text-apple-green font-semibold">YES</span> or <span className="text-apple-red font-semibold">NO</span> on whether a word will be said. Prices shift as more people trade.</p>
           <p>If you&apos;re right, each share pays out <span className="text-white font-semibold">1 token</span>. Wrong shares pay <span className="text-neutral-300 font-semibold">nothing</span>.</p>
           <p>Every token of profit earns <span className="text-apple-blue font-semibold">0.5 platform points</span> toward the weekly leaderboard.</p>
@@ -636,15 +636,39 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="text-sm text-neutral-400 font-medium">
-              {tradeMode === 'buy' ? 'Amount (Tokens)' : 'Shares to sell'}
+              {tradeMode === 'buy' ? 'Tokens to spend' : 'Shares to sell'}
             </span>
             <HowItWorks compact upward onRerunTutorial={() => {
               document.cookie = 'mentioned_free_tutorial_seen=; Max-Age=0; path=/'
               setShowTutorial(true)
             }} />
           </div>
-          {connected && tradeMode === 'buy' && (
-            <span className="text-xs text-neutral-500">{Math.floor(balance)} left</span>
+          {connected && (
+            <div className="text-right">
+              {tradeMode === 'buy' ? (
+                <>
+                  <span className={`text-xs font-medium transition-colors ${preview && amountNum > 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                    {preview && amountNum > 0
+                      ? `${Math.floor(balance - preview.cost)} tokens`
+                      : `${Math.floor(balance)} tokens`}
+                  </span>
+                  <span className="block text-[10px] text-neutral-600">
+                    {preview && amountNum > 0 ? `spending ${Math.ceil(preview.cost)} on this market` : 'left to spend on this market'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className={`text-xs font-medium transition-colors ${preview && amountNum > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
+                    {preview && amountNum > 0
+                      ? `+${preview.cost.toFixed(1)} tokens`
+                      : 'sell to receive tokens'}
+                  </span>
+                  {preview && amountNum > 0 && (
+                    <span className="block text-[10px] text-neutral-600">plus points on profit</span>
+                  )}
+                </>
+              )}
+            </div>
           )}
         </div>
         <input
