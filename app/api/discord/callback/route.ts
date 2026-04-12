@@ -1,11 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, getProfile, backfillAchievementPoints } from '@/lib/db'
+import { NextRequest } from 'next/server'
+import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, backfillAchievementPoints } from '@/lib/db'
 import { verifyDiscordState } from '@/lib/walletAuth'
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET!
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mentioned.market'
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID
+
+function popupResponse(status: 'linked' | 'error' | 'cancelled' | 'already_linked') {
+  const messages: Record<string, { emoji: string; title: string; sub: string }> = {
+    linked: { emoji: '✅', title: 'Discord linked!', sub: 'You can close this tab.' },
+    error: { emoji: '❌', title: 'Something went wrong', sub: 'Please close this tab and try again.' },
+    cancelled: { emoji: '↩️', title: 'Linking cancelled', sub: 'You can close this tab.' },
+    already_linked: { emoji: '⚠️', title: 'Already linked', sub: 'This Discord account is linked to another wallet.' },
+  }
+  const { emoji, title, sub } = messages[status]
+  const html = `<!DOCTYPE html><html><head><title>Discord</title>
+<style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;font-family:-apple-system,sans-serif;color:#fff;}
+.box{text-align:center;padding:2rem;}.emoji{font-size:3rem;margin-bottom:1rem;}.title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;}.sub{font-size:.85rem;color:#737373;}</style>
+</head><body><div class="box"><div class="emoji">${emoji}</div><div class="title">${title}</div><div class="sub">${sub}</div></div>
+<script>
+  try { window.opener && window.opener.postMessage({ type: 'discord_callback', status: '${status}' }, '*'); } catch(e) {}
+  setTimeout(function(){ window.close(); }, 1500);
+</script></body></html>`
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+}
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
@@ -14,18 +32,24 @@ export async function GET(req: NextRequest) {
 
   // User denied the OAuth prompt
   if (error) {
-    return NextResponse.redirect(`${BASE_URL}/?discord=cancelled`)
+    return popupResponse('cancelled')
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${BASE_URL}/?discord=error`)
+    return popupResponse('error')
   }
 
   // Verify signed state to get wallet
   const wallet = verifyDiscordState(state)
   if (!wallet) {
-    return NextResponse.redirect(`${BASE_URL}/?discord=error`)
+    return popupResponse('error')
   }
+
+  // Derive the redirect_uri from the actual request URL so it always matches
+  // what was sent to Discord during authorization, regardless of env config.
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'www.mentioned.market'
+  const proto = req.headers.get('x-forwarded-proto') || 'https'
+  const selfRedirectUri = `${proto}://${host}/api/discord/callback`
 
   try {
     // Exchange code for access token
@@ -38,13 +62,13 @@ export async function GET(req: NextRequest) {
         client_secret: DISCORD_CLIENT_SECRET,
         grant_type: 'authorization_code',
         code,
-        redirect_uri: `${BASE_URL}/api/discord/callback`,
+        redirect_uri: selfRedirectUri,
       }),
     })
 
     if (!tokenRes.ok) {
       console.error('Discord token exchange failed:', await tokenRes.text())
-      return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)
+      return popupResponse('error')
     }
 
     const tokenData = await tokenRes.json()
@@ -58,7 +82,7 @@ export async function GET(req: NextRequest) {
 
     if (!userRes.ok) {
       console.error('Discord user fetch failed:', await userRes.text())
-      return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)
+      return popupResponse('error')
     }
 
     const discordUser = await userRes.json()
@@ -68,7 +92,7 @@ export async function GET(req: NextRequest) {
     // Check if this Discord account is already linked to another wallet
     const existingWallet = await getWalletByDiscordId(discordId)
     if (existingWallet && existingWallet !== wallet) {
-      return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=already_linked`)
+      return popupResponse('already_linked')
     }
 
     // Link Discord to wallet
@@ -123,18 +147,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const html = `<!DOCTYPE html><html><head><title>Discord Linked</title>
-<style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;font-family:-apple-system,sans-serif;color:#fff;}
-.box{text-align:center;padding:2rem;}.emoji{font-size:3rem;margin-bottom:1rem;}.title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;}.sub{font-size:.85rem;color:#737373;}</style>
-</head><body><div class="box"><div class="emoji">✅</div><div class="title">Discord linked!</div><div class="sub">You can close this tab.</div></div>
-<script>
-  try { window.opener && window.opener.postMessage({ type: 'discord_linked' }, '*'); } catch(e) {}
-  setTimeout(function(){ window.close(); }, 1500);
-</script></body></html>`
-
-    const response = new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    })
+    const response = popupResponse('linked')
     // Clear referral cookie after applying
     if (refCode) {
       response.headers.append('Set-Cookie', 'ref=; Max-Age=0; Path=/')
@@ -142,6 +155,6 @@ export async function GET(req: NextRequest) {
     return response
   } catch (err) {
     console.error('Discord OAuth error:', err)
-    return NextResponse.redirect(`${BASE_URL}/profile/${wallet}?discord=error`)
+    return popupResponse('error')
   }
 }
