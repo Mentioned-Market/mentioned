@@ -12,7 +12,7 @@ import { useState, useRef, useEffect } from 'react'
 import UserSearch from '@/components/UserSearch'
 
 export default function Header() {
-  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType, connecting } = useWallet()
+  const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType, connecting, refreshProfile } = useWallet()
   const { showAchievementToast } = useAchievements()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -52,6 +52,20 @@ export default function Header() {
   }, [dropdownOpen, mobileMenuOpen, showDiscordTooltip])
 
   // Track daily visit once per session when wallet connects
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'discord_callback' && e.data?.status === 'linked') {
+        refreshProfile()
+        setShowDiscordTooltip(false)
+      } else if (e.data?.type === 'discord_linked') {
+        refreshProfile()
+        setShowDiscordTooltip(false)
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [refreshProfile])
+
   useEffect(() => {
     if (!connected || !publicKey || visitTrackedRef.current) return
     visitTrackedRef.current = true
@@ -116,15 +130,15 @@ export default function Header() {
                 <div className="absolute right-0 mt-2 w-64 bg-neutral-900 border border-yellow-500/40 rounded-xl p-3 z-50 shadow-card-hover animate-scale-in">
                   <p className="text-yellow-400 text-xs font-semibold mb-1">Discord not linked</p>
                   <p className="text-neutral-300 text-xs leading-relaxed">You won&apos;t earn points on the leaderboard until you link your Discord account.</p>
-                  <a
-                    href={`/api/discord/link?wallet=${publicKey}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => setShowDiscordTooltip(false)}
-                    className="mt-2 block text-center text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors duration-200"
+                  <button
+                    onClick={() => {
+                      setShowDiscordTooltip(false)
+                      window.open(`/api/discord/link?wallet=${publicKey}`, '_blank', 'width=500,height=700')
+                    }}
+                    className="mt-2 block w-full text-center text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors duration-200"
                   >
                     Link Discord
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
