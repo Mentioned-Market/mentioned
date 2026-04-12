@@ -618,6 +618,38 @@ export default function ProfilePage() {
     setTimeout(() => setDiscordStatus(null), 5000)
   }, [pendingDiscordStatus, publicKey, profile, refreshProfile])
 
+  // ── Listen for discord_callback postMessage from popup ──
+  useEffect(() => {
+    if (!isOwnProfile || !publicKey) return
+    const messages: Record<string, string> = {
+      linked: 'Discord linked successfully!',
+      already_linked: 'This Discord account is already linked to another wallet.',
+      error: 'Failed to link Discord. Please try again.',
+      cancelled: 'Discord linking was cancelled.',
+    }
+    const handler = (e: MessageEvent) => {
+      // Support both new format { type: 'discord_callback', status } and legacy { type: 'discord_linked' }
+      let status: string | null = null
+      if (e.data?.type === 'discord_callback') {
+        status = e.data.status ?? 'error'
+      } else if (e.data?.type === 'discord_linked') {
+        status = 'linked'
+      }
+      if (!status) return
+      setDiscordStatus(messages[status] ?? null)
+      setTimeout(() => setDiscordStatus(null), 5000)
+      if (status === 'linked') {
+        fetch(`/api/profile?wallet=${publicKey}`)
+          .then(r => r.json())
+          .then(d => setDiscordUsername(d.discordUsername ?? null))
+          .catch(() => {})
+        refreshProfile()
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [isOwnProfile, publicKey, refreshProfile])
+
   // ── Close PFP picker on outside click ─────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -1326,15 +1358,13 @@ export default function ProfilePage() {
             {/* Discord — left half */}
             <div className="flex-1 min-w-0">
               {!discordUsername ? (
-                <a
-                  href={`/api/discord/link?wallet=${publicKey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-colors h-full"
+                <button
+                  onClick={() => window.open(`/api/discord/link?wallet=${publicKey}`, '_blank', 'width=500,height=700')}
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-colors h-full w-full"
                 >
                   <DiscordIcon className="w-4 h-4 text-amber-400 flex-shrink-0" />
                   <span className="text-amber-400 font-semibold text-sm truncate">Link Discord to earn points</span>
-                </a>
+                </button>
               ) : (
                 <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20 h-full">
                   <div className="flex items-center gap-2 min-w-0">

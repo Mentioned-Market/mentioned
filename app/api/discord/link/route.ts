@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { signDiscordState, getVerifiedWallet } from '@/lib/walletAuth'
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mentioned.market'
+const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || 'https://www.mentioned.market/api/discord/callback'
 
 export async function GET(req: NextRequest) {
   // Prefer session cookie; fall back to ?wallet= query param for clients without a session
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   }
 
   const state = signDiscordState(wallet)
-  const redirectUri = `${BASE_URL}/api/discord/callback`
+  const redirectUri = DISCORD_REDIRECT_URI
 
   const params = new URLSearchParams({
     client_id: DISCORD_CLIENT_ID,
