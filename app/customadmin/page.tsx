@@ -356,53 +356,86 @@ export default function CustomAdminPage() {
           )}
 
           {/* Create Market Form */}
-          <div className="glass rounded-xl p-5 mb-8">
-            <h2 className="text-sm font-semibold text-neutral-300 uppercase tracking-wider mb-4">
+          <div className="glass rounded-xl p-5 md:p-6 mb-8">
+            <h2 className="text-sm font-semibold text-neutral-300 uppercase tracking-wider mb-5">
               Create Market
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-              <input
-                type="text"
-                placeholder="Title *"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Title <span className="text-apple-red">*</span></label>
                 <input
                   type="text"
-                  placeholder="URL Prefix (e.g. TRUMP)"
+                  placeholder="e.g. What will @WhiteHouse tweet this week?"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">URL Prefix <span className="text-apple-red">*</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. WHITEHOUSE"
                   value={urlPrefix}
                   onChange={e => setUrlPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20 uppercase"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 uppercase"
                 />
                 <p className="text-[10px] text-neutral-600 mt-1 px-1">
                   URL will be /free/{urlPrefix || 'PREFIX'}-xxxxxx
                 </p>
               </div>
-              <input
-                type="text"
-                placeholder="Cover Image URL"
-                value={coverImageUrl}
-                onChange={e => setCoverImageUrl(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Description</label>
+              <textarea
+                placeholder="Optional market description shown to users"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={2}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 resize-none"
               />
-              <input
-                type="text"
-                placeholder="Stream URL"
-                value={streamUrl}
-                onChange={e => setStreamUrl(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-              />
-              <input
-                type="datetime-local"
-                placeholder="Lock Time"
-                value={lockTime}
-                onChange={e => setLockTime(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Cover Image URL</label>
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={coverImageUrl}
+                  onChange={e => setCoverImageUrl(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Stream URL</label>
+                <input
+                  type="text"
+                  placeholder="YouTube or Twitch URL"
+                  value={streamUrl}
+                  onChange={e => setStreamUrl(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Lock Time</label>
+                <input
+                  type="datetime-local"
+                  value={lockTime}
+                  onChange={e => setLockTime(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                />
+                <p className="text-[10px] text-neutral-600 mt-1 px-1">
+                  Trading stops automatically at this time
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Market Type</label>
                 <select
                   value={marketType}
                   onChange={e => setMarketType(e.target.value as 'continuous' | 'event')}
@@ -412,71 +445,68 @@ export default function CustomAdminPage() {
                   <option value="event">Event</option>
                 </select>
                 <p className="text-[10px] text-neutral-600 mt-1 px-1">
-                  Continuous: always live when open (e.g. &quot;What will Trump say this week&quot;). Event: live only after event starts (e.g. PM Questions, live streams).
+                  Continuous: always live when open. Event: live only after event starts.
                 </p>
               </div>
               {marketType === 'event' && (
                 <div>
+                  <label className="block text-xs font-medium text-neutral-400 mb-1.5">Event Start Time</label>
                   <input
                     type="datetime-local"
-                    placeholder="Event Start Time"
                     value={eventStartTime}
                     onChange={e => setEventStartTime(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
                   />
                   <p className="text-[10px] text-neutral-600 mt-1 px-1">
-                    When the event begins. The &quot;Live&quot; tag will appear on the card once this time is reached.
+                    &quot;Live&quot; tag appears on the card after this time
                   </p>
                 </div>
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">b Parameter</label>
                 <input
                   type="number"
-                  placeholder="b Parameter (default: 500)"
+                  placeholder="500"
                   value={bParameter}
                   onChange={e => setBParameter(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
                   min="10"
                   max="10000"
                 />
                 <p className="text-[10px] text-neutral-600 mt-1 px-1">
-                  Price sensitivity. Lower = more volatile. For 10 users: 500. For 50 users: 1500.
+                  Price sensitivity. Lower = more volatile. 10 users: 500, 50 users: 1500
                 </p>
               </div>
               <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Play Tokens</label>
                 <input
                   type="number"
-                  placeholder="Play Tokens (default: 1000)"
+                  placeholder="1000"
                   value={playTokens}
                   onChange={e => setPlayTokens(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
                   min="100"
                   max="10000"
                 />
                 <p className="text-[10px] text-neutral-600 mt-1 px-1">
-                  Starting tokens per user. Higher = more trades possible.
+                  Starting tokens per user. Higher = more trades possible
                 </p>
               </div>
             </div>
 
-            <textarea
-              placeholder="Description"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              rows={2}
-              className="w-full mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20 resize-none"
-            />
-
-            <textarea
-              placeholder="Words (comma or newline separated)"
-              value={wordsInput}
-              onChange={e => setWordsInput(e.target.value)}
-              rows={3}
-              className="w-full mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20 resize-none"
-            />
+            <div className="mb-5">
+              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Words</label>
+              <textarea
+                placeholder="Comma or newline separated, e.g. economy, inflation, jobs"
+                value={wordsInput}
+                onChange={e => setWordsInput(e.target.value)}
+                rows={3}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 resize-none"
+              />
+            </div>
 
             <button
               onClick={handleCreate}
@@ -540,39 +570,51 @@ export default function CustomAdminPage() {
 
                     {/* Expanded detail */}
                     {expandedId === market.id && (
-                      <div className="border-t border-white/5 px-4 py-4 space-y-5 bg-white/[0.01]">
+                      <div className="border-t border-white/5 px-4 py-5 space-y-6 bg-white/[0.01]">
                         {/* Edit fields */}
                         <div>
-                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Edit Market</h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                            <input
-                              type="text"
-                              placeholder="Title"
-                              value={editTitle}
-                              onChange={e => setEditTitle(e.target.value)}
-                              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Cover Image URL"
-                              value={editCoverImageUrl}
-                              onChange={e => setEditCoverImageUrl(e.target.value)}
-                              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Stream URL"
-                              value={editStreamUrl}
-                              onChange={e => setEditStreamUrl(e.target.value)}
-                              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-                            />
-                            <input
-                              type="datetime-local"
-                              value={editLockTime}
-                              onChange={e => setEditLockTime(e.target.value)}
-                              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-                            />
+                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Edit Market</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
+                              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Title</label>
+                              <input
+                                type="text"
+                                value={editTitle}
+                                onChange={e => setEditTitle(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Cover Image URL</label>
+                              <input
+                                type="text"
+                                placeholder="https://..."
+                                value={editCoverImageUrl}
+                                onChange={e => setEditCoverImageUrl(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Stream URL</label>
+                              <input
+                                type="text"
+                                placeholder="YouTube or Twitch URL"
+                                value={editStreamUrl}
+                                onChange={e => setEditStreamUrl(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Lock Time</label>
+                              <input
+                                type="datetime-local"
+                                value={editLockTime}
+                                onChange={e => setEditLockTime(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Market Type</label>
                               <select
                                 value={editMarketType}
                                 onChange={e => setEditMarketType(e.target.value as 'continuous' | 'event')}
@@ -587,25 +629,29 @@ export default function CustomAdminPage() {
                             </div>
                             {editMarketType === 'event' && (
                               <div>
+                                <label className="block text-xs font-medium text-neutral-400 mb-1.5">Event Start Time</label>
                                 <input
                                   type="datetime-local"
                                   value={editEventStartTime}
                                   onChange={e => setEditEventStartTime(e.target.value)}
-                                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
+                                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
                                 />
                                 <p className="text-[10px] text-neutral-600 mt-1 px-1">
-                                  When the event begins. &quot;Live&quot; tag appears after this time.
+                                  &quot;Live&quot; tag appears on the card after this time
                                 </p>
                               </div>
                             )}
                           </div>
-                          <textarea
-                            placeholder="Description"
-                            value={editDescription}
-                            onChange={e => setEditDescription(e.target.value)}
-                            rows={2}
-                            className="w-full mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20 resize-none"
-                          />
+                          <div className="mb-4">
+                            <label className="block text-xs font-medium text-neutral-400 mb-1.5">Description</label>
+                            <textarea
+                              placeholder="Optional market description"
+                              value={editDescription}
+                              onChange={e => setEditDescription(e.target.value)}
+                              rows={2}
+                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 resize-none"
+                            />
+                          </div>
                           <button
                             onClick={() => handleUpdateMarket(market.id)}
                             className="px-4 py-2 bg-apple-blue text-white text-xs font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors"
@@ -615,9 +661,9 @@ export default function CustomAdminPage() {
                         </div>
 
                         {/* Words management */}
-                        <div>
-                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Words</h3>
-                          <div className="flex flex-wrap gap-2 mb-3">
+                        <div className="pt-1 border-t border-white/5">
+                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Words ({market.words.length})</h3>
+                          <div className="flex flex-wrap gap-2 mb-4">
                             {market.words.map(w => (
                               <span
                                 key={w.id}
@@ -625,7 +671,7 @@ export default function CustomAdminPage() {
                               >
                                 {w.word}
                                 {w.resolved_outcome !== null && (
-                                  <span className={w.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}>
+                                  <span className={`text-xs font-semibold ${w.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}`}>
                                     {w.resolved_outcome ? 'YES' : 'NO'}
                                   </span>
                                 )}
@@ -641,36 +687,44 @@ export default function CustomAdminPage() {
                             ))}
                           </div>
                           {market.status === 'draft' && (
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                placeholder="Add words (comma separated)"
-                                value={addWordsInput}
-                                onChange={e => setAddWordsInput(e.target.value)}
-                                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/20"
-                              />
-                              <button
-                                onClick={() => handleAddWords(market.id)}
-                                className="px-4 py-2 bg-white/10 text-white text-xs font-semibold rounded-lg hover:bg-white/15 transition-colors"
-                              >
-                                Add
-                              </button>
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-400 mb-1.5">Add Words</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Comma separated, e.g. economy, inflation"
+                                  value={addWordsInput}
+                                  onChange={e => setAddWordsInput(e.target.value)}
+                                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                />
+                                <button
+                                  onClick={() => handleAddWords(market.id)}
+                                  className="px-4 py-2 bg-white/10 text-white text-xs font-semibold rounded-lg hover:bg-white/15 transition-colors"
+                                >
+                                  Add
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
 
                         {/* Resolution panel (open or locked markets with unresolved words) */}
                         {(market.status === 'open' || market.status === 'locked') && market.words.some(w => w.resolved_outcome === null) && (
-                          <div>
-                            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Resolve Words</h3>
-                            <div className="space-y-2 mb-3">
+                          <div className="pt-1 border-t border-white/5">
+                            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Resolve Words</h3>
+                            <p className="text-[10px] text-neutral-600 mb-4">
+                              {market.status === 'open'
+                                ? 'Resolved words are locked — unresolved words remain tradeable'
+                                : 'Market is locked — resolve remaining words to complete the market'}
+                            </p>
+                            <div className="space-y-2.5 mb-4">
                               {market.words.filter(w => w.resolved_outcome === null).map(w => (
                                 <div key={w.id} className="flex items-center gap-3">
-                                  <span className="text-sm w-32 truncate">{w.word}</span>
-                                  <div className="flex gap-1">
+                                  <span className="text-sm font-medium w-36 truncate" title={w.word}>{w.word}</span>
+                                  <div className="flex gap-1.5">
                                     <button
                                       onClick={() => setResolutions(prev => ({ ...prev, [w.id]: true }))}
-                                      className={`px-3 py-1 text-xs rounded-lg transition-colors ${
+                                      className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                                         resolutions[w.id] === true
                                           ? 'bg-apple-green text-white'
                                           : 'bg-white/5 text-neutral-400 hover:bg-white/10'
@@ -680,7 +734,7 @@ export default function CustomAdminPage() {
                                     </button>
                                     <button
                                       onClick={() => setResolutions(prev => ({ ...prev, [w.id]: false }))}
-                                      className={`px-3 py-1 text-xs rounded-lg transition-colors ${
+                                      className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                                         resolutions[w.id] === false
                                           ? 'bg-apple-red text-white'
                                           : 'bg-white/5 text-neutral-400 hover:bg-white/10'
@@ -716,7 +770,7 @@ export default function CustomAdminPage() {
                         )}
 
                         {/* Status transitions */}
-                        <div>
+                        <div className="pt-1 border-t border-white/5">
                           <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Actions</h3>
                           <div className="flex flex-wrap gap-2">
                             {market.is_featured ? (
