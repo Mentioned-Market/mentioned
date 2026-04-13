@@ -1520,48 +1520,61 @@ export async function resolveMarketAtomic(
   try {
     await client.query('BEGIN')
 
-    // Lock market row and verify status
+    // Lock market row and verify status (allow resolving words while market is open or locked)
     const marketResult = await client.query(
       'SELECT status FROM custom_markets WHERE id = $1 FOR UPDATE',
       [marketId],
     )
     const market = marketResult.rows[0]
-    if (!market || market.status !== 'locked') {
+    if (!market || (market.status !== 'open' && market.status !== 'locked')) {
       await client.query('ROLLBACK')
-      throw new Error('Market must be locked before resolving')
+      throw new Error('Market must be open or locked before resolving')
     }
 
-    // Apply word resolutions
-    const cases: string[] = []
-    const ids: number[] = []
-    const values: (number | boolean)[] = [marketId]
-    let paramIndex = 2
-
-    for (const { wordId, outcome } of resolutions) {
-      cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}::boolean`)
-      values.push(wordId, outcome)
-      ids.push(wordId)
-      paramIndex += 2
-    }
-
-    values.push(...ids)
-    const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
-
-    await client.query(
-      `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders})`,
-      values,
+    // Filter out words that are already resolved (prevent double payouts)
+    const existingWords = await client.query(
+      'SELECT id, resolved_outcome FROM custom_market_words WHERE market_id = $1 AND id IN (' +
+        resolutions.map((_, i) => `$${i + 2}`).join(', ') + ') FOR UPDATE',
+      [marketId, ...resolutions.map(r => r.wordId)],
     )
+    const alreadyResolved = new Set(
+      existingWords.rows.filter((w: any) => w.resolved_outcome !== null).map((w: any) => w.id),
+    )
+    const pending = resolutions.filter(r => !alreadyResolved.has(r.wordId))
 
-    // Apply payouts for each resolved word
-    for (const { wordId, outcome } of resolutions) {
-      const outcomeStr = outcome ? 'YES' : 'NO'
+    // Apply word resolutions (only for words not yet resolved)
+    if (pending.length > 0) {
+      const cases: string[] = []
+      const ids: number[] = []
+      const values: (number | boolean)[] = [marketId]
+      let paramIndex = 2
+
+      for (const { wordId, outcome } of pending) {
+        cases.push(`WHEN id = $${paramIndex} THEN $${paramIndex + 1}::boolean`)
+        values.push(wordId, outcome)
+        ids.push(wordId)
+        paramIndex += 2
+      }
+
+      values.push(...ids)
+      const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
+
       await client.query(
-        `UPDATE custom_market_positions
-         SET tokens_received = tokens_received + CASE WHEN $2 = 'YES' THEN yes_shares ELSE no_shares END,
-             updated_at = NOW()
-         WHERE word_id = $1`,
-        [wordId, outcomeStr],
+        `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders}) AND resolved_outcome IS NULL`,
+        values,
       )
+
+      // Apply payouts only for newly resolved words
+      for (const { wordId, outcome } of pending) {
+        const outcomeStr = outcome ? 'YES' : 'NO'
+        await client.query(
+          `UPDATE custom_market_positions
+           SET tokens_received = tokens_received + CASE WHEN $2 = 'YES' THEN yes_shares ELSE no_shares END,
+               updated_at = NOW()
+           WHERE word_id = $1`,
+          [wordId, outcomeStr],
+        )
+      }
     }
 
     // Check if all words are resolved
@@ -1576,13 +1589,14 @@ export async function resolveMarketAtomic(
     let statusUpdated = false
     if (allResolved) {
       const updateResult = await client.query(
-        `UPDATE custom_markets SET status = 'resolved', updated_at = NOW() WHERE id = $1 AND status = 'locked' RETURNING id`,
+        `UPDATE custom_markets SET status = 'resolved', updated_at = NOW() WHERE id = $1 AND status IN ('open', 'locked') RETURNING id`,
         [marketId],
       )
       statusUpdated = (updateResult.rowCount ?? 0) > 0
     }
 
     await client.query('COMMIT')
+    wordsCache.delete(String(marketId))
     return { words, allResolved, statusUpdated }
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
@@ -1788,7 +1802,15 @@ export async function executeVirtualTrade(
     if (market.lock_time && new Date(market.lock_time) <= new Date()) throw new Error('Market is locked')
     const b = parseFloat(market.b_parameter)
 
-    // 2. Lock pool row
+    // 2. Check word is not already resolved
+    const wordResult = await client.query(
+      'SELECT resolved_outcome FROM custom_market_words WHERE id = $1 AND market_id = $2',
+      [wordId, marketId],
+    )
+    if (!wordResult.rows[0]) throw new Error('Word not found')
+    if (wordResult.rows[0].resolved_outcome !== null) throw new Error('Word is already resolved')
+
+    // 3. Lock pool row
     const poolResult = await client.query(
       'SELECT * FROM custom_market_word_pools WHERE word_id = $1 FOR UPDATE',
       [wordId],
@@ -1799,7 +1821,7 @@ export async function executeVirtualTrade(
     const yesQty = parseFloat(poolRow.yes_qty)
     const noQty = parseFloat(poolRow.no_qty)
 
-    // 3. Get or create balance (lazy creation with FOR UPDATE)
+    // 4. Get or create balance (lazy creation with FOR UPDATE)
     let balanceResult = await client.query(
       'SELECT balance FROM custom_market_balances WHERE market_id = $1 AND wallet = $2 FOR UPDATE',
       [marketId, wallet],
@@ -1812,7 +1834,7 @@ export async function executeVirtualTrade(
     }
     let balance = parseFloat(balanceResult.rows[0].balance)
 
-    // 4. Get current position (or defaults)
+    // 5. Get current position (or defaults)
     const posResult = await client.query(
       'SELECT * FROM custom_market_positions WHERE word_id = $1 AND wallet = $2 FOR UPDATE',
       [wordId, wallet],
@@ -1823,7 +1845,7 @@ export async function executeVirtualTrade(
     let curTokensSpent = pos ? parseFloat(pos.tokens_spent) : 0
     let curTokensReceived = pos ? parseFloat(pos.tokens_received) : 0
 
-    // 5. Compute cost/shares
+    // 6. Compute cost/shares
     let shares: number
     let cost: number
 
