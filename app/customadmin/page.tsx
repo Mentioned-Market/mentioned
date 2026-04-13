@@ -659,12 +659,12 @@ export default function CustomAdminPage() {
                           )}
                         </div>
 
-                        {/* Resolution panel (only when locked) */}
-                        {market.status === 'locked' && (
+                        {/* Resolution panel (open or locked markets with unresolved words) */}
+                        {(market.status === 'open' || market.status === 'locked') && market.words.some(w => w.resolved_outcome === null) && (
                           <div>
                             <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Resolve Words</h3>
                             <div className="space-y-2 mb-3">
-                              {market.words.map(w => (
+                              {market.words.filter(w => w.resolved_outcome === null).map(w => (
                                 <div key={w.id} className="flex items-center gap-3">
                                   <span className="text-sm w-32 truncate">{w.word}</span>
                                   <div className="flex gap-1">
@@ -694,13 +694,13 @@ export default function CustomAdminPage() {
                             </div>
                             <div className="flex gap-2">
                               <button
-                                onClick={() => setAllResolutions(market.words, true)}
+                                onClick={() => setAllResolutions(market.words.filter(w => w.resolved_outcome === null), true)}
                                 className="px-3 py-1.5 text-xs bg-apple-green/20 text-apple-green rounded-lg hover:bg-apple-green/30 transition-colors"
                               >
                                 All YES
                               </button>
                               <button
-                                onClick={() => setAllResolutions(market.words, false)}
+                                onClick={() => setAllResolutions(market.words.filter(w => w.resolved_outcome === null), false)}
                                 className="px-3 py-1.5 text-xs bg-apple-red/20 text-apple-red rounded-lg hover:bg-apple-red/30 transition-colors"
                               >
                                 All NO

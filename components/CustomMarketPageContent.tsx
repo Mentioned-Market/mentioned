@@ -317,7 +317,8 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       setWords(data.words)
       setTraderCount(data.traderCount)
       if (data.words.length > 0 && selectedWordId === null) {
-        setSelectedWordId(data.words[0].id)
+        const firstUnresolved = data.words.find((w: MarketWord) => w.resolved_outcome === null)
+        setSelectedWordId(firstUnresolved ? firstUnresolved.id : data.words[0].id)
       }
     } catch (err: any) {
       setError(err.message)
@@ -345,7 +346,14 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
         setWords(prev => prev.map(w => {
           const updated = data.words.find((d: any) => d.word_id === w.id)
           if (!updated) return w
-          return { ...w, yes_price: updated.yes_price, no_price: updated.no_price, yes_qty: updated.yes_qty, no_qty: updated.no_qty }
+          return {
+            ...w,
+            yes_price: updated.yes_price,
+            no_price: updated.no_price,
+            yes_qty: updated.yes_qty,
+            no_qty: updated.no_qty,
+            ...(updated.resolved_outcome !== undefined ? { resolved_outcome: updated.resolved_outcome } : {}),
+          }
         }))
       }
     } catch { /* ignore */ }
@@ -379,10 +387,20 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
     if (!market || market.status !== 'open') return
     const interval = setInterval(() => {
       fetchPrices()
+      fetchPositions()
       fetchTrades()
     }, 10000)
     return () => clearInterval(interval)
-  }, [market?.status, fetchPrices, fetchTrades])
+  }, [market?.status, fetchPrices, fetchPositions, fetchTrades])
+
+  // If selected word gets resolved, auto-select first unresolved word
+  useEffect(() => {
+    const sel = words.find(w => w.id === selectedWordId)
+    if (sel && sel.resolved_outcome !== null) {
+      const firstUnresolved = words.find(w => w.resolved_outcome === null)
+      if (firstUnresolved) setSelectedWordId(firstUnresolved.id)
+    }
+  }, [words, selectedWordId])
 
   // ── Derived data ────────────────────────────────────
 
@@ -494,6 +512,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   // ── Handlers ────────────────────────────────────────
 
   const handleWordClick = (wordId: number) => {
+    // Don't select resolved words for trading
+    const word = words.find(w => w.id === wordId)
+    if (word?.resolved_outcome !== null) return
     setSelectedWordId(wordId)
     setAmount('')
   }
@@ -521,6 +542,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
   const handleTrade = async () => {
     if (!publicKey || !market || !selectedWord) return
+    if (selectedWord.resolved_outcome !== null) return
     if (amountNum <= 0) return
     if (tradeMode === 'buy' && amountNum < 1) return
     if (discordLinked !== true) return
@@ -815,7 +837,9 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               // Require at least 1 share — anything less is unsellable dust from rounding
               const hasShares = pos.yes_shares >= 1 || pos.no_shares >= 1
               if (!hasShares) return null
-              const isClickable = isOpen && hasShares
+              const posWord = words.find(w => w.id === pos.word_id)
+              const wordResolved = posWord ? posWord.resolved_outcome !== null : false
+              const isClickable = isOpen && hasShares && !wordResolved
               return (
                 <div
                   key={pos.word_id}
@@ -824,7 +848,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-white font-medium text-xs truncate max-w-[140px]">{pos.word}</span>
-                    {market?.status === 'resolved' ? (
+                    {market?.status === 'resolved' || wordResolved ? (
                       <span className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
                         {pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}
                       </span>

@@ -53,7 +53,7 @@ export async function POST(
     })
   } catch (err: any) {
     console.error('Resolve: error during resolution', err)
-    const status = err.message?.includes('must be locked') ? 400 : 500
+    const status = err.message?.includes('must be open or locked') ? 400 : 500
     return NextResponse.json({ error: err.message || 'Failed to resolve' }, { status })
   }
 }
