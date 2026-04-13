@@ -226,6 +226,8 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [chartLoading, setChartLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [streamHidden, setStreamHidden] = useState(false)
+  const [streamHeight, setStreamHeight] = useState<number>(360)
+  const streamPlayerRef = useRef<HTMLDivElement>(null)
 
   // Trading state
   const [selectedWordId, setSelectedWordId] = useState<number | null>(null)
@@ -411,6 +413,17 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const positionMap = new Map(positions.map(p => [p.word_id, p]))
   const selectedPosition = selectedWord ? positionMap.get(selectedWord.id) : undefined
   const streamEmbedUrl = market?.stream_url ? toEmbedUrl(market.stream_url) : null
+
+  // Keep chat height in sync with stream player height
+  useEffect(() => {
+    const el = streamPlayerRef.current
+    if (!el || !streamEmbedUrl || streamHidden) return
+    const obs = new ResizeObserver(([entry]) => {
+      setStreamHeight(entry.contentRect.height)
+    })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [streamEmbedUrl, streamHidden])
 
   const yesCents = selectedWord ? Math.round(selectedWord.yes_price * 100) : 50
   const noCents = selectedWord ? 100 - yesCents : 50
@@ -926,98 +939,100 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 <span className="text-neutral-400">Free Market</span>
               </div>
 
-              {/* Two-column layout — starts right after breadcrumb */}
+              {/* Event Header */}
+              <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
+                  {market.cover_image_url ? (
+                    <img src={market.cover_image_url} alt={market.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start gap-2">
+                    <h1 className="text-lg md:text-xl font-semibold text-white leading-tight flex-1 min-w-0">
+                      {market.title}
+                    </h1>
+                  </div>
+                </div>
+              </div>
+
+              {/* Meta bar */}
+              <div className="flex items-center gap-4 mb-5 text-xs md:text-sm text-neutral-400">
+                <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
+                <span className="text-neutral-700">·</span>
+                <span>{words.length} words</span>
+                <span className="text-neutral-700">·</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                  market.status === 'resolved' ? 'bg-blue-500/15 text-blue-400' :
+                  (market.status === 'locked' || lockTimePassed) ? 'bg-white/10 text-neutral-400' :
+                  'bg-[#F2B71F]/15 text-[#F2B71F]'
+                }`}>
+                  {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
+                </span>
+                {market.lock_time && isOpen && !lockTimePassed && (
+                  <>
+                    <span className="text-neutral-700">·</span>
+                    <span>Locks {formatCloseTime(market.lock_time)}</span>
+                    <span className="text-neutral-700">·</span>
+                    <span>{timeUntil(market.lock_time)} left</span>
+                  </>
+                )}
+              </div>
+
+              {/* Resolved summary */}
+              {market.status === 'resolved' && positions.length > 0 && (
+                <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-neutral-400">Your Result</span>
+                    <div className="text-right">
+                      <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                        {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
+                      </div>
+                      {totalProfit > 0 && (
+                        <div className="text-xs text-neutral-500">
+                          = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stream label row — above both columns so stream + chat start at same point */}
+              {streamEmbedUrl && !streamHidden && (
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                  <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
+                  <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                    Hide stream
+                  </button>
+                </div>
+              )}
+              {streamEmbedUrl && streamHidden && (
+                <button
+                  onClick={() => setStreamHidden(false)}
+                  className="flex items-center gap-2 mb-5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                  <span className="text-xs font-medium text-neutral-300">Show live stream</span>
+                </button>
+              )}
+
+              {/* Two-column layout */}
               <div className="flex gap-6">
                 {/* Left Column */}
                 <div className="flex-1 min-w-0">
 
-                  {/* Event Header */}
-                  <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
-                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
-                      {market.cover_image_url ? (
-                        <img src={market.cover_image_url} alt={market.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start gap-2">
-                        <h1 className="text-lg md:text-xl font-semibold text-white leading-tight flex-1 min-w-0">
-                          {market.title}
-                        </h1>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Meta bar */}
-                  <div className="flex items-center gap-4 mb-5 text-xs md:text-sm text-neutral-400">
-                    <span>{traderCount} trader{traderCount !== 1 ? 's' : ''}</span>
-                    <span className="text-neutral-700">·</span>
-                    <span>{words.length} words</span>
-                    <span className="text-neutral-700">·</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      market.status === 'resolved' ? 'bg-blue-500/15 text-blue-400' :
-                      (market.status === 'locked' || lockTimePassed) ? 'bg-white/10 text-neutral-400' :
-                      'bg-[#F2B71F]/15 text-[#F2B71F]'
-                    }`}>
-                      {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
-                    </span>
-                    {market.lock_time && isOpen && !lockTimePassed && (
-                      <>
-                        <span className="text-neutral-700">·</span>
-                        <span>Locks {formatCloseTime(market.lock_time)}</span>
-                        <span className="text-neutral-700">·</span>
-                        <span>{timeUntil(market.lock_time)} left</span>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Resolved summary */}
-                  {market.status === 'resolved' && positions.length > 0 && (
-                    <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-neutral-400">Your Result</span>
-                        <div className="text-right">
-                          <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
-                            {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
-                          </div>
-                          {totalProfit > 0 && (
-                            <div className="text-xs text-neutral-500">
-                              = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   {/* Stream embed */}
                   {streamEmbedUrl && !streamHidden && (
                     <div className="mb-5">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                          <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
-                        </div>
-                        <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
-                          Hide stream
-                        </button>
-                      </div>
-                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
+                      <div ref={streamPlayerRef} className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
                         <iframe src={streamEmbedUrl} className="absolute inset-0 w-full h-full" allowFullScreen allow="autoplay; encrypted-media" />
                       </div>
                     </div>
                   )}
 
-                  {streamEmbedUrl && streamHidden && (
-                    <button
-                      onClick={() => setStreamHidden(false)}
-                      className="flex items-center gap-2 mb-5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-                    >
-                      <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                      <span className="text-xs font-medium text-neutral-300">Show live stream</span>
-                    </button>
-                  )}
                   {/* Price chart — matches polymarket event chart with legend + timeframes */}
                   {loading || chartLoading ? (
                     <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
@@ -1269,18 +1284,17 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                   <div className="h-20 lg:hidden" />
                 </div>
 
-                {/* Right Column — Trading Panel (desktop) */}
+                {/* Right Column — Chat + Trading Panel (desktop) */}
                 <div className="w-[340px] flex-shrink-0 hidden lg:block">
-                  <div className="sticky top-28">
-                    <div className="glass rounded-2xl p-5" data-tutorial="trading-panel" data-trading-panel>
-                      {tradingPanel}
-                    </div>
-
-                    {streamEmbedUrl && (
-                      <div className="mt-4 h-[400px]">
+                  <div className="sticky top-28 flex flex-col gap-4">
+                    {streamEmbedUrl && !streamHidden && (
+                      <div style={{ height: streamHeight }}>
                         <EventChat eventId={`custom_${marketId}`} marketIds={[]} />
                       </div>
                     )}
+                    <div className="glass rounded-2xl p-5" data-tutorial="trading-panel" data-trading-panel>
+                      {tradingPanel}
+                    </div>
                   </div>
                 </div>
               </div>
