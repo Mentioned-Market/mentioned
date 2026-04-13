@@ -6,7 +6,7 @@ import { checkSlurs } from '@/lib/chatFilter'
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const MAX_LENGTH = 200
-const RATE_LIMIT_MS = 500
+const RATE_LIMIT_MS = 5000
 const lastSent = new Map<string, number>()
 
 setInterval(() => {
