@@ -39,6 +39,11 @@ function formatCloseTime(isoTime: string): string {
   return `${hours}h ${minutes}m`
 }
 
+function formatEventTime(isoTime: string): string {
+  const d = new Date(isoTime)
+  return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+}
+
 const VISIBLE_COUNT = 5
 
 function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; marketUrl: string }) {
@@ -167,11 +172,18 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
       </Link>
 
       <div className="p-4 flex flex-col gap-3">
-        <Link href={url}>
-          <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem] hover:text-neutral-200 transition-colors">
-            {market.title}
-          </h3>
-        </Link>
+        <div>
+          <Link href={url}>
+            <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem] hover:text-neutral-200 transition-colors">
+              {market.title}
+            </h3>
+          </Link>
+          {market.market_type === 'event' && market.event_start_time && (
+            <p className="text-[11px] text-neutral-500 mt-1">
+              {formatEventTime(market.event_start_time)}
+            </p>
+          )}
+        </div>
 
         {/* Scrolling word sentiment list */}
         {market.words_prices.length > 0 && (
