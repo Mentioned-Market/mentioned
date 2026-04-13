@@ -308,8 +308,7 @@ function HowToEarnCard() {
     { emoji: '🎯', label: 'Place a trade', pts: '+10' },
     { emoji: '🏆', label: 'Win a trade', pts: '+50' },
     { emoji: '💬', label: 'Chat message', pts: '+2' },
-    { emoji: '🎮', label: 'Free market trade', pts: '+10' },
-    { emoji: '🤝', label: 'Refer a friend', pts: '+150' },
+{ emoji: '🤝', label: 'Refer a friend', pts: '+150' },
   ]
 
   return (
