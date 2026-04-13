@@ -903,7 +903,7 @@ export default function PolymarketEventPage() {
                     <span>{timeUntil(event.metadata.closeTime)} left</span>
                   </div>
 
-                  {/* Stream + Event Chat */}
+                  {/* Live Stream */}
                   {streamEmbedUrl && !streamHidden && (
                     <div className="mb-5">
                       <div className="flex items-center justify-between mb-2">
@@ -918,22 +918,13 @@ export default function PolymarketEventPage() {
                           Hide stream
                         </button>
                       </div>
-                      <div className="flex gap-4">
-                        {/* Stream player */}
-                        <div className="flex-1 min-w-0">
-                          <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
-                            <iframe
-                              src={streamEmbedUrl}
-                              className="absolute inset-0 w-full h-full"
-                              allowFullScreen
-                              allow="autoplay; encrypted-media"
-                            />
-                          </div>
-                        </div>
-                        {/* Event chat — same height as stream via aspect-ratio trick */}
-                        <div className="hidden lg:block w-[340px] flex-shrink-0 aspect-video">
-                          <EventChat eventId={eventId} marketIds={event.markets.map((m: any) => m.marketId)} />
-                        </div>
+                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
+                        <iframe
+                          src={streamEmbedUrl}
+                          className="absolute inset-0 w-full h-full"
+                          allowFullScreen
+                          allow="autoplay; encrypted-media"
+                        />
                       </div>
                     </div>
                   )}
@@ -1115,8 +1106,13 @@ export default function PolymarketEventPage() {
                       <div className="h-20 lg:hidden" />
                     </div>
 
-                    {/* Right Column — Trading Panel (desktop) */}
+                    {/* Right Column — Chat + Trading Panel (desktop) */}
                     <div className="w-[340px] flex-shrink-0 hidden lg:block">
+                      {streamEmbedUrl && !streamHidden && (
+                        <div className="h-[320px] mb-4">
+                          <EventChat eventId={eventId} marketIds={event.markets.map((m: any) => m.marketId)} />
+                        </div>
+                      )}
                       <div className="sticky top-24">
                         <div className="glass rounded-2xl p-5">
                           {tradingPanel}
