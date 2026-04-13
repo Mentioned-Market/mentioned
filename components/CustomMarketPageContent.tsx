@@ -29,6 +29,8 @@ interface CustomMarket {
   lock_time: string | null
   b_parameter: number
   play_tokens: number
+  market_type: string
+  event_start_time: string | null
   created_at: string
 }
 
@@ -100,7 +102,12 @@ function timeUntil(isoTime: string): string {
 
 function formatCloseTime(isoTime: string): string {
   const d = new Date(isoTime)
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+}
+
+function formatEventTime(isoTime: string): string {
+  const d = new Date(isoTime)
+  return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
 }
 
 // ── How It Works Tooltip ───────────────────────────────
@@ -970,6 +977,12 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 }`}>
                   {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
                 </span>
+                {market.market_type === 'event' && market.event_start_time && (
+                  <>
+                    <span className="text-neutral-700">·</span>
+                    <span>Event: {formatEventTime(market.event_start_time)}</span>
+                  </>
+                )}
                 {market.lock_time && isOpen && !lockTimePassed && (
                   <>
                     <span className="text-neutral-700">·</span>
