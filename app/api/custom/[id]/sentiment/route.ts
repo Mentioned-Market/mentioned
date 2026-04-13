@@ -33,13 +33,15 @@ export async function GET(
     const yesQty = pool ? parseFloat(pool.yes_qty) : 0
     const noQty = pool ? parseFloat(pool.no_qty) : 0
     const prices = virtualImpliedPrice(yesQty, noQty, b)
+    const isResolved = w.resolved_outcome !== null
     return {
       word_id: w.id,
       word: w.word,
-      yes_price: prices.yes,
-      no_price: prices.no,
+      yes_price: isResolved ? (w.resolved_outcome ? 1 : 0) : prices.yes,
+      no_price: isResolved ? (w.resolved_outcome ? 0 : 1) : prices.no,
       yes_qty: yesQty,
       no_qty: noQty,
+      resolved_outcome: w.resolved_outcome,
       trader_count: traderMap.get(w.id) ?? 0,
     }
   })

@@ -114,11 +114,14 @@ export async function POST(
     return NextResponse.json({ error: 'Market is not open for trading' }, { status: 403 })
   }
 
-  // Validate word belongs to this market
+  // Validate word belongs to this market and is not resolved
   const words = await getCustomMarketWords(marketId)
   const word = words.find(w => w.id === word_id)
   if (!word) {
     return NextResponse.json({ error: 'Word not found in this market' }, { status: 400 })
+  }
+  if (word.resolved_outcome !== null) {
+    return NextResponse.json({ error: 'This word has already been resolved' }, { status: 400 })
   }
 
   try {
