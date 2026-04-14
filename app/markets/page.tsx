@@ -21,12 +21,10 @@ interface Market {
   marketId: string
   status: string
   result: string | null
+  title: string
+  isTeamMarket: boolean
+  rulesPrimary: string
   pricing: Pricing
-  metadata: {
-    title: string
-    isTeamMarket: boolean
-    rulesPrimary: string
-  }
 }
 
 interface EventMetadata {
@@ -202,7 +200,7 @@ function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: s
               href={`/polymarkets/event/${eventId}?market=${encodeURIComponent(m.marketId)}`}
               className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
             >
-              <span className="text-white text-xs font-medium truncate flex-1">{m.metadata?.title}</span>
+              <span className="text-white text-xs font-medium truncate flex-1">{m.title}</span>
               <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">Y {formatPrice(m.pricing?.buyYesPriceUsd ?? 0)}</span>
               <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">N {formatPrice(noPriceRaw)}</span>
             </Link>
@@ -216,7 +214,7 @@ function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: s
 function EventCard({ event }: { event: PolyEvent }) {
   const [imgError, setImgError] = useState(false)
   const markets = event.markets || []
-  const teamMarkets = markets.filter(m => m.metadata?.isTeamMarket)
+  const teamMarkets = markets.filter(m => m.isTeamMarket)
   const hasTeams = teamMarkets.length === 2
   const team1 = hasTeams ? teamMarkets[0] : null
   const team2 = hasTeams ? teamMarkets[1] : null
@@ -268,11 +266,11 @@ function EventCard({ event }: { event: PolyEvent }) {
             </div>
             <div className="flex justify-between items-start gap-2">
               <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-white text-xs font-medium truncate">{team1.metadata.title}</span>
+                <span className="text-white text-xs font-medium truncate">{team1.title}</span>
                 <span className="text-apple-blue text-[11px] font-semibold">${formatPrice(team1.pricing?.buyYesPriceUsd ?? 0)}</span>
               </div>
               <div className="flex flex-col items-end min-w-0 flex-1">
-                <span className="text-white text-xs font-medium truncate text-right">{team2.metadata.title}</span>
+                <span className="text-white text-xs font-medium truncate text-right">{team2.title}</span>
                 <span className="text-apple-red text-[11px] font-semibold">${formatPrice(team2.pricing?.buyYesPriceUsd ?? 0)}</span>
               </div>
             </div>
@@ -780,7 +778,8 @@ export default function MarketsPage() {
       .finally(() => setPolyLoading(false))
   }, [paidOpen])
 
-  const activeEvents = events.filter(e => e.isActive)
+  const now = Date.now()
+  const activeEvents = events.filter(e => e.isActive && new Date(e.metadata.closeTime).getTime() > now)
   const liveEvents = activeEvents.filter(e => e.isLive)
   const upcomingEvents = activeEvents.filter(e => !e.isLive)
 

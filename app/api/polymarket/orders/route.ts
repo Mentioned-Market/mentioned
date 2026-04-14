@@ -27,7 +27,10 @@ export async function POST(req: NextRequest) {
   try {
     const raw = await req.json()
     // Whitelist allowed fields to prevent unexpected data reaching Jupiter
-    const ALLOWED_FIELDS = ['marketId', 'side', 'type', 'amount', 'price', 'ownerPubkey', 'outcomeId', 'userPubkey']
+    const ALLOWED_FIELDS = [
+      'marketId', 'side', 'type', 'amount', 'price', 'ownerPubkey', 'outcomeId', 'userPubkey',
+      'isBuy', 'isYes', 'depositAmount', 'maxBuyPriceUsd', 'depositMint',
+    ]
     const body: Record<string, unknown> = {}
     for (const key of ALLOWED_FIELDS) {
       if (key in raw) body[key] = raw[key]
