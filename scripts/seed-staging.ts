@@ -73,6 +73,14 @@ function minutesAgo(n: number): Date {
   return d
 }
 
+function getWeekStart(): string {
+  const now = new Date()
+  const day = now.getUTCDay()
+  const diff = day === 0 ? 6 : day - 1 // Monday = start of week
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff))
+  return monday.toISOString().slice(0, 10)
+}
+
 // ── Test wallets ──────────────────────────────────────────────────────────
 // Fake Solana-style base58 addresses. 20 users with varied engagement levels.
 
@@ -753,13 +761,14 @@ async function seedAchievements(client: pg.PoolClient) {
     )
   }
 
+  const weekStart = getWeekStart()
   for (const a of achievements) {
     const ts = hoursAgo(a.hoursAgo)
     await client.query(
-      `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, unlocked_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (wallet, achievement_id) DO NOTHING`,
-      [a.wallet, a.id, a.pts, ts],
+      `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, unlocked_at, week_start)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (wallet, achievement_id, week_start) DO NOTHING`,
+      [a.wallet, a.id, a.pts, ts, weekStart],
     )
   }
   console.log(`    → ${achievements.length} achievements`)
@@ -770,33 +779,44 @@ async function seedAchievements(client: pg.PoolClient) {
 interface FreeMarketDef {
   title: string
   description: string
+  coverImageUrl: string | null
+  streamUrl: string | null
   status: 'draft' | 'open' | 'locked' | 'resolved'
   b: number
   playTokens: number
   lockTime: Date | null
   createdAt: Date
   slug: string
+  isFeatured: boolean
+  marketType: 'continuous' | 'event'
+  eventStartTime: Date | null
   words: Array<{ word: string; outcome?: boolean }>
 }
 
 const FREE_MARKETS: FreeMarketDef[] = [
-  // 1: Open, active — esports interview
+  // 1: Open, active — esports interview (featured, event type)
   {
     title: 'Will "GG" be said in the T1 vs Gen.G post-match interview?',
     description: 'Predict which words or phrases will be mentioned during the post-match interview. Market locks 5 minutes before the interview starts.',
+    coverImageUrl: 'https://picsum.photos/seed/free-gg/800/400',
+    streamUrl: 'https://twitch.tv/t1_esports',
     status: 'open', b: 100, playTokens: 1000,
     lockTime: hoursFromNow(48), createdAt: daysAgo(3), slug: 'GG-stg001',
+    isFeatured: true, marketType: 'event', eventStartTime: hoursFromNow(47),
     words: [
       { word: 'GG' }, { word: 'well played' }, { word: 'outplayed' },
       { word: 'clutch' }, { word: 'draft diff' },
     ],
   },
-  // 2: Open, fresh — no trades yet
+  // 2: Open, fresh — no trades yet (continuous)
   {
     title: 'NaVi vs Vitality — caster word bingo',
     description: 'Which words will the casters say during the grand final? Trade on your predictions.',
+    coverImageUrl: 'https://picsum.photos/seed/free-navi/800/400',
+    streamUrl: null,
     status: 'open', b: 150, playTokens: 500,
     lockTime: hoursFromNow(72), createdAt: daysAgo(1), slug: 'NAVI-stg002',
+    isFeatured: false, marketType: 'continuous', eventStartTime: null,
     words: [
       { word: 'insane' }, { word: 'unbelievable' }, { word: 'what a play' },
       { word: 'economy' }, { word: 'ace' },
@@ -806,8 +826,11 @@ const FREE_MARKETS: FreeMarketDef[] = [
   {
     title: 'Cloud9 vs FaZe — analyst desk predictions',
     description: 'Which phrases will the analyst desk use when breaking down this match?',
+    coverImageUrl: 'https://picsum.photos/seed/free-c9faze/800/400',
+    streamUrl: null,
     status: 'resolved', b: 100, playTokens: 1000,
     lockTime: daysAgo(2), createdAt: daysAgo(8), slug: 'C9FAZE-stg003',
+    isFeatured: false, marketType: 'event', eventStartTime: daysAgo(3),
     words: [
       { word: 'dominant', outcome: true }, { word: 'upset', outcome: false },
       { word: 'momentum', outcome: true }, { word: 'choking', outcome: false },
@@ -817,20 +840,26 @@ const FREE_MARKETS: FreeMarketDef[] = [
   {
     title: 'Sentinels vs LOUD — post-match interview bingo',
     description: 'Which phrases will be said in the winner interview? Market is locked, awaiting resolution.',
+    coverImageUrl: 'https://picsum.photos/seed/free-senloud/800/400',
+    streamUrl: 'https://twitch.tv/valorant_esports',
     status: 'locked', b: 120, playTokens: 800,
     lockTime: hoursAgo(6), createdAt: daysAgo(5), slug: 'SENLOUD-stg004',
+    isFeatured: false, marketType: 'event', eventStartTime: hoursAgo(8),
     words: [
       { word: 'hard fought' }, { word: 'momentum shift' },
       { word: 'team effort' }, { word: 'next tournament' },
       { word: 'fan support' }, { word: 'game plan' },
     ],
   },
-  // 5: Open, high activity — LCS themed
+  // 5: Open, high activity — LCS themed (continuous)
   {
     title: 'TSM vs 100T — LCS Summer Split analyst desk',
     description: 'Predict what the LCS analysts will say during the post-game breakdown.',
+    coverImageUrl: 'https://picsum.photos/seed/free-tsm100t/800/400',
+    streamUrl: 'https://twitch.tv/lcs_official',
     status: 'open', b: 200, playTokens: 1500,
     lockTime: hoursFromNow(24), createdAt: daysAgo(4), slug: 'TSM100T-stg005',
+    isFeatured: false, marketType: 'continuous', eventStartTime: null,
     words: [
       { word: 'scaling' }, { word: 'early game' }, { word: 'macro' },
       { word: 'team fight' }, { word: 'baron call' }, { word: 'draft kingdom' },
@@ -841,8 +870,11 @@ const FREE_MARKETS: FreeMarketDef[] = [
   {
     title: 'EG vs C9 — NA Regional Finals caster bingo',
     description: 'Coming soon: predict which words the casters will use.',
+    coverImageUrl: null,
+    streamUrl: null,
     status: 'draft', b: 100, playTokens: 1000,
     lockTime: null, createdAt: daysAgo(1), slug: 'EGC9-stg006',
+    isFeatured: false, marketType: 'event', eventStartTime: null,
     words: [
       { word: 'insane mechanics' }, { word: 'experience' },
       { word: 'pressure' }, { word: 'composure' },
@@ -852,20 +884,26 @@ const FREE_MARKETS: FreeMarketDef[] = [
   {
     title: 'Fnatic vs G2 — LEC Playoffs caster predictions',
     description: 'Classic EU rivalry. Which buzzwords did the casters use?',
+    coverImageUrl: 'https://picsum.photos/seed/free-fng2/800/400',
+    streamUrl: null,
     status: 'resolved', b: 80, playTokens: 600,
     lockTime: daysAgo(4), createdAt: daysAgo(10), slug: 'FNG2-stg007',
+    isFeatured: false, marketType: 'event', eventStartTime: daysAgo(5),
     words: [
       { word: 'rivalry', outcome: true }, { word: 'legacy', outcome: true },
       { word: 'choke', outcome: false }, { word: 'comeback', outcome: true },
       { word: 'stomp', outcome: false },
     ],
   },
-  // 8: Open, moderate activity
+  // 8: Open, moderate activity (event type with upcoming start)
   {
     title: 'DRX vs T1 — LCK Spring Finals desk analysis',
     description: 'What will the Korean analysts focus on in their breakdown?',
+    coverImageUrl: 'https://picsum.photos/seed/free-drxt1/800/400',
+    streamUrl: null,
     status: 'open', b: 100, playTokens: 1000,
     lockTime: hoursFromNow(36), createdAt: daysAgo(2), slug: 'DRXT1-stg008',
+    isFeatured: false, marketType: 'event', eventStartTime: hoursFromNow(34),
     words: [
       { word: 'vision control' }, { word: 'objective trading' },
       { word: 'lane kingdom' }, { word: 'jungle diff' },
@@ -961,11 +999,11 @@ async function seedFreeMarkets(client: pg.PoolClient) {
     const fm = FREE_MARKETS[mi]
 
     const { rows: [market] } = await client.query(
-      `INSERT INTO custom_markets (title, description, status, b_parameter, play_tokens, lock_time, slug, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+      `INSERT INTO custom_markets (title, description, cover_image_url, stream_url, status, b_parameter, play_tokens, lock_time, slug, is_featured, market_type, event_start_time, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
        ON CONFLICT DO NOTHING
        RETURNING id`,
-      [fm.title, fm.description, fm.status, fm.b, fm.playTokens, fm.lockTime, fm.slug, fm.createdAt],
+      [fm.title, fm.description, fm.coverImageUrl, fm.streamUrl, fm.status, fm.b, fm.playTokens, fm.lockTime, fm.slug, fm.isFeatured, fm.marketType, fm.eventStartTime, fm.createdAt],
     )
 
     if (!market) continue
@@ -1238,6 +1276,82 @@ async function seedFreeMarkets(client: pg.PoolClient) {
   console.log(`    → ${FREE_MARKETS.length} free markets, ${totalTrades} trades, ${totalPositions} positions`)
 }
 
+async function seedVisitLogs(client: pg.PoolClient) {
+  console.log('  Seeding visit logs...')
+  const visits: Array<{ wallet: string; daysAgo: number }> = []
+
+  // Power users: daily visits
+  for (let d = 0; d < 14; d++) {
+    visits.push({ wallet: USERS[0].wallet, daysAgo: d })
+    if (d < 10) visits.push({ wallet: USERS[1].wallet, daysAgo: d })
+  }
+
+  // Active users: frequent visits
+  for (let d = 0; d < 7; d++) {
+    visits.push({ wallet: USERS[2].wallet, daysAgo: d })
+    visits.push({ wallet: USERS[5].wallet, daysAgo: d })
+    if (d < 5) visits.push({ wallet: USERS[3].wallet, daysAgo: d })
+    if (d < 4) visits.push({ wallet: USERS[7].wallet, daysAgo: d })
+  }
+
+  // Moderate users: a few visits
+  for (const u of [USERS[4], USERS[6], USERS[8], USERS[9], USERS[10], USERS[11]]) {
+    const count = 2 + Math.floor(Math.random() * 3)
+    for (let d = 0; d < count; d++) {
+      visits.push({ wallet: u.wallet, daysAgo: d * 2 })
+    }
+  }
+
+  // Light users: 1-2 visits
+  for (const u of [USERS[12], USERS[14], USERS[15]]) {
+    visits.push({ wallet: u.wallet, daysAgo: 0 })
+    if (Math.random() > 0.5) visits.push({ wallet: u.wallet, daysAgo: 1 })
+  }
+
+  for (const v of visits) {
+    const visitDate = daysAgo(v.daysAgo)
+    const dateStr = visitDate.toISOString().slice(0, 10)
+    // week_start = Monday of the visit's week
+    const d = new Date(visitDate)
+    const day = d.getUTCDay()
+    const diff = day === 0 ? 6 : day - 1
+    d.setUTCDate(d.getUTCDate() - diff)
+    const weekStartStr = d.toISOString().slice(0, 10)
+
+    await client.query(
+      `INSERT INTO user_visit_logs (wallet, visit_date, week_start, created_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (wallet, visit_date) DO NOTHING`,
+      [v.wallet, dateStr, weekStartStr, visitDate],
+    )
+  }
+  console.log(`    → ${visits.length} visit logs`)
+}
+
+async function seedAdminAuditLog(client: pg.PoolClient) {
+  console.log('  Seeding admin audit log...')
+  const adminWallet = USERS[0].wallet // cryptowizard as admin
+
+  const entries = [
+    { action: 'create_market',  targetId: 'GG-stg001',     payload: { title: 'Will "GG" be said...' },           hoursAgo: 72 },
+    { action: 'create_market',  targetId: 'NAVI-stg002',   payload: { title: 'NaVi vs Vitality...' },             hoursAgo: 24 },
+    { action: 'update_market',  targetId: 'SENLOUD-stg004', payload: { status: 'locked', reason: 'event started' }, hoursAgo: 6 },
+    { action: 'resolve_market', targetId: 'C9FAZE-stg003', payload: { words_resolved: 4 },                         hoursAgo: 48 },
+    { action: 'resolve_market', targetId: 'FNG2-stg007',   payload: { words_resolved: 5 },                         hoursAgo: 96 },
+    { action: 'feature_market', targetId: 'GG-stg001',     payload: { is_featured: true },                         hoursAgo: 70 },
+  ]
+
+  for (const e of entries) {
+    const ts = hoursAgo(e.hoursAgo)
+    await client.query(
+      `INSERT INTO admin_audit_log (wallet, action, target_id, payload, created_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [adminWallet, e.action, e.targetId, JSON.stringify(e.payload), ts],
+    )
+  }
+  console.log(`    → ${entries.length} admin audit entries`)
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 async function seed() {
@@ -1254,7 +1368,9 @@ async function seed() {
     await seedEventChat(client)
     await seedPointEvents(client)
     await seedAchievements(client)
+    await seedVisitLogs(client)
     await seedFreeMarkets(client)
+    await seedAdminAuditLog(client)
 
     await client.query('COMMIT')
     console.log('\n  Staging seed complete.')
