@@ -1,3 +1,54 @@
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+// **DO NOT RUN THIS**
+
 import 'dotenv/config'
 import pg from 'pg'
 import readline from 'readline'
@@ -16,7 +67,7 @@ function confirm(question: string): Promise<boolean> {
 }
 
 async function main() {
-  const host = new URL(dbUrl).hostname
+  // const host = new URL(dbUrl).hostname
   console.log(`Database host: ${host}`)
   console.log('')
   console.log('This will DELETE all trades, positions, balances, points,')
@@ -34,7 +85,7 @@ async function main() {
 
   console.log('')
 
-  const client = await pool.connect()
+  // const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
