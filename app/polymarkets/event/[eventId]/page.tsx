@@ -24,21 +24,16 @@ interface Pricing {
   volume: number
 }
 
-interface MarketMeta {
-  title: string
-  isTeamMarket: boolean
-  rulesPrimary: string
-  rulesSecondary: string
-  status: string
-}
-
 interface Market {
   marketId: string
   status: string
   result: string | null
+  title: string
+  isTeamMarket: boolean
+  rulesPrimary: string
+  rulesSecondary: string
   openTime: number
   closeTime: number
-  metadata: MarketMeta
   pricing: Pricing
 }
 
@@ -553,7 +548,7 @@ export default function PolymarketEventPage() {
           side,
           amountUsd: depositMicro,
           txSignature: sig,
-          marketTitle: selectedMarket?.metadata.title ?? null,
+          marketTitle: selectedMarket?.title ?? null,
         }),
       }).then(r => r.ok ? r.json() : null).then(data => {
         if (data?.newAchievements?.length) {
@@ -590,7 +585,7 @@ export default function PolymarketEventPage() {
             </span>
             <span className="text-neutral-400 text-sm"> · </span>
             <span className="text-white font-semibold text-sm">
-              {selectedMarket.metadata.title}
+              {selectedMarket.title}
             </span>
           </div>
 
@@ -950,7 +945,7 @@ export default function PolymarketEventPage() {
                         eventId={eventId}
                         markets={(event.markets || []).map((m: any) => ({
                           marketId: m.marketId,
-                          title: m.metadata?.title,
+                          title: m.title,
                           currentPrice: (m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000,
                         }))}
                         selectedMarketId={selectedMarketId}
@@ -986,7 +981,7 @@ export default function PolymarketEventPage() {
                             >
                               <div className="flex items-center gap-2 md:gap-3 w-2/5">
                                 <span className="text-white font-semibold text-sm md:text-[15px] truncate">
-                                  {m.metadata?.title}
+                                  {m.title}
                                 </span>
                                 {m.result && (
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -1048,7 +1043,7 @@ export default function PolymarketEventPage() {
                       {selectedMarket && (
                         <div className="mb-6">
                           <h2 className="text-base font-semibold text-white mb-3">
-                            Orderbook — {selectedMarket.metadata.title}
+                            Orderbook — {selectedMarket.title}
                           </h2>
                           <div className="glass rounded-2xl p-4">
                             <div className="flex items-center gap-4 mb-3">
@@ -1072,15 +1067,15 @@ export default function PolymarketEventPage() {
                           <h2 className="text-base font-semibold text-white mb-3">Rules</h2>
                           <div className="glass rounded-2xl p-4 md:p-5">
                             <h3 className="text-white font-semibold text-[15px] mb-3">
-                              {selectedMarket.metadata.title}
+                              {selectedMarket.title}
                             </h3>
                             <p className="text-sm text-neutral-300 leading-relaxed mb-3 whitespace-pre-line">
                               {rulesExpanded
-                                ? selectedMarket.metadata.rulesPrimary
-                                : selectedMarket.metadata.rulesPrimary.split('\n').slice(0, 3).join('\n')
+                                ? selectedMarket.rulesPrimary
+                                : (selectedMarket.rulesPrimary || '').split('\n').slice(0, 3).join('\n')
                               }
                             </p>
-                            {selectedMarket.metadata.rulesPrimary.split('\n').length > 3 && (
+                            {(selectedMarket.rulesPrimary || '').split('\n').length > 3 && (
                               <button
                                 onClick={() => setRulesExpanded(!rulesExpanded)}
                                 className="text-sm text-apple-blue font-semibold hover:opacity-80 transition-opacity"
@@ -1158,7 +1153,7 @@ export default function PolymarketEventPage() {
               {selectedMarket && (
                 <>
                   <div className="flex-1 min-w-0">
-                    <div className="text-white text-sm font-semibold truncate">{selectedMarket.metadata.title}</div>
+                    <div className="text-white text-sm font-semibold truncate">{selectedMarket.title}</div>
                     <div className="text-neutral-400 text-xs">
                       Yes {yesCents}¢ · No {noCents}¢
                     </div>
