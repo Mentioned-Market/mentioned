@@ -138,15 +138,15 @@ function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: s
     >
       <div ref={innerRef} className="flex flex-col gap-1.5">
         {markets.map(m => {
-          const noPriceRaw = 1_000_000 - (m.pricing.buyYesPriceUsd ?? 0)
+          const noPriceRaw = 1_000_000 - (m.pricing?.buyYesPriceUsd ?? 0)
           return (
             <Link
               key={m.marketId}
               href={`/polymarkets/event/${eventId}?market=${encodeURIComponent(m.marketId)}`}
               className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
             >
-              <span className="text-white text-xs font-medium truncate flex-1">{m.metadata.title}</span>
-              <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">Y {formatPrice(m.pricing.buyYesPriceUsd)}</span>
+              <span className="text-white text-xs font-medium truncate flex-1">{m.metadata?.title}</span>
+              <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">Y {formatPrice(m.pricing?.buyYesPriceUsd ?? 0)}</span>
               <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">N {formatPrice(noPriceRaw)}</span>
             </Link>
           )
@@ -159,13 +159,14 @@ function ScrollingWordList({ markets, eventId }: { markets: Market[]; eventId: s
 function EventCard({ event }: { event: PolyEvent }) {
   const [imgError, setImgError] = useState(false)
 
-  const teamMarkets = event.markets.filter(m => m.metadata.isTeamMarket)
+  const markets = event.markets || []
+  const teamMarkets = markets.filter(m => m.metadata?.isTeamMarket)
   const hasTeams = teamMarkets.length === 2
 
   const team1 = hasTeams ? teamMarkets[0] : null
   const team2 = hasTeams ? teamMarkets[1] : null
-  const team1Pct = team1 ? team1.pricing.buyYesPriceUsd / 10_000 : 50
-  const team2Pct = team2 ? team2.pricing.buyYesPriceUsd / 10_000 : 50
+  const team1Pct = team1 ? (team1.pricing?.buyYesPriceUsd ?? 0) / 10_000 : 50
+  const team2Pct = team2 ? (team2.pricing?.buyYesPriceUsd ?? 0) / 10_000 : 50
 
   const eventUrl = `/polymarkets/event/${event.eventId}`
 
@@ -230,16 +231,16 @@ function EventCard({ event }: { event: PolyEvent }) {
             <div className="flex justify-between items-start gap-2">
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-white text-xs font-medium truncate">{team1.metadata.title}</span>
-                <span className="text-apple-blue text-[11px] font-semibold">${formatPrice(team1.pricing.buyYesPriceUsd)}</span>
+                <span className="text-apple-blue text-[11px] font-semibold">${formatPrice(team1.pricing?.buyYesPriceUsd ?? 0)}</span>
               </div>
               <div className="flex flex-col items-end min-w-0 flex-1">
                 <span className="text-white text-xs font-medium truncate text-right">{team2.metadata.title}</span>
-                <span className="text-apple-red text-[11px] font-semibold">${formatPrice(team2.pricing.buyYesPriceUsd)}</span>
+                <span className="text-apple-red text-[11px] font-semibold">${formatPrice(team2.pricing?.buyYesPriceUsd ?? 0)}</span>
               </div>
             </div>
           </Link>
         ) : (
-          <ScrollingWordList markets={event.markets} eventId={event.eventId} />
+          <ScrollingWordList markets={markets} eventId={event.eventId} />
         )}
 
         <Link href={eventUrl} className="flex items-center gap-2 pt-2 border-t border-white/5">
@@ -250,7 +251,7 @@ function EventCard({ event }: { event: PolyEvent }) {
             {formatCloseTime(event.metadata.closeTime)}
           </span>
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-            {event.markets.length} words
+            {markets.length} words
           </span>
         </Link>
       </div>

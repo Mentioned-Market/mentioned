@@ -362,7 +362,7 @@ export default function PolymarketEventPage() {
       const res = await fetch(`/api/polymarket/positions?ownerPubkey=${publicKey}`)
       if (res.ok) {
         const json = await res.json()
-        const eventMarketIds = new Set(event.markets.map(m => m.marketId))
+        const eventMarketIds = new Set((event.markets || []).map(m => m.marketId))
         setPositions(
           (json.data || []).filter((p: Position) => eventMarketIds.has(p.marketId))
         )
@@ -381,7 +381,7 @@ export default function PolymarketEventPage() {
       const res = await fetch(`/api/polymarket/orders/list?ownerPubkey=${publicKey}`)
       if (res.ok) {
         const json = await res.json()
-        const eventMarketIds = new Set(event.markets.map(m => m.marketId))
+        const eventMarketIds = new Set((event.markets || []).map(m => m.marketId))
         setOrders(
           (json.data || [])
             .filter((o: Order) => eventMarketIds.has(o.marketId))
@@ -944,14 +944,14 @@ export default function PolymarketEventPage() {
                     <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
                       <MentionedSpinner className="" />
                     </div>
-                  ) : event.markets.length > 0 && (
+                  ) : (event.markets?.length ?? 0) > 0 && (
                     <div className="mb-5">
                       <EventPriceChart
                         eventId={eventId}
-                        markets={event.markets.map((m: any) => ({
+                        markets={(event.markets || []).map((m: any) => ({
                           marketId: m.marketId,
-                          title: m.metadata.title,
-                          currentPrice: (m.pricing.buyYesPriceUsd ?? 0) / 1_000_000,
+                          title: m.metadata?.title,
+                          currentPrice: (m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000,
                         }))}
                         selectedMarketId={selectedMarketId}
                       />
@@ -970,9 +970,9 @@ export default function PolymarketEventPage() {
                           <span className="text-xs md:text-sm text-neutral-400 font-medium text-right w-[148px] md:w-[240px]">Buy</span>
                         </div>
 
-                        {event.markets.map(m => {
-                          const pct = microToCents(m.pricing.buyYesPriceUsd)
-                          const yesBuy = microToCents(m.pricing.buyYesPriceUsd)
+                        {(event.markets || []).map(m => {
+                          const pct = microToCents(m.pricing?.buyYesPriceUsd ?? null)
+                          const yesBuy = microToCents(m.pricing?.buyYesPriceUsd ?? null)
                           const noBuy = 100 - yesBuy
                           const isSelected = m.marketId === selectedMarketId
 
@@ -986,7 +986,7 @@ export default function PolymarketEventPage() {
                             >
                               <div className="flex items-center gap-2 md:gap-3 w-2/5">
                                 <span className="text-white font-semibold text-sm md:text-[15px] truncate">
-                                  {m.metadata.title}
+                                  {m.metadata?.title}
                                 </span>
                                 {m.result && (
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -1110,7 +1110,7 @@ export default function PolymarketEventPage() {
                     <div className="w-[340px] flex-shrink-0 hidden lg:block">
                       {streamEmbedUrl && !streamHidden && (
                         <div className="h-[320px] mb-4">
-                          <EventChat eventId={eventId} marketIds={event.markets.map((m: any) => m.marketId)} />
+                          <EventChat eventId={eventId} marketIds={(event.markets || []).map((m: any) => m.marketId)} />
                         </div>
                       )}
                       <div className="sticky top-24">
