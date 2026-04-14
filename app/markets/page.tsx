@@ -836,7 +836,7 @@ export default function MarketsPage() {
                       {sidebarData && (
                         <>
                           <TrendingWordsWidget words={sidebarData.trendingWords} />
-                          <TopTradersWidget traders={sidebarData.topTraders} grow />
+                          <TopTradersWidget traders={sidebarData.topTraders} />
                         </>
                       )}
                     </aside>
