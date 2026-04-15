@@ -94,11 +94,14 @@ const ACCENTS = [
 
 // ── Canvas helpers ────────────────────────────────────────────────
 
-const SCALE = 2          // retina
+const SCALE = 2   // retina
 const W = 1200
-const H = 820
-const RW = W * SCALE
-const RH = H * SCALE
+const PAD_X = 56
+
+// Column right-edges (data and headers share these exact values)
+const ptX     = W - PAD_X - 28        // Points  (right edge, with breathing room)
+const pnlX    = ptX - 154             // P&L %
+const tokensX = pnlX - 158            // Tokens won
 
 function roundRect(
   ctx: CanvasRenderingContext2D,
@@ -124,10 +127,47 @@ function truncate(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return t + '…'
 }
 
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    const test = current ? current + ' ' + word : word
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = test
+    }
+  }
+  if (current) lines.push(current)
+  return lines
+}
+
 // ── Main render ───────────────────────────────────────────────────
 
 async function render(marketId: number, market: { title: string }, traders: TraderRow[]) {
-  const canvas = createCanvas(RW, RH)
+  // ── Step 1: measure title lines using a throw-away canvas ─────
+  const probe = createCanvas(W * SCALE, 10)
+  const pctx = probe.getContext('2d') as any as CanvasRenderingContext2D
+  pctx.scale(SCALE, SCALE)
+  pctx.font = '700 24px "Plus Jakarta Sans", sans-serif'
+  const titleLines = wrapText(pctx, market.title, W - PAD_X * 2)
+
+  // ── Step 2: calculate total canvas height ─────────────────────
+  const TITLE_LINE_H = 30
+  const LOGO_SECTION_H = 94                             // top padding + logo/label row
+  const TITLE_H = titleLines.length * TITLE_LINE_H
+  const DIV_MARGIN = 18
+  const SECTION_HDR_H = 44
+  const ROW_H = 90
+  const ROWS_TOTAL = traders.length * ROW_H
+  const FOOTER_H = 52   // divider + text + bottom padding
+
+  const H = LOGO_SECTION_H + TITLE_H + DIV_MARGIN + SECTION_HDR_H + ROWS_TOTAL + FOOTER_H
+
+  // ── Step 3: create final canvas ───────────────────────────────
+  const canvas = createCanvas(W * SCALE, H * SCALE)
   const ctx = canvas.getContext('2d') as any as CanvasRenderingContext2D
   ctx.scale(SCALE, SCALE)
 
@@ -135,11 +175,11 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   ctx.fillStyle = '#080808'
   ctx.fillRect(0, 0, W, H)
 
-  // Subtle ambient glows
+  // Ambient glows
   const glowColors = [
-    { x: 160, y: 200, color: 'rgba(242,183,31,0.07)' },
-    { x: W - 160, y: H - 180, color: 'rgba(242,183,31,0.05)' },
-    { x: W / 2, y: H / 2, color: 'rgba(242,183,31,0.03)' },
+    { x: 160,     y: 200,     color: 'rgba(242,183,31,0.07)' },
+    { x: W - 160, y: H - 160, color: 'rgba(242,183,31,0.05)' },
+    { x: W / 2,   y: H / 2,   color: 'rgba(242,183,31,0.03)' },
   ]
   for (const g of glowColors) {
     const grad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, 380)
@@ -149,7 +189,7 @@ async function render(marketId: number, market: { title: string }, traders: Trad
     ctx.fillRect(0, 0, W, H)
   }
 
-  // Noise texture simulation (very subtle dot pattern)
+  // Noise texture
   ctx.globalAlpha = 0.018
   for (let y = 0; y < H; y += 3) {
     for (let x = 0; x < W; x += 3) {
@@ -163,60 +203,57 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   // ── Logo ──────────────────────────────────────────────────────
   const logoPath = path.join(__dirname, '../public/src/img/__White Logo.png')
   const logo = await loadImage(logoPath)
-  // logo is 6813x1109 — draw at ~180px wide
   const logoW = 180
   const logoH = Math.round((logoW / 6813) * 1109)
   ctx.globalAlpha = 0.90
-  ctx.drawImage(logo as any, 56, 46, logoW, logoH)
+  ctx.drawImage(logo as any, PAD_X, 44, logoW, logoH)
   ctx.globalAlpha = 1
 
   // ── Header ────────────────────────────────────────────────────
-  // "MARKET RESULTS" label
+  // "MARKET RESULTS" label — top right
   ctx.font = '700 11px "Plus Jakarta Sans", sans-serif'
   ctx.letterSpacing = '2px'
   ctx.fillStyle = '#F2B71F'
   ctx.textAlign = 'right'
-  ctx.fillText('MARKET RESULTS', W - 56, 62)
+  ctx.fillText('MARKET RESULTS', W - PAD_X, 58)
   ctx.letterSpacing = '0px'
 
-  // Market title
-  ctx.font = '700 26px "Plus Jakarta Sans", sans-serif'
+  // Market title — wrapping, right-aligned, below label
+  ctx.font = '700 24px "Plus Jakarta Sans", sans-serif'
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'right'
-  const titleText = truncate(ctx, market.title, 520)
-  ctx.fillText(titleText, W - 56, 92)
+  titleLines.forEach((line, li) => {
+    ctx.fillText(line, W - PAD_X, 82 + li * TITLE_LINE_H)
+  })
 
   // Divider
-  const divY = 118
-  const divGrad = ctx.createLinearGradient(56, divY, W - 56, divY)
+  const divY = LOGO_SECTION_H + TITLE_H + 4
+  const divGrad = ctx.createLinearGradient(PAD_X, divY, W - PAD_X, divY)
   divGrad.addColorStop(0, 'rgba(242,183,31,0.6)')
   divGrad.addColorStop(0.4, 'rgba(242,183,31,0.15)')
   divGrad.addColorStop(1, 'rgba(255,255,255,0.04)')
   ctx.strokeStyle = divGrad
   ctx.lineWidth = 1
   ctx.beginPath()
-  ctx.moveTo(56, divY)
-  ctx.lineTo(W - 56, divY)
+  ctx.moveTo(PAD_X, divY)
+  ctx.lineTo(W - PAD_X, divY)
   ctx.stroke()
 
-  // ── Section header ────────────────────────────────────────────
-  ctx.font = '600 12px "Plus Jakarta Sans", sans-serif'
-  ctx.fillStyle = 'rgba(255,255,255,0.3)'
+  // ── Section header + column labels ────────────────────────────
+  const sectionY = divY + SECTION_HDR_H - 8
+  ctx.font = '600 11px "Plus Jakarta Sans", sans-serif'
+  ctx.letterSpacing = '1.5px'
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'
   ctx.textAlign = 'left'
-  ctx.fillText('TOP TRADERS', 56, 148)
-
-  // Column headers
-  ctx.font = '500 11px "Plus Jakarta Sans", sans-serif'
-  ctx.fillStyle = 'rgba(255,255,255,0.25)'
+  ctx.fillText('TOP TRADERS', PAD_X, sectionY)
   ctx.textAlign = 'right'
-  ctx.fillText('TOKENS WON', W - 56 - 200, 148)
-  ctx.fillText('P&L %', W - 56 - 100, 148)
-  ctx.fillText('POINTS', W - 56, 148)
+  ctx.fillText('TOKENS WON', tokensX, sectionY)
+  ctx.fillText('P&L %',      pnlX,    sectionY)
+  ctx.fillText('POINTS',     ptX,     sectionY)
+  ctx.letterSpacing = '0px'
 
   // ── Leaderboard rows ──────────────────────────────────────────
-  const ROWS_START = 166
-  const ROW_H = 90
-  const PAD_X = 56
+  const ROWS_START = divY + SECTION_HDR_H
 
   for (let i = 0; i < traders.length; i++) {
     const t = traders[i]
@@ -226,7 +263,7 @@ async function render(marketId: number, market: { title: string }, traders: Trad
     const rx = PAD_X
     const rw = W - PAD_X * 2
 
-    // Row glow / background
+    // Row background
     const rowGrad = ctx.createLinearGradient(rx, ry, rx + rw, ry)
     rowGrad.addColorStop(0, accent.bg)
     rowGrad.addColorStop(1, 'rgba(255,255,255,0.015)')
@@ -239,7 +276,7 @@ async function render(marketId: number, market: { title: string }, traders: Trad
     ctx.fillStyle = accent.color
     ctx.fill()
 
-    // Left glow behind accent bar
+    // Left glow
     const barGlow = ctx.createRadialGradient(rx + 2, ry + rh / 2, 0, rx + 2, ry + rh / 2, 80)
     barGlow.addColorStop(0, accent.glow)
     barGlow.addColorStop(1, 'transparent')
@@ -248,13 +285,11 @@ async function render(marketId: number, market: { title: string }, traders: Trad
 
     // Row border
     roundRect(ctx, rx, ry, rw, rh, 14)
-    ctx.strokeStyle = i === 0
-      ? 'rgba(242,183,31,0.18)'
-      : 'rgba(255,255,255,0.05)'
+    ctx.strokeStyle = i === 0 ? 'rgba(242,183,31,0.18)' : 'rgba(255,255,255,0.05)'
     ctx.lineWidth = 1
     ctx.stroke()
 
-    const cy = ry + rh / 2  // vertical center of row
+    const cy = ry + rh / 2
 
     // Rank / medal
     const rankX = rx + 26
@@ -269,7 +304,7 @@ async function render(marketId: number, market: { title: string }, traders: Trad
       ctx.fillText(accent.label, rankX, cy + 6)
     }
 
-    // PFP emoji (if set)
+    // PFP emoji
     const nameX = rx + 62
     let textStartX = nameX
     if (t.pfp_emoji) {
@@ -279,48 +314,45 @@ async function render(marketId: number, market: { title: string }, traders: Trad
       textStartX = nameX + 34
     }
 
-    // Username / wallet
+    // Username
     const displayName = t.username || `${t.wallet.slice(0, 4)}...${t.wallet.slice(-4)}`
     ctx.font = i < 3 ? '700 17px "Plus Jakarta Sans", sans-serif' : '600 16px "Plus Jakarta Sans", sans-serif'
     ctx.fillStyle = i === 0 ? '#F2B71F' : '#ffffff'
     ctx.textAlign = 'left'
-    const nameMaxW = rw - (textStartX - rx) - 360
+    const nameMaxW = tokensX - textStartX - 20
     ctx.fillText(truncate(ctx, displayName, nameMaxW), textStartX, cy + 6)
 
-    // Discord tag underneath name (if linked)
+    // Discord tag
     if (t.discord_username) {
       ctx.font = '400 11px "Plus Jakarta Sans", sans-serif'
       ctx.fillStyle = 'rgba(255,255,255,0.35)'
       ctx.fillText(`@${t.discord_username}`, textStartX, cy + 22)
     }
 
-    // Tokens won column
+    // Tokens won
     const netPositive = t.net_tokens > 0
-    const tokensX = W - PAD_X - 300
+    const netStr = netPositive ? `+${t.net_tokens.toFixed(1)}` : t.net_tokens.toFixed(1)
     ctx.font = '700 18px "Plus Jakarta Sans", sans-serif'
     ctx.fillStyle = netPositive ? '#34C759' : '#FF3B30'
     ctx.textAlign = 'right'
-    const netStr = netPositive ? `+${t.net_tokens.toFixed(1)}` : t.net_tokens.toFixed(1)
     ctx.fillText(netStr, tokensX, cy + 4)
     ctx.font = '400 11px "Plus Jakarta Sans", sans-serif'
     ctx.fillStyle = 'rgba(255,255,255,0.3)'
     ctx.fillText('tokens', tokensX, cy + 19)
 
-    // P&L % column
-    const pnlX = W - PAD_X - 148
+    // P&L %
     if (t.pnl_pct !== null) {
+      const pnlStr = t.pnl_pct >= 0 ? `+${t.pnl_pct.toFixed(1)}%` : `${t.pnl_pct.toFixed(1)}%`
       ctx.font = '700 18px "Plus Jakarta Sans", sans-serif'
       ctx.fillStyle = t.pnl_pct >= 0 ? '#34C759' : '#FF3B30'
       ctx.textAlign = 'right'
-      const pnlStr = t.pnl_pct >= 0 ? `+${t.pnl_pct.toFixed(1)}%` : `${t.pnl_pct.toFixed(1)}%`
       ctx.fillText(pnlStr, pnlX, cy + 4)
       ctx.font = '400 11px "Plus Jakarta Sans", sans-serif'
       ctx.fillStyle = 'rgba(255,255,255,0.3)'
       ctx.fillText('return', pnlX, cy + 19)
     }
 
-    // Points column
-    const ptX = W - PAD_X
+    // Points
     ctx.font = '700 18px "Plus Jakarta Sans", sans-serif'
     ctx.fillStyle = t.points_earned > 0 ? '#F2B71F' : 'rgba(255,255,255,0.3)'
     ctx.textAlign = 'right'
@@ -331,23 +363,23 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   }
 
   // ── Footer ────────────────────────────────────────────────────
-  const footY = ROWS_START + traders.length * ROW_H + 22
-  const footGrad = ctx.createLinearGradient(56, footY, W - 56, footY)
+  const footDivY = ROWS_START + traders.length * ROW_H + 14
+  const footGrad = ctx.createLinearGradient(PAD_X, footDivY, W - PAD_X, footDivY)
   footGrad.addColorStop(0, 'rgba(242,183,31,0.2)')
   footGrad.addColorStop(1, 'rgba(255,255,255,0.04)')
   ctx.strokeStyle = footGrad
   ctx.lineWidth = 1
   ctx.beginPath()
-  ctx.moveTo(56, footY)
-  ctx.lineTo(W - 56, footY)
+  ctx.moveTo(PAD_X, footDivY)
+  ctx.lineTo(W - PAD_X, footDivY)
   ctx.stroke()
 
   ctx.font = '500 12px "Plus Jakarta Sans", sans-serif'
   ctx.fillStyle = 'rgba(255,255,255,0.2)'
   ctx.textAlign = 'left'
-  ctx.fillText('mentioned.market', 56, footY + 24)
+  ctx.fillText('mentioned.market', PAD_X, footDivY + 22)
   ctx.textAlign = 'right'
-  ctx.fillText('Free Play Markets', W - 56, footY + 24)
+  ctx.fillText('Free Play Markets', W - PAD_X, footDivY + 22)
 
   return canvas
 }
