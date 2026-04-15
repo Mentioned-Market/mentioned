@@ -154,17 +154,28 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   pctx.font = '700 24px "Plus Jakarta Sans", sans-serif'
   const titleLines = wrapText(pctx, market.title, W - PAD_X * 2)
 
-  // ── Step 2: calculate total canvas height ─────────────────────
+  // ── Step 2: calculate header layout + total canvas height ───────
   const TITLE_LINE_H = 30
-  const LOGO_SECTION_H = 94                             // top padding + logo/label row
-  const TITLE_H = titleLines.length * TITLE_LINE_H
-  const DIV_MARGIN = 18
-  const SECTION_HDR_H = 44
-  const ROW_H = 90
-  const ROWS_TOTAL = traders.length * ROW_H
-  const FOOTER_H = 52   // divider + text + bottom padding
+  const HEADER_TOP    = 40
+  const LABEL_Y       = HEADER_TOP + 14          // "MARKET RESULTS" baseline
+  const TITLE_FIRST_Y = LABEL_Y + 14             // first title line baseline
+  const titleBlockH   = titleLines.length * TITLE_LINE_H
+  const HEADER_BOTTOM = TITLE_FIRST_Y + titleBlockH + 20
 
-  const H = LOGO_SECTION_H + TITLE_H + DIV_MARGIN + SECTION_HDR_H + ROWS_TOTAL + FOOTER_H
+  const logoW = 180
+  const logoH = Math.round((logoW / 6813) * 1109)
+  // Vertically center the logo with the title lines
+  const titleMidY  = TITLE_FIRST_Y + titleBlockH / 2 - TITLE_LINE_H / 4
+  const logoY      = Math.round(titleMidY - logoH / 2)
+
+  const DIV_MARGIN    = 0
+  const SECTION_HDR_H = 44
+  const ROW_H         = 90
+  const ROWS_TOTAL    = traders.length * ROW_H
+  const FOOTER_H      = 52
+
+  const divY = HEADER_BOTTOM + DIV_MARGIN
+  const H    = divY + SECTION_HDR_H + ROWS_TOTAL + FOOTER_H
 
   // ── Step 3: create final canvas ───────────────────────────────
   const canvas = createCanvas(W * SCALE, H * SCALE)
@@ -200,13 +211,11 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   }
   ctx.globalAlpha = 1
 
-  // ── Logo ──────────────────────────────────────────────────────
+  // ── Logo (vertically centred with title block) ────────────────
   const logoPath = path.join(__dirname, '../public/src/img/__White Logo.png')
   const logo = await loadImage(logoPath)
-  const logoW = 180
-  const logoH = Math.round((logoW / 6813) * 1109)
   ctx.globalAlpha = 0.90
-  ctx.drawImage(logo as any, PAD_X, 44, logoW, logoH)
+  ctx.drawImage(logo as any, PAD_X, logoY, logoW, logoH)
   ctx.globalAlpha = 1
 
   // ── Header ────────────────────────────────────────────────────
@@ -215,19 +224,18 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   ctx.letterSpacing = '2px'
   ctx.fillStyle = '#F2B71F'
   ctx.textAlign = 'right'
-  ctx.fillText('MARKET RESULTS', W - PAD_X, 58)
+  ctx.fillText('MARKET RESULTS', W - PAD_X, LABEL_Y)
   ctx.letterSpacing = '0px'
 
-  // Market title — wrapping, right-aligned, below label
+  // Market title — wrapping, right-aligned
   ctx.font = '700 24px "Plus Jakarta Sans", sans-serif'
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'right'
   titleLines.forEach((line, li) => {
-    ctx.fillText(line, W - PAD_X, 82 + li * TITLE_LINE_H)
+    ctx.fillText(line, W - PAD_X, TITLE_FIRST_Y + li * TITLE_LINE_H)
   })
 
   // Divider
-  const divY = LOGO_SECTION_H + TITLE_H + 4
   const divGrad = ctx.createLinearGradient(PAD_X, divY, W - PAD_X, divY)
   divGrad.addColorStop(0, 'rgba(242,183,31,0.6)')
   divGrad.addColorStop(0.4, 'rgba(242,183,31,0.15)')
