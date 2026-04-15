@@ -156,17 +156,19 @@ async function render(marketId: number, market: { title: string }, traders: Trad
 
   // ── Step 2: calculate header layout + total canvas height ───────
   const TITLE_LINE_H = 30
-  const HEADER_TOP    = 40
-  const LABEL_Y       = HEADER_TOP + 14          // "MARKET RESULTS" baseline
-  const TITLE_FIRST_Y = LABEL_Y + 14             // first title line baseline
-  const titleBlockH   = titleLines.length * TITLE_LINE_H
-  const HEADER_BOTTOM = TITLE_FIRST_Y + titleBlockH + 20
+  const HEADER_TOP   = 44
+  const logoW        = 180
+  const logoH        = Math.round((logoW / 6813) * 1109)
 
-  const logoW = 180
-  const logoH = Math.round((logoW / 6813) * 1109)
-  // Vertically center the logo with the title lines
-  const titleMidY  = TITLE_FIRST_Y + titleBlockH / 2 - TITLE_LINE_H / 4
-  const logoY      = Math.round(titleMidY - logoH / 2)
+  // Shared band: both logo and title block centred in the same vertical space.
+  // For text: baseline = bandCenterY + fontSize * 0.35  (standard canvas heuristic)
+  const titleBlockH  = titleLines.length * TITLE_LINE_H
+  const bandH        = Math.max(logoH, titleBlockH) + 12   // a little breathing room
+  const bandCenterY  = HEADER_TOP + bandH / 2
+  const logoY        = Math.round(bandCenterY - logoH / 2)
+  // First title baseline: centre of first line aligned to band centre
+  const TITLE_FIRST_Y = Math.round(bandCenterY - titleBlockH / 2 + TITLE_LINE_H * 0.75)
+  const HEADER_BOTTOM = HEADER_TOP + bandH + 16
 
   const DIV_MARGIN    = 0
   const SECTION_HDR_H = 44
@@ -219,14 +221,6 @@ async function render(marketId: number, market: { title: string }, traders: Trad
   ctx.globalAlpha = 1
 
   // ── Header ────────────────────────────────────────────────────
-  // "MARKET RESULTS" label — top right
-  ctx.font = '700 11px "Plus Jakarta Sans", sans-serif'
-  ctx.letterSpacing = '2px'
-  ctx.fillStyle = '#F2B71F'
-  ctx.textAlign = 'right'
-  ctx.fillText('MARKET RESULTS', W - PAD_X, LABEL_Y)
-  ctx.letterSpacing = '0px'
-
   // Market title — wrapping, right-aligned
   ctx.font = '700 24px "Plus Jakarta Sans", sans-serif'
   ctx.fillStyle = '#ffffff'
