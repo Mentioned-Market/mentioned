@@ -24,6 +24,7 @@
     "@solana-program/system": "^0.12.0",
     "@solana-program/token": "^0.12.0",
     "@solana/kit": "^6.0.1",
+    "@solana/wallet-adapter-react": "^0.15.39",
     "@wallet-standard/app": "^1.1.0",
     "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
