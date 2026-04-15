@@ -675,11 +675,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try { localStorage.removeItem('preferred_wallet') } catch {}
     let wallet = walletRef.current
     if (!wallet) {
-      const { get } = getWallets()
+      const { get, on } = getWallets()
       wallet = findPhantomWallet(get())
       if (!wallet) {
-        window.open('https://phantom.app/', '_blank')
-        return
+        // Phantom may be installed but not yet registered via Wallet Standard.
+        // Check legacy injection APIs as a presence signal before redirecting.
+        const win = window as any
+        const phantomPresent = win.phantom?.solana?.isPhantom || win.solana?.isPhantom
+        if (phantomPresent) {
+          // Wait up to 1 second for Wallet Standard registration
+          wallet = await new Promise<Wallet | null>((resolve) => {
+            const timeout = setTimeout(() => { unsub(); resolve(findPhantomWallet(get())) }, 1000)
+            const unsub = on('register', (...newWallets: Wallet[]) => {
+              const found = findPhantomWallet(newWallets)
+              if (found) { clearTimeout(timeout); unsub(); resolve(found) }
+            })
+          })
+        }
+        if (!wallet) {
+          window.open('https://phantom.app/', '_blank')
+          return
+        }
       }
       walletRef.current = wallet
     }
