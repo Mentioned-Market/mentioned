@@ -1750,6 +1750,153 @@ export async function resolveWordPositionsPayout(
   )
 }
 
+// -- Market Results --
+
+export interface MarketPositionForScoring {
+  wallet: string
+  word_id: number
+  word: string
+  outcome: 'YES' | 'NO'
+  yes_shares: number
+  no_shares: number
+  tokens_spent: number
+  tokens_received: number
+}
+
+export async function getMarketPositionsForScoring(
+  marketId: number,
+): Promise<MarketPositionForScoring[]> {
+  const result = await pool.query(
+    `SELECT p.wallet,
+            p.word_id,
+            w.word,
+            CASE WHEN w.resolved_outcome = TRUE THEN 'YES' ELSE 'NO' END AS outcome,
+            p.yes_shares::float AS yes_shares,
+            p.no_shares::float AS no_shares,
+            p.tokens_spent::float AS tokens_spent,
+            p.tokens_received::float AS tokens_received
+     FROM custom_market_positions p
+     JOIN custom_market_words w ON w.id = p.word_id
+     WHERE p.market_id = $1
+       AND w.resolved_outcome IS NOT NULL
+       AND (p.yes_shares > 0 OR p.no_shares > 0 OR p.tokens_spent > 0)
+     ORDER BY p.wallet, w.word`,
+    [marketId],
+  )
+  return result.rows
+}
+
+export async function insertMarketResults(
+  marketId: number,
+  rows: MarketPositionForScoring[],
+): Promise<void> {
+  if (rows.length === 0) return
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const r of rows) {
+      const net = r.tokens_received - r.tokens_spent
+      await client.query(
+        `INSERT INTO custom_market_results
+           (market_id, wallet, word_id, word, outcome, yes_shares, no_shares, tokens_spent, tokens_received, net_tokens)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (market_id, wallet, word_id) DO NOTHING`,
+        [marketId, r.wallet, r.word_id, r.word, r.outcome, r.yes_shares, r.no_shares, r.tokens_spent, r.tokens_received, net],
+      )
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export interface MarketResultEntry {
+  wallet: string
+  username: string | null
+  pfp_emoji: string | null
+  total_spent: number
+  total_received: number
+  net_tokens: number
+  pnl_pct: number | null
+  points_earned: number
+  words: {
+    word_id: number
+    word: string
+    outcome: 'YES' | 'NO'
+    yes_shares: number
+    no_shares: number
+    tokens_spent: number
+    tokens_received: number
+    net_tokens: number
+  }[]
+}
+
+export async function getMarketResults(marketId: number): Promise<MarketResultEntry[]> {
+  const result = await pool.query(
+    `SELECT
+       r.wallet,
+       up.username,
+       up.pfp_emoji,
+       r.word_id,
+       r.word,
+       r.outcome,
+       r.yes_shares::float AS yes_shares,
+       r.no_shares::float AS no_shares,
+       r.tokens_spent::float AS tokens_spent,
+       r.tokens_received::float AS tokens_received,
+       r.net_tokens::float AS net_tokens
+     FROM custom_market_results r
+     LEFT JOIN user_profiles up ON up.wallet = r.wallet
+     WHERE r.market_id = $1
+     ORDER BY r.wallet, r.word`,
+    [marketId],
+  )
+
+  // Group by wallet
+  const walletMap = new Map<string, MarketResultEntry>()
+  for (const row of result.rows) {
+    if (!walletMap.has(row.wallet)) {
+      walletMap.set(row.wallet, {
+        wallet: row.wallet,
+        username: row.username ?? null,
+        pfp_emoji: row.pfp_emoji ?? null,
+        total_spent: 0,
+        total_received: 0,
+        net_tokens: 0,
+        pnl_pct: null,
+        points_earned: 0,
+        words: [],
+      })
+    }
+    const entry = walletMap.get(row.wallet)!
+    entry.total_spent += row.tokens_spent
+    entry.total_received += row.tokens_received
+    entry.net_tokens += row.net_tokens
+    entry.words.push({
+      word_id: row.word_id,
+      word: row.word,
+      outcome: row.outcome,
+      yes_shares: row.yes_shares,
+      no_shares: row.no_shares,
+      tokens_spent: row.tokens_spent,
+      tokens_received: row.tokens_received,
+      net_tokens: row.net_tokens,
+    })
+  }
+
+  // Compute derived fields and sort by net_tokens desc
+  return Array.from(walletMap.values())
+    .map(entry => ({
+      ...entry,
+      pnl_pct: entry.total_spent > 0 ? (entry.net_tokens / entry.total_spent) * 100 : null,
+      points_earned: Math.max(0, Math.floor(entry.net_tokens * 0.5)),
+    }))
+    .sort((a, b) => b.net_tokens - a.net_tokens)
+}
+
 // -- Admin Audit Log --
 
 export async function logAdminAction(

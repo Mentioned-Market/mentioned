@@ -14,6 +14,7 @@ import { useAchievements } from '@/contexts/AchievementContext'
 import { getStatusLabel } from '@/lib/customMarketUtils'
 import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import MarketResultsLeaderboard from '@/components/MarketResultsLeaderboard'
 // Points multiplier — matches lib/customScoring.ts constant
 const VIRTUAL_MARKET_POINTS_MULTIPLIER = 0.5
 
@@ -71,6 +72,27 @@ interface ChartWord {
   word_id: number
   word: string
   history: { t: string; yes: number; no: number }[]
+}
+
+interface TraderResult {
+  wallet: string
+  username: string | null
+  pfp_emoji: string | null
+  total_spent: number
+  total_received: number
+  net_tokens: number
+  pnl_pct: number | null
+  points_earned: number
+  words: {
+    word_id: number
+    word: string
+    outcome: 'YES' | 'NO'
+    yes_shares: number
+    no_shares: number
+    tokens_spent: number
+    tokens_received: number
+    net_tokens: number
+  }[]
 }
 
 // ── Helpers ────────────────────────────────────────────
@@ -235,6 +257,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [streamHidden, setStreamHidden] = useState(false)
   const [streamHeight, setStreamHeight] = useState<number>(360)
   const streamPlayerRef = useRef<HTMLDivElement>(null)
+  const [marketResults, setMarketResults] = useState<TraderResult[]>([])
 
   // Trading state
   const [selectedWordId, setSelectedWordId] = useState<number | null>(null)
@@ -408,6 +431,15 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   useEffect(() => { fetchPositions() }, [fetchPositions])
   useEffect(() => { fetchTrades() }, [fetchTrades])
   useEffect(() => { fetchChart() }, [fetchChart])
+
+  // Fetch results leaderboard when market is resolved
+  useEffect(() => {
+    if (market?.status !== 'resolved') return
+    fetch(`/api/custom/${marketId}/results`)
+      .then(r => r.json())
+      .then(data => { if (data.leaderboard) setMarketResults(data.leaderboard) })
+      .catch(() => { /* ignore */ })
+  }, [marketId, market?.status])
 
   // Poll when market is open
   useEffect(() => {
@@ -1269,6 +1301,14 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                         </div>
                       </div>
                     </div>
+                  )}
+
+                  {/* Market results leaderboard — visible only after resolution */}
+                  {market?.status === 'resolved' && marketResults.length > 0 && (
+                    <MarketResultsLeaderboard
+                      leaderboard={marketResults}
+                      currentWallet={publicKey}
+                    />
                   )}
 
                   {/* Trade hover card */}
