@@ -75,10 +75,10 @@ export const metadata: Metadata = {
     description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more. Join Mentioned markets today.',
     images: [
       {
-        url: '/src/img/White Icon.svg',
+        url: '/opengraph-image',
         width: 1200,
         height: 630,
-        alt: 'Mention Markets Platform - Mentioned',
+        alt: 'Mentioned - Trade Predictions on What Gets Said',
       },
     ],
   },
@@ -88,7 +88,7 @@ export const metadata: Metadata = {
     creator: '@mentionedmarket',
     title: 'Mention Markets | Mentioned - Trade Predictions on What Gets Said',
     description: 'Mentioned is the premier mention markets platform. Trade predictions on what words get mentioned in speeches, podcasts, events & more.',
-    images: ['/src/img/White Icon.svg'],
+    images: ['/opengraph-image'],
   },
   robots: {
     index: true,
