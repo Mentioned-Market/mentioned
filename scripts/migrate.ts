@@ -356,6 +356,26 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at DESC);
+
+-- Market resolution results: per-wallet per-word final P&L snapshot (populated on market resolution)
+CREATE TABLE IF NOT EXISTS custom_market_results (
+  id               SERIAL PRIMARY KEY,
+  market_id        INTEGER NOT NULL REFERENCES custom_markets(id) ON DELETE CASCADE,
+  wallet           TEXT NOT NULL,
+  word_id          INTEGER NOT NULL REFERENCES custom_market_words(id) ON DELETE CASCADE,
+  word             TEXT NOT NULL,
+  outcome          TEXT NOT NULL CHECK (outcome IN ('YES', 'NO')),
+  yes_shares       NUMERIC(18,6) NOT NULL DEFAULT 0,
+  no_shares        NUMERIC(18,6) NOT NULL DEFAULT 0,
+  tokens_spent     NUMERIC(18,6) NOT NULL DEFAULT 0,
+  tokens_received  NUMERIC(18,6) NOT NULL DEFAULT 0,
+  net_tokens       NUMERIC(18,6) NOT NULL DEFAULT 0,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (market_id, wallet, word_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cmr_market ON custom_market_results(market_id);
+CREATE INDEX IF NOT EXISTS idx_cmr_wallet ON custom_market_results(wallet, market_id);
 `
 
 async function main() {
