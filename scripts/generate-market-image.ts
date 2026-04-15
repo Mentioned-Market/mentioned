@@ -354,13 +354,23 @@ async function render(marketId: number, market: { title: string }, traders: Trad
 
 // ── Entry point ───────────────────────────────────────────────────
 
+async function resolveMarketId(arg: string): Promise<number> {
+  const asInt = parseInt(arg, 10)
+  if (!isNaN(asInt) && String(asInt) === arg) return asInt
+  // Treat as slug
+  const res = await pool.query(`SELECT id FROM custom_markets WHERE slug = $1`, [arg])
+  if (res.rows.length === 0) throw new Error(`No market found with slug "${arg}"`)
+  return res.rows[0].id as number
+}
+
 async function main() {
   const arg = process.argv[2]
-  if (!arg || isNaN(parseInt(arg, 10))) {
-    console.error('Usage: ts-node scripts/generate-market-image.ts <marketId>')
+  if (!arg) {
+    console.error('Usage: npm run market:image -- <marketId|slug>')
     process.exit(1)
   }
-  const marketId = parseInt(arg, 10)
+
+  const marketId = await resolveMarketId(arg)
 
   console.log(`Fetching data for market ${marketId}...`)
   const { market, traders } = await getMarketData(marketId)
