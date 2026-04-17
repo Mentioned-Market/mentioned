@@ -13,7 +13,8 @@
     "db:stop": "docker compose down",
     "db:leaderboard-test:seed": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-leaderboard-test.ts dotenv_config_path=.env.local",
     "db:leaderboard-test:clean": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-leaderboard-test-clean.ts dotenv_config_path=.env.local",
-    "db:seed-staging": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-staging.ts"
+    "db:seed-staging": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-staging.ts",
+    "market:image": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/generate-market-image.ts"
   },
   "dependencies": {
     "@2toad/profanity": "^3.3.0",
@@ -36,6 +37,9 @@
     "react-dom": "^18.2.0",
     "recharts": "^3.8.0",
     "tweetnacl": "^1.0.3"
+  },
+  "optionalDependencies": {
+    "canvas": "^3.2.3"
   },
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",
