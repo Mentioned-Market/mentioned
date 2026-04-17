@@ -1337,18 +1337,26 @@ export interface CustomMarketListRow extends CustomMarketRow {
   words_prices: CustomMarketWordPrice[]
 }
 
-// Markets stay listed while open/locked, and stay visible after resolution
-// until the later of: 48 hours after resolved_at OR the end of the UTC week in
-// which they resolved (i.e. next Monday 00:00 UTC). Legacy rows with NULL
-// resolved_at fall off immediately.
+// Markets stay listed while open/locked. Resolved markets stay visible until
+// the later of: 48 hours after the market's "closing time" OR the end of the
+// UTC week containing that closing time (i.e. next Monday 00:00 UTC).
+//
+// Closing time = GREATEST(lock_time, resolved_at):
+//   - Continuous markets may resolve all words before lock_time. For those we
+//     still anchor the grace window on lock_time so users get the expected
+//     "end of week / 48h" visibility after the scheduled close.
+//   - Markets that resolve at/after lock_time anchor on resolved_at.
+//   - If lock_time is NULL, GREATEST returns resolved_at.
+//
+// Legacy rows with NULL resolved_at fall off immediately.
 const PUBLIC_LISTING_FILTER = `(
   m.status IN ('open', 'locked')
   OR (
     m.status = 'resolved'
     AND m.resolved_at IS NOT NULL
     AND NOW() < GREATEST(
-      m.resolved_at + INTERVAL '48 hours',
-      (date_trunc('week', m.resolved_at AT TIME ZONE 'UTC') + INTERVAL '7 days') AT TIME ZONE 'UTC'
+      GREATEST(m.lock_time, m.resolved_at) + INTERVAL '48 hours',
+      (date_trunc('week', GREATEST(m.lock_time, m.resolved_at) AT TIME ZONE 'UTC') + INTERVAL '7 days') AT TIME ZONE 'UTC'
     )
   )
 )`

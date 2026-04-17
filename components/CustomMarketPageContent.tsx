@@ -853,10 +853,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
         <button disabled className="w-full py-4 bg-white/10 text-neutral-400 font-bold text-base rounded-2xl cursor-not-allowed">
           {market ? (() => {
             const ds = getDisplayStatus(market)
-            return ds === 'closed' ? 'Market Closed'
-              : ds === 'pending_resolution' ? 'Pending Resolution'
-              : ds === 'cancelled' ? 'Market Cancelled'
-              : 'Market Closed'
+            return ds === 'closed'             ? 'Market Closed'
+              :    ds === 'resolved'           ? 'Market Resolved'
+              :    ds === 'pending_resolution' ? 'Pending Resolution'
+              :    ds === 'cancelled'          ? 'Market Cancelled'
+              :                                  'Market Closed'
           })() : 'Market Closed'}
         </button>
       ) : connected && discordLinked === false ? (
