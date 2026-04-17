@@ -168,6 +168,10 @@ CREATE INDEX IF NOT EXISTS idx_custom_pred_word ON custom_market_predictions(wor
 ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS b_parameter NUMERIC(10,2) NOT NULL DEFAULT 500;
 ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS play_tokens INTEGER NOT NULL DEFAULT 1000;
 
+-- Timestamp set when market transitions to 'resolved' (all words resolved).
+-- Used to compute listing grace window (max of 48h after resolution or end of UTC week).
+ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
+
 -- Drop old boolean prediction model (replaced by positions + balances)
 DROP TABLE IF EXISTS custom_market_predictions;
 
