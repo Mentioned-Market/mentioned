@@ -258,6 +258,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [streamHeight, setStreamHeight] = useState<number>(360)
   const streamPlayerRef = useRef<HTMLDivElement>(null)
   const [marketResults, setMarketResults] = useState<TraderResult[]>([])
+  const wordsSectionRef = useRef<HTMLDivElement>(null)
 
   // Trading state
   const [selectedWordId, setSelectedWordId] = useState<number | null>(null)
@@ -1062,12 +1063,35 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
               {/* Stream label row — above both columns so stream + chat start at same point */}
               {streamEmbedUrl && !streamHidden && (
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                  <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
-                  <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse flex-shrink-0" />
+                  <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider flex-shrink-0">Live Stream</span>
+                  <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors flex-shrink-0">
                     Hide stream
                   </button>
+                  {words.length > 0 && (
+                    <>
+                      <span className="text-neutral-700 text-xs flex-shrink-0">|</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {words.map(word => (
+                          <button
+                            key={word.id}
+                            onClick={() => {
+                              setSelectedWordId(word.id)
+                              wordsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                            }}
+                            className={`px-2 py-0.5 rounded-md border text-xs transition-colors ${
+                              word.resolved_outcome !== null
+                                ? 'bg-white/[0.03] border-white/5 text-neutral-600 line-through hover:text-neutral-400'
+                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-neutral-300 hover:text-white'
+                            }`}
+                          >
+                            {word.word}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
               {streamEmbedUrl && streamHidden && (
@@ -1112,7 +1136,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                   )}
 
                   {/* Words table */}
-                  <div className="mb-6" data-tutorial="words-table">
+                  <div ref={wordsSectionRef} className="mb-6" data-tutorial="words-table">
                     <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
                       <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Word</span>
                       <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1" data-tutorial="chance-column">Chance</span>
