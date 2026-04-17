@@ -8,6 +8,11 @@ import Footer from '@/components/Footer'
 import CustomEventCard from '@/components/CustomEventCard'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import { useWallet } from '@/contexts/WalletContext'
+import {
+  getDisplayStatus,
+  getDisplayStatusLabel,
+  getDisplayStatusOverlayClasses,
+} from '@/lib/customMarketUtils'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -416,9 +421,14 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
 
         {/* Badges */}
         <div className="absolute top-3 left-3 flex items-center gap-2">
-          {market.status === 'open' && (
-            <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/80 text-black text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
-          )}
+          {(() => {
+            const ds = getDisplayStatus(market)
+            return (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm whitespace-nowrap ${getDisplayStatusOverlayClasses(ds)}`}>
+                {getDisplayStatusLabel(ds)}
+              </span>
+            )
+          })()}
           <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-medium backdrop-blur-sm">Featured</span>
         </div>
         {isLive && (
@@ -814,18 +824,16 @@ export default function MarketsPage() {
                           <FeaturedMarket market={featuredMarket} />
                         </div>
                       )}
-                      {remainingMarkets.filter(m => m.status !== 'resolved').length > 0 && (
+                      {remainingMarkets.length > 0 && (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                          {remainingMarkets
-                            .filter(m => m.status !== 'resolved')
-                            .map(market => (
-                              <div key={`custom-${market.id}`} style={{ background: '#000', borderRadius: '1rem' }}>
-                                <CustomEventCard market={market} />
-                              </div>
-                            ))}
+                          {remainingMarkets.map(market => (
+                            <div key={`custom-${market.id}`} style={{ background: '#000', borderRadius: '1rem' }}>
+                              <CustomEventCard market={market} />
+                            </div>
+                          ))}
                         </div>
                       )}
-                      {customMarkets.filter(m => m.status !== 'resolved').length === 0 && (
+                      {customMarkets.length === 0 && (
                         <p className="text-neutral-500 text-sm py-4">No free markets available right now</p>
                       )}
                     </div>
