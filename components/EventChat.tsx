@@ -65,6 +65,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const [hasMore, setHasMore] = useState(true)
   const oldestIdRef = useRef<number | null>(null)
   const initialLoadDone = useRef(false)
+  const initialScrollDone = useRef(false)
 
   // Detect free market context from eventId (e.g. "custom_42")
   const customMarketId = eventId.startsWith('custom_') ? parseInt(eventId.slice(7), 10) : null
@@ -233,6 +234,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
     lastIdRef.current = 0
     oldestIdRef.current = null
     initialLoadDone.current = false
+    initialScrollDone.current = false
 
     fetchInitialMessages().then(() => {
       connectSSE()
@@ -248,6 +250,14 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   useEffect(() => {
     const container = messagesContainerRef.current
     if (!container) return
+    // Force scroll to bottom on initial load so user sees most recent messages
+    if (!initialScrollDone.current && messages.length > 0) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight
+      })
+      initialScrollDone.current = true
+      return
+    }
     // Only auto-scroll if user is near the bottom (within 100px)
     const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
     if (isNearBottom) {
