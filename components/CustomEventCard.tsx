@@ -2,6 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import {
+  getDisplayStatus,
+  getDisplayStatusLabel,
+  getDisplayStatusOverlayClasses,
+} from '@/lib/customMarketUtils'
 
 interface WordPrice {
   word_id: number
@@ -128,7 +133,7 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
   const [imgError, setImgError] = useState(false)
   const url = `/free/${market.slug}`
   const lockPassed = market.lock_time ? new Date(market.lock_time) <= new Date() : false
-  const isClosed = market.status === 'locked' || (market.status === 'open' && lockPassed)
+  const displayStatus = getDisplayStatus(market)
 
   // Live logic: continuous markets are live when open, event markets are live when open + event started
   const isLive = market.status === 'open' && !lockPassed && (
@@ -153,13 +158,9 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
           </div>
         )}
         <div className="absolute top-3 left-3">
-          {market.status === 'resolved' ? (
-            <span className="px-2 py-0.5 rounded-full bg-blue-500/80 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Resolved</span>
-          ) : isClosed ? (
-            <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-300 text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Closed</span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/80 text-black text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Open</span>
-          )}
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm whitespace-nowrap ${getDisplayStatusOverlayClasses(displayStatus)}`}>
+            {getDisplayStatusLabel(displayStatus)}
+          </span>
         </div>
         {isLive && (
           <div className="absolute top-3 right-3">

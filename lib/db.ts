@@ -1118,6 +1118,7 @@ export interface CustomMarketRow {
   is_featured: boolean
   market_type: string
   event_start_time: string | null
+  resolved_at: string | null
   created_at: string
   updated_at: string
 }
@@ -1336,6 +1337,22 @@ export interface CustomMarketListRow extends CustomMarketRow {
   words_prices: CustomMarketWordPrice[]
 }
 
+// Markets stay listed while open/locked, and stay visible after resolution
+// until the later of: 48 hours after resolved_at OR the end of the UTC week in
+// which they resolved (i.e. next Monday 00:00 UTC). Legacy rows with NULL
+// resolved_at fall off immediately.
+const PUBLIC_LISTING_FILTER = `(
+  m.status IN ('open', 'locked')
+  OR (
+    m.status = 'resolved'
+    AND m.resolved_at IS NOT NULL
+    AND NOW() < GREATEST(
+      m.resolved_at + INTERVAL '48 hours',
+      (date_trunc('week', m.resolved_at AT TIME ZONE 'UTC') + INTERVAL '7 days') AT TIME ZONE 'UTC'
+    )
+  )
+)`
+
 export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> {
   const [marketsResult, poolsResult] = await Promise.all([
     pool.query(
@@ -1345,7 +1362,7 @@ export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> 
        FROM custom_markets m
        LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
        LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_positions GROUP BY market_id) p ON p.market_id = m.id
-       WHERE m.status IN ('open', 'locked', 'resolved')
+       WHERE ${PUBLIC_LISTING_FILTER}
        ORDER BY m.created_at DESC
        LIMIT 200`,
     ),
@@ -1353,7 +1370,7 @@ export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> 
       `SELECT w.id AS word_id, w.market_id, w.word, w.resolved_outcome,
               COALESCE(p.yes_qty, 0) AS yes_qty, COALESCE(p.no_qty, 0) AS no_qty
        FROM custom_market_words w
-       INNER JOIN custom_markets m ON m.id = w.market_id AND m.status IN ('open', 'locked', 'resolved')
+       INNER JOIN custom_markets m ON m.id = w.market_id AND ${PUBLIC_LISTING_FILTER}
        LEFT JOIN custom_market_word_pools p ON p.word_id = w.id
        ORDER BY w.id`,
     ),
@@ -1589,7 +1606,7 @@ export async function resolveMarketAtomic(
     let statusUpdated = false
     if (allResolved) {
       const updateResult = await client.query(
-        `UPDATE custom_markets SET status = 'resolved', updated_at = NOW() WHERE id = $1 AND status IN ('open', 'locked') RETURNING id`,
+        `UPDATE custom_markets SET status = 'resolved', resolved_at = NOW(), updated_at = NOW() WHERE id = $1 AND status IN ('open', 'locked') RETURNING id`,
         [marketId],
       )
       statusUpdated = (updateResult.rowCount ?? 0) > 0
