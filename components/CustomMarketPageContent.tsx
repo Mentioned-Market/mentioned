@@ -11,7 +11,11 @@ import FlashValue from '@/components/FlashValue'
 import MarketTutorial from '@/components/MarketTutorial'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
-import { getStatusLabel } from '@/lib/customMarketUtils'
+import {
+  getDisplayStatus,
+  getDisplayStatusLabel,
+  getDisplayStatusPillClasses,
+} from '@/lib/customMarketUtils'
 import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import MarketResultsLeaderboard from '@/components/MarketResultsLeaderboard'
@@ -847,7 +851,14 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       {/* Action button */}
       {!isOpen ? (
         <button disabled className="w-full py-4 bg-white/10 text-neutral-400 font-bold text-base rounded-2xl cursor-not-allowed">
-          {market?.status === 'resolved' ? 'Market Resolved' : market?.status === 'locked' ? 'Market Locked' : 'Market Closed'}
+          {market ? (() => {
+            const ds = getDisplayStatus(market)
+            return ds === 'closed'             ? 'Market Closed'
+              :    ds === 'resolved'           ? 'Market Resolved'
+              :    ds === 'pending_resolution' ? 'Pending Resolution'
+              :    ds === 'cancelled'          ? 'Market Cancelled'
+              :                                  'Market Closed'
+          })() : 'Market Closed'}
         </button>
       ) : connected && discordLinked === false ? (
         <div className="space-y-2">
@@ -1019,13 +1030,14 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 <span className="text-neutral-700">·</span>
                 <span>{words.length} words</span>
                 <span className="text-neutral-700">·</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                  market.status === 'resolved' ? 'bg-blue-500/15 text-blue-400' :
-                  (market.status === 'locked' || lockTimePassed) ? 'bg-white/10 text-neutral-400' :
-                  'bg-[#F2B71F]/15 text-[#F2B71F]'
-                }`}>
-                  {market.status === 'resolved' ? 'Resolved' : (market.status === 'locked' || lockTimePassed) ? 'Closed' : 'Open'}
-                </span>
+                {(() => {
+                  const ds = getDisplayStatus(market)
+                  return (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase whitespace-nowrap ${getDisplayStatusPillClasses(ds)}`}>
+                      {getDisplayStatusLabel(ds)}
+                    </span>
+                  )
+                })()}
                 {market.market_type === 'event' && market.event_start_time && (
                   <>
                     <span className="text-neutral-700">·</span>
