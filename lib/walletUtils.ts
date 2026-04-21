@@ -119,32 +119,20 @@ async function preSimulate(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Send a signed transaction via RPC and return the signature.
+ * Send a signed transaction via the server-side RPC proxy and return the signature.
  */
 async function sendRawTransaction(signedTxBytes: Uint8Array): Promise<string> {
   const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
-  const res = await fetch(MAINNET_URL, {
+  const res = await fetch('/api/rpc/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'sendTransaction',
-      params: [
-        base64Tx,
-        {
-          encoding: 'base64',
-          skipPreflight: true,
-          preflightCommitment: 'confirmed',
-        },
-      ],
-    }),
+    body: JSON.stringify({ transaction: base64Tx }),
   })
   const json = await res.json()
-  if (json.error) {
-    throw new Error(`sendTransaction failed: ${json.error.message || JSON.stringify(json.error)}`)
+  if (!res.ok) {
+    throw new Error(`sendTransaction failed: ${json.error || 'Unknown error'}`)
   }
-  return json.result as string
+  return json.signature as string
 }
 
 /**

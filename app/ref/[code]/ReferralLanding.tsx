@@ -72,7 +72,7 @@ export default function ReferralLanding({ code, referrerUsername }: { code: stri
             onClick={() => setShowConnectModal(true)}
             className="w-full py-3.5 bg-white text-black text-base font-bold rounded-xl hover:bg-neutral-200 transition-colors mb-4"
           >
-            Connect Wallet to Join
+            Login to Join
           </button>
         ) : (
           <div className="flex items-center justify-center gap-2 py-3.5 text-apple-green">

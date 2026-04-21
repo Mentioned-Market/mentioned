@@ -30,6 +30,7 @@ import { setPrivySolanaProvider } from '@/lib/walletUtils'
 const MAINNET_URL =
   process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const SOLANA_CHAIN = 'solana:mainnet-beta'
+const RPC_SEND_PROXY = '/api/rpc/send'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
 const FEAT_CONNECT = 'standard:connect'
@@ -155,29 +156,21 @@ async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Send a signed transaction via RPC. Returns the base58 signature as a Uint8Array
- * (text-encoded, for compatibility with TransactionSendingSigner return type).
+ * Send a signed transaction via the server-side RPC proxy.
+ * Returns the base58 signature as a Uint8Array (text-encoded).
  */
 async function sendRawTx(signedTxBytes: Uint8Array): Promise<Uint8Array> {
   const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
-  const res = await fetch(MAINNET_URL, {
+  const res = await fetch(RPC_SEND_PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'sendTransaction',
-      params: [
-        base64Tx,
-        { encoding: 'base64', skipPreflight: true, preflightCommitment: 'confirmed' },
-      ],
-    }),
+    body: JSON.stringify({ transaction: base64Tx }),
   })
   const json = await res.json()
-  if (json.error) {
-    throw new Error(`sendTransaction failed: ${json.error.message || JSON.stringify(json.error)}`)
+  if (!res.ok) {
+    throw new Error(`sendTransaction failed: ${json.error || 'Unknown error'}`)
   }
-  const sigStr = json.result as string
+  const sigStr = json.signature as string
   return new TextEncoder().encode(sigStr)
 }
 
