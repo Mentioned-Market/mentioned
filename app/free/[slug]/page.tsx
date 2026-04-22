@@ -1,65 +1,44 @@
-'use client'
+import { Metadata } from 'next'
+import { getCustomMarketBySlug } from '@/lib/db'
+import FreeMarketClient from './FreeMarketClient'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
-import Header from '@/components/Header'
-import Footer from '@/components/Footer'
-import CustomMarketPageContent from '@/components/CustomMarketPageContent'
-import LoadingScreen from '@/components/LoadingScreen'
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mentioned.market'
 
-export default function FreeMarketPage() {
-  const params = useParams()
-  const slug = params.slug as string
+interface Props {
+  params: { slug: string }
+}
 
-  const [marketId, setMarketId]       = useState<number | null>(null)
-  const [error, setError]             = useState<string | null>(null)
-  // Overlay state — one persistent spinner throughout both loading phases
-  const [overlayFading, setOverlayFading] = useState(false)
-  const [overlayGone,   setOverlayGone]   = useState(false)
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const market = await getCustomMarketBySlug(params.slug)
 
-  useEffect(() => {
-    if (!slug) return
-    fetch(`/api/custom/by-slug/${encodeURIComponent(slug)}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Market not found')
-        return res.json()
-      })
-      .then(data => setMarketId(data.id))
-      .catch(() => setError('Market not found'))
-  }, [slug])
-
-  // Called by CustomMarketPageContent once market data is ready
-  const handleLoaded = useCallback(() => {
-    setOverlayFading(true)
-    setTimeout(() => setOverlayGone(true), 450)
-  }, [])
-
-  if (error) {
-    return (
-      <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
-        <div className="layout-container flex h-full grow flex-col">
-          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
-            <div className="layout-content-container flex flex-col w-full max-w-7xl flex-1">
-              <Header />
-              <main className="flex-1 flex items-center justify-center">
-                <p className="text-neutral-400 text-sm">{error}</p>
-              </main>
-              <Footer />
-            </div>
-          </div>
-        </div>
-      </div>
-    )
+  if (!market) {
+    return { title: 'Market Not Found | Mentioned' }
   }
 
-  return (
-    <>
-      {/* Single persistent overlay — never unmounts between slug fetch and data load */}
-      {!overlayGone && <LoadingScreen fading={overlayFading} />}
+  const imageUrl = market.cover_image_url || `${BASE_URL}/opengraph-image`
+  const description = market.description || 'Trade predictions on what gets mentioned.'
+  const url = `${BASE_URL}/free/${params.slug}`
 
-      {marketId !== null && (
-        <CustomMarketPageContent marketId={marketId} onLoaded={handleLoaded} />
-      )}
-    </>
-  )
+  return {
+    title: `${market.title} | Mentioned`,
+    description,
+    openGraph: {
+      title: market.title,
+      description,
+      images: [{ url: imageUrl, width: 1200, height: 630 }],
+      type: 'website',
+      url,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: market.title,
+      description,
+      images: [imageUrl],
+    },
+  }
+}
+
+export default async function FreeMarketPage({ params }: Props) {
+  const market = await getCustomMarketBySlug(params.slug)
+  return <FreeMarketClient initialMarketId={market?.id ?? null} />
 }
