@@ -2164,4 +2164,216 @@ export async function recordVisitAndGetWeekCount(wallet: string): Promise<number
   return parseInt(result.rows[0].count, 10)
 }
 
+// ── Teams ────────────────────────────────────────────
+
+export interface TeamRow {
+  id: number
+  name: string
+  slug: string
+  join_code: string
+  created_by: string
+  created_at: string
+}
+
+export interface TeamMemberRow {
+  team_id: number
+  wallet: string
+  role: string
+  joined_at: string
+  username: string | null
+  pfp_emoji: string | null
+}
+
+export interface TeamLeaderboardEntry {
+  team_id: number
+  team_name: string
+  team_slug: string
+  member_count: number
+  weekly_points: number
+  all_time_points: number
+}
+
+const TEAM_MAX_MEMBERS = 3
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 50)
+}
+
+function generateJoinCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  const bytes = crypto.randomBytes(6)
+  for (let i = 0; i < 6; i++) {
+    code += chars[bytes[i] % chars.length]
+  }
+  return code
+}
+
+export async function createTeam(name: string, wallet: string): Promise<TeamRow> {
+  const join_code = generateJoinCode()
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Check this wallet isn't already on a team
+    const existing = await client.query(
+      `SELECT team_id FROM team_members WHERE wallet = $1`,
+      [wallet],
+    )
+    if ((existing.rowCount ?? 0) > 0) {
+      throw new Error('ALREADY_IN_TEAM')
+    }
+
+    const slug = slugify(name)
+    const teamRes = await client.query<TeamRow>(
+      `INSERT INTO teams (name, slug, join_code, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [name, slug, join_code, wallet],
+    )
+    const team = teamRes.rows[0]
+
+    await client.query(
+      `INSERT INTO team_members (team_id, wallet, role) VALUES ($1, $2, 'captain')`,
+      [team.id, wallet],
+    )
+
+    await client.query('COMMIT')
+    return team
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function joinTeam(join_code: string, wallet: string): Promise<TeamRow> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Check wallet isn't already on a team
+    const existing = await client.query(
+      `SELECT team_id FROM team_members WHERE wallet = $1`,
+      [wallet],
+    )
+    if ((existing.rowCount ?? 0) > 0) {
+      throw new Error('ALREADY_IN_TEAM')
+    }
+
+    const teamRes = await client.query<TeamRow>(
+      `SELECT * FROM teams WHERE join_code = $1`,
+      [join_code.toUpperCase()],
+    )
+    if ((teamRes.rowCount ?? 0) === 0) {
+      throw new Error('INVALID_CODE')
+    }
+    const team = teamRes.rows[0]
+
+    const countRes = await client.query(
+      `SELECT COUNT(*)::int AS c FROM team_members WHERE team_id = $1`,
+      [team.id],
+    )
+    if ((countRes.rows[0]?.c ?? 0) >= TEAM_MAX_MEMBERS) {
+      throw new Error('TEAM_FULL')
+    }
+
+    await client.query(
+      `INSERT INTO team_members (team_id, wallet, role) VALUES ($1, $2, 'member')`,
+      [team.id, wallet],
+    )
+
+    await client.query('COMMIT')
+    return team
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function leaveTeam(wallet: string): Promise<void> {
+  await pool.query(`DELETE FROM team_members WHERE wallet = $1`, [wallet])
+}
+
+export async function getTeamByWallet(wallet: string): Promise<(TeamRow & { role: string }) | null> {
+  const result = await pool.query(
+    `SELECT t.*, tm.role
+     FROM teams t
+     JOIN team_members tm ON tm.team_id = t.id
+     WHERE tm.wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getTeamById(teamId: number): Promise<TeamRow | null> {
+  const result = await pool.query(`SELECT * FROM teams WHERE id = $1`, [teamId])
+  return result.rows[0] ?? null
+}
+
+export async function getTeamBySlug(slug: string): Promise<TeamRow | null> {
+  const result = await pool.query(`SELECT * FROM teams WHERE slug = $1`, [slug])
+  return result.rows[0] ?? null
+}
+
+export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
+  const result = await pool.query(
+    `SELECT tm.*, up.username, up.pfp_emoji
+     FROM team_members tm
+     LEFT JOIN user_profiles up ON up.wallet = tm.wallet
+     WHERE tm.team_id = $1
+     ORDER BY CASE WHEN tm.role = 'captain' THEN 0 ELSE 1 END, tm.joined_at ASC`,
+    [teamId],
+  )
+  return result.rows
+}
+
+export async function getTeamLeaderboard(weekStart: Date): Promise<TeamLeaderboardEntry[]> {
+  const result = await pool.query(
+    `SELECT
+       t.id AS team_id,
+       t.name AS team_name,
+       t.slug AS team_slug,
+       COUNT(DISTINCT tm.wallet)::int AS member_count,
+       COALESCE(SUM(pe.points) FILTER (WHERE pe.created_at >= $1), 0)::int AS weekly_points,
+       COALESCE(SUM(pe.points), 0)::int AS all_time_points
+     FROM teams t
+     JOIN team_members tm ON tm.team_id = t.id
+     LEFT JOIN point_events pe ON pe.wallet = tm.wallet
+     GROUP BY t.id, t.name, t.slug
+     ORDER BY weekly_points DESC`,
+    [weekStart.toISOString()],
+  )
+  return result.rows
+}
+
+export async function getTeamMemberPointTotals(
+  teamId: number,
+  weekStart: Date,
+): Promise<{ wallet: string; weekly: number; all_time: number; username: string | null; pfp_emoji: string | null }[]> {
+  const result = await pool.query(
+    `SELECT
+       tm.wallet,
+       up.username,
+       up.pfp_emoji,
+       COALESCE(SUM(pe.points) FILTER (WHERE pe.created_at >= $2), 0)::int AS weekly,
+       COALESCE(SUM(pe.points), 0)::int AS all_time
+     FROM team_members tm
+     LEFT JOIN user_profiles up ON up.wallet = tm.wallet
+     LEFT JOIN point_events pe ON pe.wallet = tm.wallet
+     WHERE tm.team_id = $1
+     GROUP BY tm.wallet, up.username, up.pfp_emoji
+     ORDER BY weekly DESC`,
+    [teamId, weekStart.toISOString()],
+  )
+  return result.rows
+}
+
 export { pool }
