@@ -306,9 +306,8 @@ function PrizePoolCard({ weekStart }: { weekStart: string }) {
 function HowToEarnCard() {
   const actions = [
     { emoji: '🎯', label: 'Place a trade', pts: '+10' },
-    { emoji: '🏆', label: 'Win a trade', pts: '+50' },
     { emoji: '💬', label: 'Chat message', pts: '+2' },
-{ emoji: '🤝', label: 'Refer a friend', pts: '+150' },
+    { emoji: '🤝', label: 'Refer a friend', pts: '+150' },
   ]
 
   return (
@@ -326,9 +325,21 @@ function HowToEarnCard() {
           </div>
         ))}
       </div>
+
+      {/* Achievements callout */}
+      <div className="mt-3 pt-3 rounded-xl px-3 py-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(242,183,31,0.04)', border: '1px solid rgba(242,183,31,0.12)' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm">🏅</span>
+          <span className="text-xs font-semibold" style={{ color: '#F2B71F' }}>Achievements</span>
+        </div>
+        <p className="text-[11px] text-neutral-500 leading-relaxed">
+          Unlock weekly achievements to earn bonus points. Each achievement awards a different amount.
+        </p>
+      </div>
+
       <Link
         href="/points"
-        className="mt-4 block w-full text-center text-xs font-semibold py-2 rounded-xl transition-colors hover:opacity-90"
+        className="mt-3 block w-full text-center text-xs font-semibold py-2 rounded-xl transition-colors hover:opacity-90"
         style={{ background: 'rgba(242,183,31,0.1)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.2)' }}
       >
         Learn more
