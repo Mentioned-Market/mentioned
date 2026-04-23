@@ -361,6 +361,32 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at DESC);
 
+-- Teams system
+CREATE TABLE IF NOT EXISTS teams (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  slug        TEXT UNIQUE,
+  join_code   TEXT NOT NULL UNIQUE,
+  created_by  TEXT NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS slug TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_slug ON teams(slug) WHERE slug IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_teams_join_code ON teams(join_code);
+CREATE INDEX IF NOT EXISTS idx_teams_created_by ON teams(created_by);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id    INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  wallet     TEXT NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'member',
+  joined_at  TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (wallet)
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+
 -- Market resolution results: per-wallet per-word final P&L snapshot (populated on market resolution)
 CREATE TABLE IF NOT EXISTS custom_market_results (
   id               SERIAL PRIMARY KEY,
