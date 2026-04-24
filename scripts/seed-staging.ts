@@ -1328,6 +1328,276 @@ async function seedVisitLogs(client: pg.PoolClient) {
   console.log(`    → ${visits.length} visit logs`)
 }
 
+async function seedFollows(client: pg.PoolClient) {
+  console.log('  Seeding user follows...')
+
+  // A realistic graph: power users have many followers, lurker follows everyone,
+  // some mutual relationships among active traders. Indices map to USERS[].
+  const cryptowizard   = USERS[0].wallet
+  const moonbetter     = USERS[1].wallet
+  const tradingpete    = USERS[2].wallet
+  const mentionedFan   = USERS[3].wallet
+  const solanaShark    = USERS[4].wallet
+  const degenDana      = USERS[5].wallet
+  const whaleWatcher   = USERS[6].wallet
+  const alphaHunter    = USERS[7].wallet
+  const casualCarl     = USERS[8].wallet
+  const betsyBets      = USERS[9].wallet
+  const chartChad      = USERS[10].wallet
+  const hodlQueen      = USERS[11].wallet
+  const newbieNick     = USERS[12].wallet
+  const lurkerLucy     = USERS[13].wallet
+  const firstTimer     = USERS[14].wallet
+  const weekendWarrior = USERS[15].wallet
+
+  // [follower, followee, days ago they followed]
+  const follows: Array<[string, string, number]> = [
+    // cryptowizard is widely followed
+    [moonbetter,     cryptowizard, 40],
+    [tradingpete,    cryptowizard, 32],
+    [mentionedFan,   cryptowizard, 28],
+    [solanaShark,    cryptowizard, 25],
+    [degenDana,      cryptowizard, 22],
+    [whaleWatcher,   cryptowizard, 20],
+    [alphaHunter,    cryptowizard, 18],
+    [casualCarl,     cryptowizard, 15],
+    [betsyBets,      cryptowizard, 12],
+    [chartChad,      cryptowizard, 10],
+    [hodlQueen,      cryptowizard,  8],
+    [newbieNick,     cryptowizard,  6],
+    [firstTimer,     cryptowizard,  4],
+    [weekendWarrior, cryptowizard,  2],
+
+    // moonbetter is popular too
+    [tradingpete,    moonbetter, 30],
+    [mentionedFan,   moonbetter, 26],
+    [solanaShark,    moonbetter, 22],
+    [whaleWatcher,   moonbetter, 18],
+    [alphaHunter,    moonbetter, 14],
+    [chartChad,      moonbetter, 10],
+    [hodlQueen,      moonbetter,  6],
+
+    // Mutual relationships among the active core
+    [cryptowizard, moonbetter,    35],
+    [cryptowizard, solanaShark,   24],
+    [cryptowizard, alphaHunter,   16],
+    [moonbetter,   tradingpete,   28],
+    [moonbetter,   solanaShark,   20],
+    [solanaShark,  alphaHunter,   12],
+    [alphaHunter,  solanaShark,   11],
+    [degenDana,    moonbetter,    18],
+    [degenDana,    solanaShark,   14],
+    [whaleWatcher, alphaHunter,    9],
+    [whaleWatcher, degenDana,      7],
+
+    // mentioned_fan follows lots of people — useful test viewer
+    [mentionedFan, tradingpete,   24],
+    [mentionedFan, solanaShark,   20],
+    [mentionedFan, degenDana,     16],
+    [mentionedFan, whaleWatcher,  12],
+    [mentionedFan, alphaHunter,    8],
+    [mentionedFan, chartChad,      4],
+
+    // Lurker follows almost everyone with activity
+    [lurkerLucy, cryptowizard,  7],
+    [lurkerLucy, moonbetter,    7],
+    [lurkerLucy, tradingpete,   7],
+    [lurkerLucy, mentionedFan,  7],
+    [lurkerLucy, solanaShark,   6],
+    [lurkerLucy, degenDana,     6],
+    [lurkerLucy, whaleWatcher,  5],
+    [lurkerLucy, alphaHunter,   5],
+    [lurkerLucy, chartChad,     4],
+    [lurkerLucy, betsyBets,     3],
+
+    // Casual relationships
+    [casualCarl,     degenDana,     14],
+    [betsyBets,      hodlQueen,      8],
+    [chartChad,      solanaShark,    8],
+    [hodlQueen,      moonbetter,     6],
+    [newbieNick,     alphaHunter,    4],
+    [firstTimer,     mentionedFan,   3],
+    [weekendWarrior, tradingpete,    1],
+  ]
+
+  for (const [follower, followee, days] of follows) {
+    await client.query(
+      `INSERT INTO user_follows (follower_wallet, followee_wallet, created_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [follower, followee, daysAgo(days)],
+    )
+  }
+
+  console.log(`    → ${follows.length} follow relationships`)
+}
+
+async function seedActivityEvents(client: pg.PoolClient) {
+  console.log('  Seeding activity events...')
+
+  // Just enough recent activity that any test user with a few follows sees a
+  // populated feed. Mix of all four activity types. Timestamps in hours so
+  // the feed shows "Xh ago" / "Xd ago" cleanly.
+  type Item = {
+    actor: string
+    type: 'polymarket_trade' | 'onchain_trade' | 'free_trade' | 'achievement_unlocked'
+    targetId: string
+    metadata: Record<string, unknown>
+    hoursAgo: number
+  }
+
+  const items: Item[] = []
+  let seq = 0
+  const next = () => ++seq
+
+  // Helper: build a polymarket_trade item
+  const poly = (actor: string, evtIdx: number, isYes: boolean, isBuy: boolean, amountUsd: string, hours: number): Item => {
+    const evt = POLY_EVENTS[evtIdx % POLY_EVENTS.length]
+    return {
+      actor,
+      type: 'polymarket_trade',
+      targetId: `seed_poly:${next()}`,
+      metadata: {
+        eventId: evt.eventId,
+        marketId: evt.marketId,
+        marketTitle: evt.title,
+        isYes,
+        isBuy,
+        side: isYes ? 'YES' : 'NO',
+        amountUsd,
+      },
+      hoursAgo: hours,
+    }
+  }
+
+  // Helper: on-chain trade
+  const onchain = (actor: string, marketIdx: number, direction: 0 | 1, isBuy: boolean, cost: number, hours: number): Item => {
+    const m = ONCHAIN_MARKETS[marketIdx % ONCHAIN_MARKETS.length]
+    const wordIndex = Math.floor(Math.random() * m.words.length)
+    return {
+      actor,
+      type: 'onchain_trade',
+      targetId: `seed_onchain:${next()}`,
+      metadata: {
+        marketId: String(m.marketId),
+        wordIndex,
+        direction,
+        isBuy,
+        quantity: Math.round(cost * 10) / 10,
+        cost,
+        impliedPrice: 0.45 + Math.random() * 0.2,
+      },
+      hoursAgo: hours,
+    }
+  }
+
+  // Helper: free market trade. Free markets aren't seeded with stable IDs from
+  // here, so use seedable placeholder fields the renderer can display.
+  const free = (actor: string, marketTitle: string, word: string, side: 'YES' | 'NO', shares: number, cost: number, hours: number): Item => ({
+    actor,
+    type: 'free_trade',
+    targetId: `seed_free:${next()}`,
+    metadata: {
+      marketId: 1,
+      marketTitle,
+      marketSlug: null,
+      wordId: 1,
+      word,
+      action: 'buy',
+      side,
+      shares,
+      cost,
+      yesPrice: side === 'YES' ? 0.62 : 0.38,
+      noPrice: side === 'YES' ? 0.38 : 0.62,
+    },
+    hoursAgo: hours,
+  })
+
+  const ach = (actor: string, id: string, emoji: string, title: string, points: number, hours: number): Item => ({
+    actor,
+    type: 'achievement_unlocked',
+    // Use a unique seed-prefixed key so this doesn't collide with the real
+    // weekly-rotation dedup pattern (`ach:<id>:<weekStart>`).
+    targetId: `seed_ach:${actor.slice(0, 6)}:${id}:${next()}`,
+    metadata: { achievementId: id, emoji, title, points },
+    hoursAgo: hours,
+  })
+
+  // cryptowizard — recent active
+  items.push(
+    poly(USERS[0].wallet, 5, true,  true,  '45000000', 1),
+    poly(USERS[0].wallet, 5, true,  false, '55000000', 4),
+    onchain(USERS[0].wallet, 0, 0, true, 0.85, 10),
+    ach(USERS[0].wallet, 'free_trade', '🎮', 'Play Money', 60, 30),
+  )
+
+  // moonbetter — recent
+  items.push(
+    poly(USERS[1].wallet, 6, false, true, '25000000', 2),
+    poly(USERS[1].wallet, 3, true,  true, '30000000', 8),
+    onchain(USERS[1].wallet, 1, 1, true, 0.4, 14),
+    ach(USERS[1].wallet, 'set_profile', '🏷️', 'Make It Official', 40, 26),
+  )
+
+  // tradingpete
+  items.push(
+    poly(USERS[2].wallet, 7, true, true, '12000000', 3),
+    poly(USERS[2].wallet, 5, true, true, '10000000', 24),
+    free(USERS[2].wallet, 'Will the analyst say "bull market"?', 'bull market', 'YES', 50, 25, 6),
+  )
+
+  // mentioned_fan
+  items.push(
+    poly(USERS[3].wallet, 6, true, true, '11000000',  5),
+    free(USERS[3].wallet, 'Will the CEO say "AI"?', 'AI', 'YES', 80, 50, 18),
+    ach(USERS[3].wallet, 'send_chat', '💬', 'Say Something', 40, 40),
+  )
+
+  // solana_shark — big bets
+  items.push(
+    poly(USERS[4].wallet, 7, true, true, '80000000', 6),
+    onchain(USERS[4].wallet, 2, 0, true, 1.2, 16),
+    poly(USERS[4].wallet, 2, false, true, '60000000', 36),
+  )
+
+  // degen_dana — high frequency, smaller amounts
+  for (let i = 0; i < 6; i++) {
+    items.push(poly(USERS[5].wallet, i, i % 2 === 0, true, String(3000000 + i * 1500000), 2 + i * 4))
+  }
+  items.push(ach(USERS[5].wallet, 'free_trade', '🎮', 'Play Money', 60, 50))
+
+  // whale_watcher
+  items.push(
+    poly(USERS[6].wallet, 1, true, true, '18000000', 9),
+    free(USERS[6].wallet, 'Will the host say "GG"?', 'GG', 'NO', 30, 18, 22),
+  )
+
+  // alpha_hunter
+  items.push(
+    poly(USERS[7].wallet, 4, false, true, '22000000', 7),
+    onchain(USERS[7].wallet, 0, 1, true, 0.65, 28),
+    ach(USERS[7].wallet, 'free_trade', '🎮', 'Play Money', 60, 60),
+  )
+
+  // chart_chad, hodl_queen, betsy_bets — light recent activity
+  items.push(
+    poly(USERS[10].wallet, 2, true, true, '6000000', 11),
+    poly(USERS[11].wallet, 3, false, true, '8000000', 13),
+    poly(USERS[9].wallet,  4, true, true, '4500000', 15),
+  )
+
+  for (const item of items) {
+    await client.query(
+      `INSERT INTO activity_events (actor_wallet, activity_type, target_id, metadata, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (activity_type, target_id, actor_wallet) WHERE target_id IS NOT NULL DO NOTHING`,
+      [item.actor, item.type, item.targetId, JSON.stringify(item.metadata), hoursAgo(item.hoursAgo)],
+    )
+  }
+
+  console.log(`    → ${items.length} activity events`)
+}
+
 async function seedAdminAuditLog(client: pg.PoolClient) {
   console.log('  Seeding admin audit log...')
   const adminWallet = USERS[0].wallet // cryptowizard as admin
@@ -1370,6 +1640,8 @@ async function seed() {
     await seedAchievements(client)
     await seedVisitLogs(client)
     await seedFreeMarkets(client)
+    await seedFollows(client)
+    await seedActivityEvents(client)
     await seedAdminAuditLog(client)
 
     await client.query('COMMIT')
