@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked, recordActivity } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
@@ -131,6 +131,21 @@ export async function POST(
     )
     // Mark trade timestamp only after successful execution
     lastTrade.set(wallet, Date.now())
+
+    recordActivity(wallet, 'free_trade', `free_trade:${result.tradeId}`, {
+      marketId,
+      marketTitle: market.title,
+      marketSlug: market.slug ?? null,
+      wordId: word_id,
+      word: word.word,
+      action,
+      side,
+      shares: result.shares,
+      cost: result.cost,
+      yesPrice: result.newYesPrice,
+      noPrice: result.newNoPrice,
+    }).catch(err => console.error('Activity emit (free trade):', err))
+
     // Free market achievements (fire-and-forget)
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
     try {

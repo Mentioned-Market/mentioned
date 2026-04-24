@@ -12,6 +12,7 @@ import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import Pagination, { usePagination } from '@/components/Pagination'
+import FollowButton from '@/components/FollowButton'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -162,6 +163,9 @@ interface PublicProfile {
   stats: Stats
   freeMarket: FreeMarketData
   pointHistory: PointHistoryEntry[]
+  followerCount: number
+  followingCount: number
+  isFollowedByViewer: boolean
 }
 
 type OwnerTab = 'positions' | 'orders' | 'history' | 'achievements'
@@ -485,6 +489,9 @@ export default function ProfilePage() {
   const [achievements, setAchievements] = useState<Achievement[]>([])
   const [loadingAchievements, setLoadingAchievements] = useState(true)
 
+  // ── Follow state (local copy so FollowButton can update count optimistically) ──
+  const [followerCount, setFollowerCount] = useState(0)
+
   // ── Referral state ─────────────────────────────────────
   const [referralCode, setReferralCode] = useState<string | null>(null)
   const [referralCount, setReferralCount] = useState(0)
@@ -550,6 +557,7 @@ export default function ProfilePage() {
         if (res.status === 404) { setNotFound(true); return }
         const data = await res.json()
         setProfile(data)
+        setFollowerCount(data.followerCount ?? 0)
         if (data.wallet) fetchAchievements(data.wallet)
 
         // Slow — Jupiter positions/history, merge into existing profile
@@ -1207,7 +1215,32 @@ export default function ProfilePage() {
                   </div>
                 </>
               )}
+
+              {/* Follower / Following counts — shown to everyone */}
+              <div className="flex items-center gap-4 mt-2">
+                <span className="text-xs text-neutral-400">
+                  <span className="text-white font-semibold">{followerCount.toLocaleString()}</span>
+                  <span className="text-neutral-500 ml-1">Followers</span>
+                </span>
+                <span className="text-xs text-neutral-400">
+                  <span className="text-white font-semibold">{profile.followingCount.toLocaleString()}</span>
+                  <span className="text-neutral-500 ml-1">Following</span>
+                </span>
+              </div>
             </div>
+
+            {/* Follow button — visitor view only, never on own profile */}
+            {!isOwnProfile && publicKey && (
+              <div className="flex-shrink-0">
+                <FollowButton
+                  key={profile.wallet}
+                  targetWallet={profile.wallet}
+                  initialFollowing={profile.isFollowedByViewer}
+                  onChange={nowFollowing => setFollowerCount(c => c + (nowFollowing ? 1 : -1))}
+                  size="md"
+                />
+              </div>
+            )}
           </div>
 
           {/* Stats row */}

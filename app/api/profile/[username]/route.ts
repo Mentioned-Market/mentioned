@@ -8,8 +8,11 @@ import {
   getWalletFreeMarketTrades,
   getWalletFreeMarketStats,
   getWalletPointHistory,
+  getFollowCounts,
+  isFollowing,
 } from '@/lib/db'
 import { getWeekStart } from '@/lib/points'
+import { getVerifiedWallet } from '@/lib/walletAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,10 +20,11 @@ const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { username: string } },
 ) {
   const { username: identifier } = params
+  const viewer = getVerifiedWallet(req)
 
   let wallet: string
   let username: string | null
@@ -48,13 +52,24 @@ export async function GET(
 
   const weekStart = getWeekStart()
 
-  const [allTimePoints, weeklyPoints, freePositions, freeTrades, freeStats, pointHistory] = await Promise.all([
+  const [
+    allTimePoints,
+    weeklyPoints,
+    freePositions,
+    freeTrades,
+    freeStats,
+    pointHistory,
+    followCounts,
+    viewerFollows,
+  ] = await Promise.all([
     getWalletPointTotal(wallet),
     getWalletWeeklyPoints(wallet, weekStart),
     getWalletFreeMarketPositions(wallet),
     getWalletFreeMarketTrades(wallet, 200),
     getWalletFreeMarketStats(wallet),
     getWalletPointHistory(wallet),
+    getFollowCounts(wallet),
+    viewer && viewer !== wallet ? isFollowing(viewer, wallet) : Promise.resolve(false),
   ])
 
   return NextResponse.json({
@@ -82,5 +97,8 @@ export async function GET(
       stats: freeStats,
     },
     pointHistory,
+    followerCount: followCounts.followers,
+    followingCount: followCounts.following,
+    isFollowedByViewer: viewerFollows,
   })
 }

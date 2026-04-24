@@ -99,6 +99,9 @@ export default function Header() {
           </Link>
           {/* Desktop nav links */}
           <Link href="/markets" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Markets</Link>
+          {connected && (
+            <Link href="/feed" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Feed</Link>
+          )}
           <Link href="/leaderboard" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Leaderboard</Link>
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
         </div>
@@ -271,6 +274,9 @@ export default function Header() {
                   </>
                 )}
                 <Link href="/markets" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Markets</Link>
+                {connected && (
+                  <Link href="/feed" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Feed</Link>
+                )}
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
                 <Link href="/points" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-[#F2B71F] text-sm font-semibold hover:bg-white/10 transition-colors duration-200">Points & Prizes</Link>

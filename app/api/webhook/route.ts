@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractTradeEvents } from '@/lib/tradeParser'
-import { insertTradeEvent } from '@/lib/db'
+import { insertTradeEvent, recordActivity } from '@/lib/db'
 
 export async function POST(req: NextRequest) {
   const secret = process.env.HELIUS_WEBHOOK_SECRET
@@ -47,8 +47,26 @@ export async function POST(req: NextRequest) {
     prevQty.set(wordKey, { yes: event.newYesQty, no: event.newNoQty })
 
     const wasInserted = await insertTradeEvent(event, signature, isBuy)
-    if (wasInserted) inserted++
-    else skipped++
+    if (wasInserted) {
+      inserted++
+      // Emit activity once per trade (dedup on target_id prevents retry dupes too)
+      recordActivity(
+        event.trader,
+        'onchain_trade',
+        `onchain_trade:${signature}:${event.wordIndex}:${event.direction}`,
+        {
+          marketId: event.marketId.toString(),
+          wordIndex: event.wordIndex,
+          direction: event.direction,
+          isBuy,
+          quantity: event.quantity,
+          cost: event.cost,
+          impliedPrice: event.impliedPrice,
+        },
+      ).catch(err => console.error('Activity emit (onchain):', err))
+    } else {
+      skipped++
+    }
   }
 
   console.log(`Webhook: ${transactions.length} tx(s), ${inserted} inserted, ${skipped} skipped`)

@@ -361,6 +361,37 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at DESC);
 
+-- Social graph: follower → followee. PK covers "who does X follow" lookups;
+-- the secondary index covers "who follows X".
+CREATE TABLE IF NOT EXISTS user_follows (
+  follower_wallet  TEXT NOT NULL,
+  followee_wallet  TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (follower_wallet, followee_wallet),
+  CONSTRAINT chk_no_self_follow CHECK (follower_wallet <> followee_wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_user_follows_followee ON user_follows(followee_wallet);
+
+-- Polymorphic activity log. One row per trade / achievement / future item.
+-- Feed reads filter by actor_wallet IN (SELECT followee_wallet FROM user_follows …).
+CREATE TABLE IF NOT EXISTS activity_events (
+  id             BIGSERIAL PRIMARY KEY,
+  actor_wallet   TEXT NOT NULL,
+  activity_type  TEXT NOT NULL,
+  target_id      TEXT,
+  metadata       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- id is BIGSERIAL and monotonic with created_at, so (actor_wallet, id DESC)
+-- is the efficient match for the feed query (WHERE actor_wallet IN (...) AND id < cursor ORDER BY id DESC).
+CREATE INDEX IF NOT EXISTS idx_activity_actor_id ON activity_events(actor_wallet, id DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_id       ON activity_events(id DESC);
+-- Partial unique index dedupes webhook retries and per-week achievement rows.
+-- Trades use a target_id that includes trade pk / signature so they never collide.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_dedup
+  ON activity_events(activity_type, target_id, actor_wallet)
+  WHERE target_id IS NOT NULL;
+
 -- Market resolution results: per-wallet per-word final P&L snapshot (populated on market resolution)
 CREATE TABLE IF NOT EXISTS custom_market_results (
   id               SERIAL PRIMARY KEY,

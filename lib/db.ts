@@ -2164,4 +2164,115 @@ export async function recordVisitAndGetWeekCount(wallet: string): Promise<number
   return parseInt(result.rows[0].count, 10)
 }
 
+// ── Follows ────────────────────────────────────────────────
+
+export async function followUser(follower: string, followee: string): Promise<boolean> {
+  if (follower === followee) return false
+  const result = await pool.query(
+    `INSERT INTO user_follows (follower_wallet, followee_wallet)
+     VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [follower, followee],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+export async function unfollowUser(follower: string, followee: string): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM user_follows WHERE follower_wallet = $1 AND followee_wallet = $2`,
+    [follower, followee],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+export async function isFollowing(follower: string, followee: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM user_follows WHERE follower_wallet = $1 AND followee_wallet = $2`,
+    [follower, followee],
+  )
+  return result.rowCount !== null && result.rowCount > 0
+}
+
+export async function getFollowCounts(wallet: string): Promise<{ followers: number; following: number }> {
+  const result = await pool.query<{ followers: string; following: string }>(
+    `SELECT
+       (SELECT COUNT(*) FROM user_follows WHERE followee_wallet = $1) AS followers,
+       (SELECT COUNT(*) FROM user_follows WHERE follower_wallet = $1) AS following`,
+    [wallet],
+  )
+  const row = result.rows[0]
+  return {
+    followers: parseInt(row?.followers ?? '0', 10),
+    following: parseInt(row?.following ?? '0', 10),
+  }
+}
+
+// ── Activity feed ──────────────────────────────────────────
+
+export interface ActivityRow {
+  id: string
+  actor_wallet: string
+  actor_username: string | null
+  actor_pfp_emoji: string | null
+  activity_type: string
+  target_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export async function recordActivity(
+  actorWallet: string,
+  activityType: string,
+  targetId: string | null,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO activity_events (actor_wallet, activity_type, target_id, metadata)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (activity_type, target_id, actor_wallet) WHERE target_id IS NOT NULL DO NOTHING`,
+    [actorWallet, activityType, targetId, JSON.stringify(metadata)],
+  )
+}
+
+/**
+ * Fetch the follow feed for `followerWallet`, newest first, with cursor pagination.
+ * Cursor is an `activity_events.id` — results have id < cursor. Paired with the
+ * (created_at DESC, id DESC) index so scan stays bounded.
+ */
+export async function getFollowFeed(
+  followerWallet: string,
+  opts: { limit?: number; cursorId?: string | null } = {},
+): Promise<ActivityRow[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50)
+  const cursorId = opts.cursorId ?? null
+
+  const params: (string | number | null)[] = [followerWallet, limit]
+  let cursorClause = ''
+  if (cursorId) {
+    params.push(cursorId)
+    cursorClause = ` AND ae.id < $3::bigint`
+  }
+
+  const result = await pool.query<ActivityRow>(
+    `SELECT
+       ae.id::text       AS id,
+       ae.actor_wallet,
+       up.username       AS actor_username,
+       up.pfp_emoji      AS actor_pfp_emoji,
+       ae.activity_type,
+       ae.target_id,
+       ae.metadata,
+       ae.created_at
+     FROM activity_events ae
+     LEFT JOIN user_profiles up ON up.wallet = ae.actor_wallet
+     WHERE ae.actor_wallet IN (
+       SELECT followee_wallet FROM user_follows WHERE follower_wallet = $1
+     )${cursorClause}
+     ORDER BY ae.id DESC
+     LIMIT $2`,
+    params,
+  )
+  return result.rows
+}
+
 export { pool }

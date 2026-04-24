@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { insertPolymarketTrade } from '@/lib/db'
+import { insertPolymarketTrade, recordActivity } from '@/lib/db'
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
 const RATE_LIMIT_MS = 1000
@@ -43,6 +43,16 @@ export async function POST(req: NextRequest) {
       txSignature,
       marketTitle ?? null,
     )
+
+    recordActivity(wallet, 'polymarket_trade', `poly_trade:${trade.id}`, {
+      eventId,
+      marketId,
+      marketTitle: marketTitle ?? null,
+      isYes,
+      isBuy: isBuy ?? true,
+      side,
+      amountUsd: String(amountUsd),
+    }).catch(err => console.error('Activity emit (polymarket):', err))
 
     return NextResponse.json({ success: true, tradeId: trade.id, newAchievements: [] })
   } catch (err) {

@@ -1,4 +1,4 @@
-import { unlockAchievement, insertPointEvent, getWeekStart } from './db'
+import { unlockAchievement, insertPointEvent, getWeekStart, recordActivity } from './db'
 
 // ── Achievement Definitions ─────────────────────────────
 
@@ -108,6 +108,14 @@ export async function tryUnlockAchievement(
   if (def.points > 0) {
     await insertPointEvent(wallet, 'achievement', def.points, `ach:${achievementId}:${getWeekStart()}`)
   }
+
+  // Feed activity — deduped per week via target_id so re-unlocks in new weeks still emit.
+  recordActivity(wallet, 'achievement_unlocked', `ach:${achievementId}:${getWeekStart()}`, {
+    achievementId: def.id,
+    emoji: def.emoji,
+    title: def.title,
+    points: def.points,
+  }).catch(err => console.error('Activity emit (achievement):', err))
 
   return def
 }
