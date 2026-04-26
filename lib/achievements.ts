@@ -92,21 +92,27 @@ export const ACHIEVEMENT_MAP = Object.fromEntries(
  * Try to unlock an achievement for a wallet.
  * Returns the achievement def if newly unlocked, or null if already had it.
  * Safe to call repeatedly — UNIQUE constraint deduplicates.
+ *
+ * `at` overrides the timestamp the achievement is recorded against — used when an
+ * unlock is derived from a market that ended in a prior week, so the achievement
+ * row, the bonus point event's ref_id, and its created_at all align to that week.
  */
 export async function tryUnlockAchievement(
   wallet: string,
   achievementId: string,
+  at?: Date,
 ): Promise<AchievementDef | null> {
   const def = ACHIEVEMENT_MAP[achievementId]
   if (!def) return null
 
-  const unlocked = await unlockAchievement(wallet, achievementId, def.points)
+  const week = getWeekStart(at)
+  const unlocked = await unlockAchievement(wallet, achievementId, def.points, week)
   if (!unlocked) return null
 
   // Award bonus points — ref_id includes week_start so the same achievement ID
   // can be awarded again in a new week without hitting the ON CONFLICT dedup.
   if (def.points > 0) {
-    await insertPointEvent(wallet, 'achievement', def.points, `ach:${achievementId}:${getWeekStart()}`)
+    await insertPointEvent(wallet, 'achievement', def.points, `ach:${achievementId}:${week}`, undefined, at)
   }
 
   return def
