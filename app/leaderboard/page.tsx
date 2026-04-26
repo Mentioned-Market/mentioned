@@ -54,7 +54,13 @@ function formatWeekRange(iso: string) {
   return `${start.toLocaleDateString(undefined, o)} – ${end.toLocaleDateString(undefined, o)}`
 }
 
-type PointsSortKey = 'weekly' | 'alltime'
+type PointsSortKey = 'this' | 'last' | 'alltime'
+
+const TABS: ReadonlyArray<readonly [PointsSortKey, string]> = [
+  ['this', 'This Week'],
+  ['last', 'Last Week'],
+  ['alltime', 'All Time'],
+] as const
 
 // ── Accent palette per rank ────────────────────────────────
 
@@ -131,7 +137,7 @@ function RankedRow({
   index: number
   maxPts: number
 }) {
-  const pts = sort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints
+  const pts = sort === 'alltime' ? entry.allTimePoints : entry.weeklyPoints
   const name = entry.username || truncateWallet(entry.wallet)
   const prize = PRIZES.find(p => p.place === rank)
   const a = ACCENTS[rank as keyof typeof ACCENTS]
@@ -222,8 +228,13 @@ function RankedRow({
 // ── User pinned row ────────────────────────────────────────
 
 function UserPinnedRow({ entry, sort }: { entry: PointsEntry | null; sort: PointsSortKey }) {
-  const pts = entry ? (sort === 'weekly' ? entry.weeklyPoints : entry.allTimePoints) : 0
+  const pts = entry ? (sort === 'alltime' ? entry.allTimePoints : entry.weeklyPoints) : 0
   const name = entry?.username || (entry ? truncateWallet(entry.wallet) : null)
+  const notRankedCopy = sort === 'last'
+    ? 'not ranked last week'
+    : sort === 'alltime'
+      ? 'not ranked yet'
+      : 'not ranked yet this week'
 
   return (
     <>
@@ -248,7 +259,7 @@ function UserPinnedRow({ entry, sort }: { entry: PointsEntry | null; sort: Point
           ) : (
             <span className="text-sm font-semibold" style={{ color: '#fb923c' }}>You</span>
           )}
-          <p className="text-[10px] text-neutral-700">not ranked yet this week</p>
+          <p className="text-[10px] text-neutral-700">{notRankedCopy}</p>
         </div>
         <span className="text-sm font-bold tabular-nums flex-shrink-0 text-neutral-600">
           {pts.toLocaleString()}
@@ -261,12 +272,14 @@ function UserPinnedRow({ entry, sort }: { entry: PointsEntry | null; sort: Point
 
 // ── Prize pool sidebar card ────────────────────────────────
 
-function PrizePoolCard({ weekStart }: { weekStart: string }) {
+function PrizePoolCard({ weekStart, isPast }: { weekStart: string; isPast?: boolean }) {
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm">🏆</span>
-        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Weekly Prize Pool</span>
+        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">
+          {isPast ? 'Last Week’s Prize Pool' : 'Weekly Prize Pool'}
+        </span>
       </div>
       <div className="flex flex-col gap-2">
         {PRIZES.map(p => (
@@ -355,7 +368,7 @@ export default function LeaderboardPage() {
   const [entries, setEntries] = useState<PointsEntry[]>([])
   const [weekStart, setWeekStart] = useState('')
   const [loading, setLoading] = useState(true)
-  const [sort, setSort] = useState<PointsSortKey>('weekly')
+  const [sort, setSort] = useState<PointsSortKey>('this')
   const [countdown, setCountdown] = useState('')
   const [userEntry, setUserEntry] = useState<PointsEntry | null>(null)
 
@@ -369,7 +382,13 @@ export default function LeaderboardPage() {
   useEffect(() => {
     let live = true
     setLoading(true)
-    const params = new URLSearchParams({ sort })
+    const params = new URLSearchParams()
+    if (sort === 'alltime') {
+      params.set('sort', 'alltime')
+    } else {
+      params.set('sort', 'weekly')
+      params.set('week', sort === 'last' ? 'last' : 'current')
+    }
     if (publicKey) params.set('wallet', publicKey)
     fetch(`/api/polymarket/leaderboard/points?${params}`)
       .then(r => r.json())
@@ -385,9 +404,15 @@ export default function LeaderboardPage() {
   }, [sort, publicKey])
 
   const maxPts = entries.length > 0
-    ? (sort === 'weekly' ? entries[0].weeklyPoints : entries[0].allTimePoints)
+    ? (sort === 'alltime' ? entries[0].allTimePoints : entries[0].weeklyPoints)
     : 0
   const youInTop = publicKey ? entries.some(e => e.wallet === publicKey) : false
+  const showCountdown = sort !== 'last'
+  const emptyCopy = sort === 'last'
+    ? 'No points were earned last week'
+    : sort === 'alltime'
+      ? 'No points earned yet'
+      : 'No points earned yet this week'
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -422,17 +447,28 @@ export default function LeaderboardPage() {
                 </InfoTooltip>
               </div>
 
-              {/* Countdown pill */}
+              {/* Countdown pill (current/all-time) or "Week of …" pill (last week) */}
               <div
                 className="flex items-center gap-3 px-4 py-2.5 rounded-2xl self-start sm:self-auto"
                 style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.15)' }}
                 suppressHydrationWarning
               >
                 <div className="flex flex-col items-start">
-                  <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-0.5">Resets in</span>
-                  <span className="text-xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
-                    {countdown}
-                  </span>
+                  {showCountdown ? (
+                    <>
+                      <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-0.5">Resets in</span>
+                      <span className="text-xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
+                        {countdown}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-0.5">Week of</span>
+                      <span className="text-xl font-black leading-none" style={{ color: '#F2B71F' }}>
+                        {weekStart ? formatWeekRange(weekStart) : '—'}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -447,11 +483,11 @@ export default function LeaderboardPage() {
                 <div className="flex items-center justify-between mb-5">
                   <span className="text-xs font-medium text-neutral-600 uppercase tracking-widest">Rankings</span>
                   <div className="flex items-center gap-0.5 p-0.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    {([['weekly', 'This Week'], ['alltime', 'All Time']] as const).map(([k, lbl]) => (
+                    {TABS.map(([k, lbl]) => (
                       <button
                         key={k}
                         onClick={() => setSort(k)}
-                        className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
+                        className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 whitespace-nowrap"
                         style={sort === k
                           ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }
                           : { color: '#6b7280' }
@@ -469,10 +505,12 @@ export default function LeaderboardPage() {
                 {/* Empty */}
                 {!loading && entries.length === 0 && (
                   <div className="flex flex-col items-center py-20 gap-3">
-                    <p className="text-neutral-500 text-sm">No points earned yet this week</p>
-                    <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
-                      Start trading to earn points
-                    </Link>
+                    <p className="text-neutral-500 text-sm">{emptyCopy}</p>
+                    {sort !== 'last' && (
+                      <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
+                        Start trading to earn points
+                      </Link>
+                    )}
                   </div>
                 )}
 
@@ -518,7 +556,7 @@ export default function LeaderboardPage() {
 
               {/* ── Sidebar ────────────────────────────────── */}
               <div className="w-full lg:w-72 flex-shrink-0 flex flex-col gap-4 animate-fade-in" style={{ animationDelay: '160ms', animationFillMode: 'both' }}>
-                <PrizePoolCard weekStart={weekStart} />
+                <PrizePoolCard weekStart={weekStart} isPast={sort === 'last'} />
                 <HowToEarnCard />
               </div>
             </div>

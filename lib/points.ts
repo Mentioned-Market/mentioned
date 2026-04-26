@@ -12,12 +12,12 @@ export type PointAction = keyof typeof POINT_CONFIG
 
 // ── Helpers ──────────────────────────────────────────────
 
-export function getWeekStart(): Date {
-  const now = new Date()
-  const day = now.getUTCDay() // 0=Sun, 1=Mon
+export function getWeekStart(at?: Date): Date {
+  const ref = at ?? new Date()
+  const day = ref.getUTCDay() // 0=Sun, 1=Mon
   const diff = day === 0 ? 6 : day - 1
-  const monday = new Date(now)
-  monday.setUTCDate(now.getUTCDate() - diff)
+  const monday = new Date(ref)
+  monday.setUTCDate(ref.getUTCDate() - diff)
   monday.setUTCHours(0, 0, 0, 0)
   return monday
 }
