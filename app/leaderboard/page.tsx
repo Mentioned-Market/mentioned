@@ -317,26 +317,25 @@ function PrizePoolCard({ weekStart, isPast }: { weekStart: string; isPast?: bool
 // ── How to earn sidebar card ───────────────────────────────
 
 function HowToEarnCard() {
-  const actions = [
-    { emoji: '🎯', label: 'Place a trade', pts: '+10' },
-    { emoji: '💬', label: 'Chat message', pts: '+2' },
-    { emoji: '🤝', label: 'Refer a friend', pts: '+150' },
-  ]
-
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm">⭐</span>
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">How to earn</span>
       </div>
-      <div className="flex flex-col gap-2">
-        {actions.map(a => (
-          <div key={a.label} className="flex items-center gap-2.5">
-            <span className="text-sm w-5 flex-shrink-0 text-center">{a.emoji}</span>
-            <span className="text-xs text-neutral-500 flex-1">{a.label}</span>
-            <span className="text-xs font-bold" style={{ color: '#F2B71F' }}>{a.pts}</span>
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-start gap-2.5">
+          <span className="text-sm w-5 flex-shrink-0 text-center mt-0.5">🎯</span>
+          <div className="flex-1">
+            <p className="text-xs text-neutral-300">Win a trade</p>
+            <p className="text-[11px] text-neutral-600 leading-snug">Points for every trade placed &amp; won</p>
           </div>
-        ))}
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm w-5 flex-shrink-0 text-center">💬</span>
+          <span className="text-xs text-neutral-500 flex-1">Chat message</span>
+          <span className="text-xs font-bold" style={{ color: '#F2B71F' }}>+2</span>
+        </div>
       </div>
 
       {/* Achievements callout */}
