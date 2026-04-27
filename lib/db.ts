@@ -407,6 +407,17 @@ export async function getWalletByDiscordId(discordId: string): Promise<string | 
   return result.rows[0]?.wallet || null
 }
 
+/**
+ * Get the Discord ID for a wallet (if linked). Used for account-age checks.
+ */
+export async function getDiscordIdByWallet(wallet: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0]?.discord_id || null
+}
+
 // ── Referrals ─────────────────────────────────────────
 
 /**
