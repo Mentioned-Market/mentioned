@@ -9,6 +9,7 @@ import {
   getAddressEncoder,
   createSolanaRpc,
   devnet,
+  mainnet,
   pipe,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
@@ -998,9 +999,12 @@ export function lmsrSellReturn(
 
 export async function sendIxs(
   signer: TransactionSendingSigner,
-  instructions: Instruction[]
+  instructions: Instruction[],
+  rpcEndpoint?: string
 ): Promise<void> {
-  const rpc = createRpc()
+  const rpc = rpcEndpoint
+    ? createSolanaRpc(mainnet(rpcEndpoint))
+    : createRpc()
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send()
 
   const txMsg = pipe(
