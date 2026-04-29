@@ -209,7 +209,7 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
       ? (usdcBalance ?? 0)
       : (jupUsdBalance ?? 0)
 
-  const maxSol = Math.max(0, solBalance - 0.001)
+  const maxSol = solBalance
   const maxToken = selectedToken === 'SOL' ? maxSol : tokenBalance
 
   const handleCopy = async () => {
@@ -238,11 +238,7 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
       return
     }
     if (qty > maxToken) {
-      setError(
-        selectedToken === 'SOL'
-          ? 'Insufficient SOL balance (keeping 0.001 SOL for fees)'
-          : `Insufficient ${selectedToken} balance`,
-      )
+      setError(`Insufficient ${selectedToken} balance`)
       return
     }
 
@@ -265,7 +261,7 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
         ixs.push(buildSplTransferIx(sourceAta, destAta, publicKey, rawAmount))
       }
 
-      await sendIxs(signer, ixs)
+      await sendIxs(signer, ixs, MAINNET_URL)
       await fetchTokenBalances()
 
       setSuccess(`Sent ${qty} ${selectedToken} successfully`)
