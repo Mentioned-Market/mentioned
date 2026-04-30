@@ -1,6 +1,16 @@
 import { NextRequest } from 'next/server'
 import { linkDiscord, getWalletByDiscordId, getWalletByReferralCode, applyReferral, backfillAchievementPoints } from '@/lib/db'
 import { verifyDiscordState } from '@/lib/walletAuth'
+import { tryUnlockAchievement } from '@/lib/achievements'
+
+/** Minimum Discord account age (days) required for a referral to count toward achievements. */
+const REFERRAL_MIN_DISCORD_AGE_DAYS = 30
+
+/** Extract account creation date from a Discord snowflake ID. */
+function discordAccountAge(discordId: string): number {
+  const createdAt = new Date(Number(BigInt(discordId) >> 22n) + 1420070400000)
+  return (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24) // days
+}
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET!
@@ -140,7 +150,19 @@ export async function GET(req: NextRequest) {
       try {
         const referrerWallet = await getWalletByReferralCode(refCode)
         if (referrerWallet) {
-          await applyReferral(wallet, referrerWallet)
+          const applied = await applyReferral(wallet, referrerWallet)
+          // Only award the achievement if the referee's Discord account is old enough
+          // (prevents sybil attacks with freshly-created Discord accounts)
+          if (applied) {
+            const ageDays = discordAccountAge(discordId)
+            if (ageDays >= REFERRAL_MIN_DISCORD_AGE_DAYS) {
+              tryUnlockAchievement(referrerWallet, 'refer_friend').catch(err =>
+                console.error('Achievement error (referral via Discord):', err)
+              )
+            } else {
+              console.log(`Referral applied for ${wallet} but Discord account too new (${ageDays.toFixed(1)} days) — skipping achievement for referrer ${referrerWallet}`)
+            }
+          }
         }
       } catch (err) {
         console.error('Referral apply error:', err)

@@ -407,6 +407,17 @@ export async function getWalletByDiscordId(discordId: string): Promise<string | 
   return result.rows[0]?.wallet || null
 }
 
+/**
+ * Get the Discord ID for a wallet (if linked). Used for account-age checks.
+ */
+export async function getDiscordIdByWallet(wallet: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0]?.discord_id || null
+}
+
 // ── Referrals ─────────────────────────────────────────
 
 /**
@@ -804,6 +815,10 @@ const REFERRAL_BONUS_RATE = 0.05 // 5% mutual bonus
  * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
  * Points are only awarded to wallets with a linked Discord account.
  * Also awards 10% referral bonus to both referrer and referred if a relationship exists.
+ *
+ * `createdAt` overrides the row's timestamp — used for backdating market-resolution
+ * payouts to the market's lock_time so they land in the correct weekly bucket.
+ * Defaults to NOW() in the DB. Propagates to derived referral bonuses so they share the same week.
  */
 export async function insertPointEvent(
   wallet: string,
@@ -811,16 +826,18 @@ export async function insertPointEvent(
   points: number,
   refId?: string,
   metadata?: Record<string, unknown>,
+  createdAt?: Date,
 ): Promise<number | null> {
   const discordLinked = await hasDiscordLinked(wallet)
   if (!discordLinked) return null
 
+  const createdAtIso = createdAt ? createdAt.toISOString() : null
   const result = await pool.query(
-    `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO point_events (wallet, action, points, ref_id, metadata, created_at)
+     VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, NOW()))
      ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING
      RETURNING points`,
-    [wallet, action, points, refId ?? null, metadata ? JSON.stringify(metadata) : null],
+    [wallet, action, points, refId ?? null, metadata ? JSON.stringify(metadata) : null, createdAtIso],
   )
   const awarded = result.rows[0]?.points ?? null
   if (awarded === null || awarded === 0) return awarded
@@ -836,24 +853,25 @@ export async function insertPointEvent(
   const referrer = await getReferrer(wallet)
   if (referrer) {
     await pool.query(
-      `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
-       VALUES ($1, 'referral_bonus', $2, $3, $4)
+      `INSERT INTO point_events (wallet, action, points, ref_id, metadata, created_at)
+       VALUES ($1, 'referral_bonus', $2, $3, $4, COALESCE($5::timestamptz, NOW()))
        ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
       [referrer, bonus, `ref:${wallet}:${action}:${refId ?? '_'}`,
-       JSON.stringify({ fromWallet: wallet, originalAction: action })],
+       JSON.stringify({ fromWallet: wallet, originalAction: action }),
+       createdAtIso],
     )
   }
 
   // If this wallet referred others → each referred user gets 10%
   await pool.query(
-    `INSERT INTO point_events (wallet, action, points, ref_id, metadata)
-     SELECT up.wallet, 'referral_bonus', $1, $2, $3
+    `INSERT INTO point_events (wallet, action, points, ref_id, metadata, created_at)
+     SELECT up.wallet, 'referral_bonus', $1, $2, $3, COALESCE($5::timestamptz, NOW())
      FROM user_profiles up
      WHERE up.referred_by = $4
      ON CONFLICT (wallet, action, ref_id) WHERE ref_id IS NOT NULL DO NOTHING`,
     [bonus, `ref:${wallet}:${action}:${refId ?? '_'}`,
      JSON.stringify({ fromWallet: wallet, originalAction: action }),
-     wallet],
+     wallet, createdAtIso],
   )
 
   return awarded
@@ -907,52 +925,64 @@ export async function getWalletPointHistory(wallet: string): Promise<{ points: n
   return result.rows
 }
 
+/**
+ * Aggregate point totals for a list of wallets (single query, no N+1).
+ * `weekEnd` is exclusive — pass null/undefined for the open-ended current week.
+ * Pass an explicit `weekEnd` to query a closed historical range (e.g. last week).
+ */
 export async function getBulkPointTotals(
   wallets: string[],
   weekStart: Date,
+  weekEnd?: Date | null,
 ): Promise<PointTotalsRow[]> {
   if (wallets.length === 0) return []
+  const endIso = weekEnd ? weekEnd.toISOString() : null
   const result = await pool.query(
     `SELECT
        wallet,
        COALESCE(SUM(points), 0)::int AS all_time,
-       COALESCE(SUM(points) FILTER (WHERE created_at >= $2), 0)::int AS weekly,
+       COALESCE(SUM(points) FILTER (
+         WHERE created_at >= $2
+           AND ($3::timestamptz IS NULL OR created_at < $3)
+       ), 0)::int AS weekly,
        COALESCE(COUNT(*) FILTER (WHERE action = 'chat_message'), 0)::int AS chat_count
      FROM point_events
      WHERE wallet = ANY($1)
      GROUP BY wallet`,
-    [wallets, weekStart.toISOString()],
+    [wallets, weekStart.toISOString(), endIso],
   )
   return result.rows
 }
 
 // ── Achievements ─────────────────────────────────────
 
-/** Returns the ISO Monday of the current UTC week as a YYYY-MM-DD string. */
-export function getWeekStart(): string {
-  const now = new Date()
-  const day = now.getUTCDay() // 0=Sun, 1=Mon, ...
+/** Returns the ISO Monday of the UTC week containing `at` (default: now) as a YYYY-MM-DD string. */
+export function getWeekStart(at?: Date): string {
+  const ref = at ?? new Date()
+  const day = ref.getUTCDay() // 0=Sun, 1=Mon, ...
   const diff = (day === 0 ? -6 : 1 - day) // days to subtract to get to Monday
-  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff))
+  const monday = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate() + diff))
   return monday.toISOString().slice(0, 10)
 }
 
 /**
- * Insert an achievement unlock for the current week.
- * Returns true if newly inserted (not a dupe for this week).
+ * Insert an achievement unlock. Returns true if newly inserted (not a dupe for the week).
+ * `weekStart` (YYYY-MM-DD) defaults to the current UTC week — pass an explicit value
+ * when backdating an unlock derived from a market that ended in a prior week.
  */
 export async function unlockAchievement(
   wallet: string,
   achievementId: string,
   points: number,
+  weekStart?: string,
 ): Promise<boolean> {
-  const weekStart = getWeekStart()
+  const week = weekStart ?? getWeekStart()
   const result = await pool.query(
     `INSERT INTO user_achievements (wallet, achievement_id, points_awarded, week_start)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (wallet, achievement_id, week_start) DO NOTHING
      RETURNING id`,
-    [wallet, achievementId, points, weekStart],
+    [wallet, achievementId, points, week],
   )
   return (result.rowCount ?? 0) > 0
 }

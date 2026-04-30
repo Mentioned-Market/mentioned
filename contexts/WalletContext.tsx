@@ -29,7 +29,8 @@ import { setPrivySolanaProvider } from '@/lib/walletUtils'
 
 const MAINNET_URL =
   process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
-const SOLANA_CHAIN = 'solana:mainnet-beta'
+const SOLANA_CHAIN = 'solana:mainnet-beta'       // Wallet Standard (Phantom)
+const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
 const RPC_SEND_PROXY = '/api/rpc/send'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
@@ -476,7 +477,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           const result = await privySignAndSendRef.current({
             transaction: txBytes,
             wallet: privyWalletRef.current,
-            chain: SOLANA_CHAIN as any,
+            chain: PRIVY_SOLANA_CHAIN as any,
           })
           results.push(result.signature)
         }
