@@ -6,6 +6,7 @@ import {
   getWalletByReferralCode,
   applyReferral,
   getReferrer,
+  getDiscordIdByWallet,
 } from '@/lib/db'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
@@ -78,10 +79,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to apply referral' }, { status: 409 })
   }
 
-  // Award "refer a friend" achievement to the referrer (fire-and-forget)
-  tryUnlockAchievement(referrerWallet, 'refer_friend').catch(err =>
-    console.error('Achievement error (referral):', err)
-  )
+  // Award "refer a friend" achievement to the referrer only if the referee's
+  // Discord account is old enough (prevents sybil attacks with fresh accounts).
+  // If Discord isn't linked yet, skip for now — the Discord callback will
+  // award the achievement once they link with an account of sufficient age.
+  const REFERRAL_MIN_DISCORD_AGE_DAYS = 30
+  const refereeDiscordId = await getDiscordIdByWallet(wallet)
+  let achievementEligible = false
+  if (refereeDiscordId) {
+    const createdAt = new Date(Number(BigInt(refereeDiscordId) >> 22n) + 1420070400000)
+    const ageDays = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+    achievementEligible = ageDays >= REFERRAL_MIN_DISCORD_AGE_DAYS
+  }
+
+  if (achievementEligible) {
+    tryUnlockAchievement(referrerWallet, 'refer_friend').catch(err =>
+      console.error('Achievement error (referral):', err)
+    )
+  }
 
   return NextResponse.json({ success: true, referredBy: referrerWallet })
 }
