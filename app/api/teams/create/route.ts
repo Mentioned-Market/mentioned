@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createTeam } from '@/lib/db'
 
+function isValidWallet(w: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w)
+}
+
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
+
 export async function POST(req: NextRequest) {
   try {
     const { name, wallet } = await req.json()
@@ -8,8 +15,11 @@ export async function POST(req: NextRequest) {
     if (!name || typeof name !== 'string' || !wallet || typeof wallet !== 'string') {
       return NextResponse.json({ error: 'name and wallet are required' }, { status: 400 })
     }
+    if (!isValidWallet(wallet)) {
+      return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
+    }
 
-    const trimmed = name.trim()
+    const trimmed = name.replace(CONTROL_CHARS, '').trim()
     if (trimmed.length < 2 || trimmed.length > 30) {
       return NextResponse.json({ error: 'Team name must be 2–30 characters' }, { status: 400 })
     }

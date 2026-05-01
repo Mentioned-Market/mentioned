@@ -51,12 +51,20 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     description: 'Win a free market trade',
     points: 100,
   },
+  // refer_friend hidden during Arena comp (May 4–May 18 2026) — kept for future use
+  // {
+  //   id: 'refer_friend',
+  //   emoji: '🤝',
+  //   title: 'Bring a Friend',
+  //   description: 'Refer a new user to Mentioned',
+  //   points: 100,
+  // },
   {
-    id: 'refer_friend',
-    emoji: '🤝',
-    title: 'Bring a Friend',
-    description: 'Refer a new user to Mentioned',
-    points: 100,
+    id: 'market_sweep',
+    emoji: '🌊',
+    title: 'Market Sweep',
+    description: 'Your team trades on 5+ different markets this week',
+    points: 150,
   },
   // Daily login streak — tiered, stacking
   {

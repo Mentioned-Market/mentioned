@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { joinTeam } from '@/lib/db'
 
+function isValidWallet(w: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w)
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { code, wallet } = await req.json()
 
     if (!code || typeof code !== 'string' || !wallet || typeof wallet !== 'string') {
       return NextResponse.json({ error: 'code and wallet are required' }, { status: 400 })
+    }
+    if (!isValidWallet(wallet)) {
+      return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
+    }
+    // Join codes are exactly 6 alphanumeric characters
+    if (!/^[A-Z0-9]{6}$/.test(code.trim().toUpperCase())) {
+      return NextResponse.json({ error: 'Invalid join code format' }, { status: 400 })
     }
 
     const team = await joinTeam(code.trim(), wallet)

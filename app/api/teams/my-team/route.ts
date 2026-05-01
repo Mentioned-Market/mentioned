@@ -7,6 +7,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const team = await getTeamByWallet(wallet)
+    if (team && team.role !== 'captain') {
+      const { join_code, ...teamPublic } = team
+      void join_code
+      return NextResponse.json({ team: teamPublic })
+    }
     return NextResponse.json({ team })
   } catch (err) {
     console.error('My team error:', err)
