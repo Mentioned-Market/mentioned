@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked, countTeamDistinctMarketsThisWeek } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
@@ -138,6 +138,16 @@ export async function POST(
       if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
     } catch (err) {
       console.error('Achievement error (custom trade):', err)
+    }
+    // Market Sweep — check if team has now traded on 5+ distinct markets this week
+    try {
+      const distinctCount = await countTeamDistinctMarketsThisWeek(wallet)
+      if (distinctCount >= 5) {
+        const ach = await tryUnlockAchievement(wallet, 'market_sweep')
+        if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+      }
+    } catch (err) {
+      console.error('Achievement error (market_sweep):', err)
     }
 
     return NextResponse.json({

@@ -28,6 +28,8 @@ interface TeamData {
     join_code: string
     created_by: string
     created_at: string
+    bio: string | null
+    x_url: string | null
   }
   members: TeamMember[]
   weeklyTotal: number
@@ -85,7 +87,8 @@ export default function TeamProfilePage() {
   useEffect(() => {
     if (!teamSlug) return
     setLoading(true)
-    fetch(`/api/teams/${teamSlug}`)
+    const qs = publicKey ? `?wallet=${publicKey}` : ''
+    fetch(`/api/teams/${teamSlug}${qs}`)
       .then(r => {
         if (r.status === 404) { setNotFound(true); return null }
         return r.json()
@@ -93,7 +96,7 @@ export default function TeamProfilePage() {
       .then(j => { if (j) setData(j) })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [teamSlug])
+  }, [teamSlug, publicKey])
 
   function copyCode() {
     if (!data) return
@@ -114,6 +117,89 @@ export default function TeamProfilePage() {
   const isMember = publicKey ? data?.members.some(m => m.wallet === publicKey) : false
   const myRole = data?.members.find(m => m.wallet === publicKey)?.role
   const isCaptain = myRole === 'captain'
+
+  // Name editing
+  const [editingName, setEditingName] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+  const [nameError, setNameError] = useState('')
+
+  async function handleSaveName() {
+    if (!publicKey || !data) return
+    setNameError('')
+    setNameSaving(true)
+    try {
+      const res = await fetch(`/api/teams/${teamSlug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey, name: nameInput }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setNameError(json.error ?? 'Failed to save'); return }
+      setData(d => d ? { ...d, team: { ...d.team, name: nameInput.trim() } } : d)
+      setEditingName(false)
+    } catch {
+      setNameError('Something went wrong')
+    } finally {
+      setNameSaving(false)
+    }
+  }
+
+  // Bio editing
+  const [editingBio, setEditingBio] = useState(false)
+  const [bioInput, setBioInput] = useState('')
+  const [bioSaving, setBioSaving] = useState(false)
+  const [bioError, setBioError] = useState('')
+
+  async function handleSaveBio() {
+    if (!publicKey || !data) return
+    setBioError('')
+    setBioSaving(true)
+    try {
+      const res = await fetch(`/api/teams/${teamSlug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey, bio: bioInput }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setBioError(json.error ?? 'Failed to save'); return }
+      setData(d => d ? { ...d, team: { ...d.team, bio: bioInput.trim() || null } } : d)
+      setEditingBio(false)
+    } catch {
+      setBioError('Something went wrong')
+    } finally {
+      setBioSaving(false)
+    }
+  }
+
+  // X link editing
+  const [editingX, setEditingX] = useState(false)
+  const [xInput, setXInput] = useState('')
+  const [xSaving, setXSaving] = useState(false)
+  const [xError, setXError] = useState('')
+
+  async function handleSaveX() {
+    if (!publicKey || !data) return
+    setXError('')
+    setXSaving(true)
+    try {
+      const res = await fetch(`/api/teams/${teamSlug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey, x_url: xInput.trim() }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setXError(json.error ?? 'Failed to save'); return }
+      // Store normalised handle returned from server by re-fetching, or derive locally
+      const handle = xInput.trim().replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//i, '').replace(/^@/, '').split('/')[0].split('?')[0]
+      setData(d => d ? { ...d, team: { ...d.team, x_url: handle || null } } : d)
+      setEditingX(false)
+    } catch {
+      setXError('Something went wrong')
+    } finally {
+      setXSaving(false)
+    }
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -171,7 +257,7 @@ export default function TeamProfilePage() {
 
             {/* Back */}
             <Link
-              href="/teams"
+              href="/arena"
               className="flex items-center gap-1.5 text-neutral-600 hover:text-neutral-400 text-xs font-medium transition-colors mb-6 w-fit"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -185,7 +271,7 @@ export default function TeamProfilePage() {
             {!loading && notFound && (
               <div className="flex flex-col items-center py-32 gap-3">
                 <p className="text-neutral-500 text-sm">Team not found</p>
-                <Link href="/teams" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>Back to teams</Link>
+                <Link href="/arena" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>Back to teams</Link>
               </div>
             )}
 
@@ -233,8 +319,42 @@ export default function TeamProfilePage() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">{data.team.name}</h1>
-                        <p className="text-neutral-600 text-xs mt-0.5">
+                        {editingName ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={nameInput}
+                              onChange={e => setNameInput(e.target.value)}
+                              maxLength={30}
+                              autoFocus
+                              className="text-2xl font-black tracking-tight text-white bg-transparent border-b border-[#F2B71F]/50 outline-none flex-1 min-w-0"
+                              onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') setEditingName(false) }}
+                            />
+                            <button
+                              onClick={handleSaveName}
+                              disabled={nameSaving || nameInput.trim().length < 2}
+                              className="text-xs font-semibold px-3 py-1 rounded-lg disabled:opacity-40"
+                              style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }}
+                            >
+                              {nameSaving ? '...' : 'Save'}
+                            </button>
+                            <button onClick={() => setEditingName(false)} className="text-xs text-neutral-600 hover:text-white transition-colors">Cancel</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 group/name">
+                            <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">{data.team.name}</h1>
+                            {isCaptain && (
+                              <button
+                                onClick={() => { setNameInput(data.team.name); setNameError(''); setEditingName(true) }}
+                                className="opacity-0 group-hover/name:opacity-100 transition-opacity text-neutral-600 hover:text-neutral-400"
+                                title="Edit team name"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {nameError && <p className="text-xs text-red-400 mt-1">{nameError}</p>}
+                        <p className="text-neutral-400 text-xs mt-0.5">
                           {data.members.length} {data.members.length === 1 ? 'member' : 'members'} &middot; since {new Date(data.team.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                         </p>
                       </div>
@@ -271,15 +391,141 @@ export default function TeamProfilePage() {
                       </div>
                     )}
                     {!pfpPreview && pfpError && <p className="text-xs text-red-400 mt-2">{pfpError}</p>}
-                    {isCaptain && !pfpPreview && (
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="mt-2 text-[11px] text-neutral-600 hover:text-neutral-400 transition-colors"
-                      >
-                        + Set team photo
-                      </button>
-                    )}
                   </div>
+
+                  {/* Bio + X link grouped */}
+                  <div className="flex flex-col gap-2 mb-6">
+
+                  {/* Bio section */}
+                  <div>
+                    {editingBio ? (
+                      <div>
+                        <textarea
+                          value={bioInput}
+                          onChange={e => setBioInput(e.target.value.slice(0, 300))}
+                          autoFocus
+                          rows={3}
+                          placeholder="Tell people about your team — links, socials, anything..."
+                          className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 outline-none focus:ring-1 focus:ring-[#F2B71F]/40 resize-none"
+                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                        />
+                        <div className="flex items-center gap-2 mt-2">
+                          <button
+                            onClick={handleSaveBio}
+                            disabled={bioSaving}
+                            className="px-4 py-1.5 rounded-xl text-xs font-semibold disabled:opacity-40"
+                            style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+                          >
+                            {bioSaving ? 'Saving...' : 'Save'}
+                          </button>
+                          <button onClick={() => setEditingBio(false)} className="text-xs text-neutral-600 hover:text-white transition-colors">Cancel</button>
+                          <span className="ml-auto text-[10px] text-neutral-700">{bioInput.length}/300</span>
+                        </div>
+                        {bioError && <p className="text-xs text-red-400 mt-1">{bioError}</p>}
+                      </div>
+                    ) : data.team.bio ? (
+                      <div className="group/bio flex items-start gap-2">
+                        <p className="text-neutral-400 text-sm leading-relaxed flex-1 whitespace-pre-wrap break-words">{data.team.bio}</p>
+                        {isCaptain && (
+                          <button
+                            onClick={() => { setBioInput(data.team.bio ?? ''); setBioError(''); setEditingBio(true) }}
+                            className="opacity-0 group-hover/bio:opacity-100 transition-opacity text-neutral-600 hover:text-neutral-400 flex-shrink-0 mt-0.5"
+                            title="Edit bio"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                        )}
+                      </div>
+                    ) : isCaptain ? (
+                      <button
+                        onClick={() => { setBioInput(''); setBioError(''); setEditingBio(true) }}
+                        className="text-xs text-neutral-400 hover:text-white transition-colors"
+                      >
+                        + Add a team bio
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {/* X link */}
+                  <div>
+                    {editingX ? (
+                      <div>
+                        <div className="flex items-center gap-2 rounded-xl px-4 py-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                          <span className="text-neutral-600 text-sm">@</span>
+                          <input
+                            value={xInput}
+                            onChange={e => setXInput(e.target.value)}
+                            maxLength={15}
+                            autoFocus
+                            placeholder="username"
+                            className="flex-1 bg-transparent text-sm text-white placeholder-neutral-600 outline-none"
+                            onKeyDown={e => { if (e.key === 'Enter') handleSaveX(); if (e.key === 'Escape') setEditingX(false) }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <button
+                            onClick={handleSaveX}
+                            disabled={xSaving}
+                            className="px-4 py-1.5 rounded-xl text-xs font-semibold disabled:opacity-40"
+                            style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+                          >
+                            {xSaving ? 'Saving...' : 'Save'}
+                          </button>
+                          <button onClick={() => setEditingX(false)} className="text-xs text-neutral-600 hover:text-white transition-colors">Cancel</button>
+                          {data.team.x_url && (
+                            <button
+                              onClick={async () => {
+                                setXSaving(true)
+                                setXError('')
+                                try {
+                                  const res = await fetch(`/api/teams/${teamSlug}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ wallet: publicKey, x_url: '' }),
+                                  })
+                                  if (res.ok) { setData(d => d ? { ...d, team: { ...d.team, x_url: null } } : d); setEditingX(false) }
+                                } finally { setXSaving(false) }
+                              }}
+                              className="text-xs text-neutral-700 hover:text-red-400 transition-colors ml-auto"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                        {xError && <p className="text-xs text-red-400 mt-1">{xError}</p>}
+                      </div>
+                    ) : data.team.x_url ? (
+                      <div className="group/x flex items-center gap-2">
+                        <a
+                          href={`https://x.com/${data.team.x_url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-sm text-neutral-400 hover:text-white transition-colors"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                          @{data.team.x_url}
+                        </a>
+                        {isCaptain && (
+                          <button
+                            onClick={() => { setXInput(data.team.x_url ?? ''); setXError(''); setEditingX(true) }}
+                            className="opacity-0 group-hover/x:opacity-100 transition-opacity text-neutral-600 hover:text-neutral-400"
+                            title="Edit X link"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                        )}
+                      </div>
+                    ) : isCaptain ? (
+                      <button
+                        onClick={() => { setXInput(''); setXError(''); setEditingX(true) }}
+                        className="text-xs text-neutral-400 hover:text-white transition-colors"
+                      >
+                        + Add X account
+                      </button>
+                    ) : null}
+                  </div>
+
+                  </div>{/* end bio+x group */}
 
                   {/* Stat cards */}
                   <div className="grid grid-cols-2 gap-3 mb-8">
@@ -388,7 +634,8 @@ export default function TeamProfilePage() {
                 {/* Sidebar */}
                 <div className="w-full lg:w-72 flex-shrink-0 flex flex-col gap-4 animate-fade-in" style={{ animationDelay: '120ms', animationFillMode: 'both' }}>
 
-                  {/* Join code card */}
+                  {/* Join code card — only visible to captain */}
+                  {isCaptain && data.team.join_code && (
                   <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-sm">🔑</span>
@@ -402,17 +649,11 @@ export default function TeamProfilePage() {
                       <span className="font-mono text-xl font-black tracking-widest text-white flex-1 text-left">{data.team.join_code}</span>
                       <span className="text-xs text-neutral-500 flex-shrink-0">{copied ? 'Copied!' : 'Copy'}</span>
                     </button>
-                    {!isMember && (
-                      <p className="text-[10px] text-neutral-600 leading-relaxed">
-                        Share this code with friends so they can join your team on the <Link href="/teams" className="underline hover:text-neutral-400">teams page</Link>.
-                      </p>
-                    )}
-                    {isMember && (
-                      <p className="text-[10px] text-neutral-600 leading-relaxed">
-                        You&apos;re {myRole === 'captain' ? 'the captain' : 'a member'} of this team. Share the code to recruit more teammates.
-                      </p>
-                    )}
+                    <p className="text-[10px] text-neutral-600 leading-relaxed">
+                      Share this code with friends so they can join your team on the <Link href="/arena" className="underline hover:text-neutral-400">Arena</Link>.
+                    </p>
                   </div>
+                  )}
 
                   {/* Quick stats */}
                   <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -444,7 +685,7 @@ export default function TeamProfilePage() {
                   </div>
 
                   <Link
-                    href="/teams"
+                    href="/arena"
                     className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
                     style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
                   >

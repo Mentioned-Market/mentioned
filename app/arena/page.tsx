@@ -42,13 +42,22 @@ function formatCountdown(ms: number): string {
 }
 
 const TEAM_PRIZES = [
-  { place: 1, amount: '$300', pct: '50%' },
-  { place: 2, amount: '$180', pct: '30%' },
-  { place: 3, amount: '$120', pct: '20%' },
+  { place: 1, amount: '$600', pct: '60%' },
+  { place: 2, amount: '$300', pct: '30%' },
+  { place: 3, amount: '$100', pct: '10%' },
 ]
 
-function getMsUntilCompEnd(): number {
-  return new Date('2026-05-18T00:00:00.000Z').getTime() - Date.now()
+// May 4 00:00 BST = May 3 23:00 UTC
+const COMP_OPEN = new Date('2026-05-03T23:00:00.000Z')
+// May 18 00:00 BST = May 17 23:00 UTC
+const COMP_CLOSE = new Date('2026-05-17T23:00:00.000Z')
+
+function getCountdownState(): { label: string; ms: number } {
+  const now = Date.now()
+  if (now < COMP_OPEN.getTime()) {
+    return { label: 'Arena opens in', ms: COMP_OPEN.getTime() - now }
+  }
+  return { label: 'Arena ends in', ms: COMP_CLOSE.getTime() - now }
 }
 
 const ACCENTS = {
@@ -105,7 +114,7 @@ function TeamRow({
 
   return (
     <Link
-      href={`/teams/${entry.team_slug}`}
+      href={`/arena/${entry.team_slug}`}
       className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 hover:bg-white/[0.04]"
       style={{
         background: isYourTeam ? 'rgba(242,183,31,0.04)' : isTop3 ? a.bg : index % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent',
@@ -202,9 +211,9 @@ function CreateTeamModal({
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [confirming, setConfirming] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleCreate() {
     setError('')
     setLoading(true)
     try {
@@ -214,10 +223,11 @@ function CreateTeamModal({
         body: JSON.stringify({ name: name.trim(), wallet }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Failed to create team'); return }
+      if (!res.ok) { setError(data.error ?? 'Failed to create team'); setConfirming(false); return }
       onCreated({ ...data.team, role: 'captain' })
     } catch {
       setError('Something went wrong')
+      setConfirming(false)
     } finally {
       setLoading(false)
     }
@@ -230,44 +240,78 @@ function CreateTeamModal({
         style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.1)' }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold text-white mb-1">Create a team</h2>
-        <p className="text-neutral-500 text-xs mb-3">Pick a name. You&apos;ll get a shareable join code to send to teammates.</p>
-        <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
-          <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
-            Discord must be linked and your account must be at least 30 days old to enter the Arena.
-          </p>
-        </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input
-            type="text"
-            placeholder="Team name"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            maxLength={30}
-            className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 outline-none focus:ring-1 focus:ring-[#F2B71F]/40"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-            autoFocus
-          />
-          {error && <p className="text-xs text-red-400">{error}</p>}
-          <div className="flex gap-2 mt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || name.trim().length < 2}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
-              style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
-            >
-              {loading ? '...' : 'Create'}
-            </button>
-          </div>
-        </form>
+        {!confirming ? (
+          <>
+            <h2 className="text-lg font-bold text-white mb-1">Create a team</h2>
+            <p className="text-neutral-500 text-xs mb-3">Pick a name. You&apos;ll get a shareable join code to send to teammates.</p>
+            <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
+                Discord must be linked and your account must be at least 30 days old to enter the Arena.
+              </p>
+            </div>
+            <form onSubmit={e => { e.preventDefault(); setConfirming(true) }} className="flex flex-col gap-3">
+              <input
+                type="text"
+                placeholder="Team name"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                maxLength={30}
+                className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 outline-none focus:ring-1 focus:ring-[#F2B71F]/40"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                autoFocus
+              />
+              {error && <p className="text-xs text-red-400">{error}</p>}
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={name.trim().length < 2}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
+                  style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+                >
+                  Continue
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-bold text-white mb-1">Are you sure?</h2>
+            <p className="text-neutral-400 text-sm mb-4">
+              You&apos;re about to create <span className="font-bold text-white">&ldquo;{name.trim()}&rdquo;</span> as your team for the Arena. This will be your team for the entire competition — choose wisely.
+            </p>
+            <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.2)' }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(242,183,31,0.8)' }}>
+                You can&apos;t switch teams once you&apos;ve joined the Arena. Make sure this is the team you want to compete with.
+              </p>
+            </div>
+            {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirming(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+              >
+                Go back
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={loading}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
+                style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+              >
+                {loading ? 'Creating...' : 'Create team'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -287,9 +331,9 @@ function JoinTeamModal({
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [confirming, setConfirming] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleJoin() {
     setError('')
     setLoading(true)
     try {
@@ -299,10 +343,11 @@ function JoinTeamModal({
         body: JSON.stringify({ code: code.trim(), wallet }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Failed to join team'); return }
+      if (!res.ok) { setError(data.error ?? 'Failed to join team'); setConfirming(false); return }
       onJoined({ ...data.team, role: 'member' })
     } catch {
       setError('Something went wrong')
+      setConfirming(false)
     } finally {
       setLoading(false)
     }
@@ -315,44 +360,78 @@ function JoinTeamModal({
         style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.1)' }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold text-white mb-1">Join a team</h2>
-        <p className="text-neutral-500 text-xs mb-3">Enter the 6-character join code from your teammate.</p>
-        <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
-          <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
-            Discord must be linked and your account must be at least 30 days old to enter the Arena.
-          </p>
-        </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input
-            type="text"
-            placeholder="e.g. XK4J9M"
-            value={code}
-            onChange={e => setCode(e.target.value.toUpperCase().slice(0, 6))}
-            maxLength={6}
-            className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 outline-none focus:ring-1 focus:ring-[#F2B71F]/40 tracking-widest font-mono uppercase"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-            autoFocus
-          />
-          {error && <p className="text-xs text-red-400">{error}</p>}
-          <div className="flex gap-2 mt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || code.length < 6}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
-              style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
-            >
-              {loading ? '...' : 'Join'}
-            </button>
-          </div>
-        </form>
+        {!confirming ? (
+          <>
+            <h2 className="text-lg font-bold text-white mb-1">Join a team</h2>
+            <p className="text-neutral-500 text-xs mb-3">Enter the 6-character join code from your teammate.</p>
+            <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
+                Discord must be linked and your account must be at least 30 days old to enter the Arena.
+              </p>
+            </div>
+            <form onSubmit={e => { e.preventDefault(); setConfirming(true) }} className="flex flex-col gap-3">
+              <input
+                type="text"
+                placeholder="e.g. XK4J9M"
+                value={code}
+                onChange={e => setCode(e.target.value.toUpperCase().slice(0, 6))}
+                maxLength={6}
+                className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 outline-none focus:ring-1 focus:ring-[#F2B71F]/40 tracking-widest font-mono uppercase"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                autoFocus
+              />
+              {error && <p className="text-xs text-red-400">{error}</p>}
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={code.length < 6}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
+                  style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+                >
+                  Continue
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-bold text-white mb-1">Are you sure?</h2>
+            <p className="text-neutral-400 text-sm mb-4">
+              You&apos;re about to join a team using code <span className="font-mono font-bold text-white">{code}</span>. This will be your team for the entire Arena competition.
+            </p>
+            <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.2)' }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(242,183,31,0.8)' }}>
+                You can&apos;t switch teams once you&apos;ve joined the Arena. Make sure this is the team you want to compete with.
+              </p>
+            </div>
+            {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirming(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-neutral-500 hover:text-white transition-colors"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+              >
+                Go back
+              </button>
+              <button
+                onClick={handleJoin}
+                disabled={loading}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
+                style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+              >
+                {loading ? 'Joining...' : 'Join team'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -382,10 +461,11 @@ function MyTeamCard({ team }: { team: MyTeam }) {
         )}
       </div>
 
-      <Link href={`/teams/${team.slug}`} className="block mb-3 group">
+      <Link href={`/arena/${team.slug}`} className="block mb-3 group">
         <p className="text-white font-bold text-base group-hover:text-[#F2B71F] transition-colors">{team.name}</p>
       </Link>
 
+      {team.role === 'captain' && (
       <div className="mb-3">
         <p className="text-[10px] text-neutral-600 uppercase tracking-widest mb-1">Join code</p>
         <button
@@ -397,9 +477,10 @@ function MyTeamCard({ team }: { team: MyTeam }) {
           <span className="text-[10px] text-neutral-500">{copied ? 'Copied!' : 'Copy'}</span>
         </button>
       </div>
+      )}
 
       <Link
-        href={`/teams/${team.slug}`}
+        href={`/arena/${team.slug}`}
         className="block w-full py-2 rounded-xl text-xs font-semibold text-center transition-all duration-150 hover:opacity-90"
         style={{ background: 'rgba(242,183,31,0.1)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.2)' }}
       >
@@ -430,7 +511,7 @@ function NoTeamCard({
         Teams can be 1 to 3 members. Go solo if you&apos;re confident, but 3 members is advised. More traders means more points.
       </p>
       <p className="text-neutral-600 text-xs leading-relaxed mb-3">
-        Top 3 teams share the <span className="text-[#F2B71F] font-semibold">$600 prize pool</span> (May 4–17).
+        Top 3 teams share the <span className="text-[#F2B71F] font-semibold">$1,000 prize pool</span> (May 4–17).
       </p>
       <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
         <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
@@ -468,7 +549,7 @@ function HowTeamsWorkCard() {
     { emoji: '🛡️', text: 'Create a team or join one with a code' },
     { emoji: '📈', text: 'Trade on free markets to earn points' },
     { emoji: '🏆', text: 'Team score = sum of all member points earned after joining' },
-    { emoji: '🎯', text: 'Top 3 teams share the $600 prize pool (May 4–17)' },
+    { emoji: '🎯', text: 'Top 3 teams share the $1,000 prize pool (May 4–17)' },
   ]
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -495,12 +576,17 @@ export default function TeamsPage() {
   const [entries, setEntries] = useState<TeamLeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [countdown, setCountdown] = useState('')
+  const [countdownLabel, setCountdownLabel] = useState('Arena opens in')
   const [myTeam, setMyTeam] = useState<MyTeam | null | undefined>(undefined)
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
 
   useEffect(() => {
-    const tick = () => setCountdown(formatCountdown(getMsUntilCompEnd()))
+    const tick = () => {
+      const { label, ms } = getCountdownState()
+      setCountdownLabel(label)
+      setCountdown(formatCountdown(ms))
+    }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
@@ -553,17 +639,17 @@ export default function TeamsPage() {
                 >
                   <div className="flex flex-col flex-1 min-w-0 items-center">
                     <div className="flex flex-col items-start text-left">
-                      <h1 className="text-3xl md:text-4xl font-black tracking-tight leading-none" style={{ color: '#F2B71F' }}>
+                      <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none" style={{ color: '#F2B71F' }}>
                         The Arena
                       </h1>
-                      <p className="text-neutral-500 text-sm mt-2">Enter the Mentioned Arena. Form a team, earn points, win prizes.</p>
+                      <p className="text-neutral-300 text-base mt-2">Enter the Mentioned Arena. Form a team, earn points, win prizes.</p>
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
-                        <span className="text-[10px] text-neutral-600 uppercase tracking-widest">May 4–17</span>
-                        <span className="text-neutral-700 text-[10px]">·</span>
-                        <span className="text-[11px] font-semibold" style={{ color: '#F2B71F' }}>$600 prize pool</span>
+                        <span className="text-xs text-neutral-400 uppercase tracking-widest">May 4–17</span>
+                        <span className="text-neutral-500 text-xs">·</span>
+                        <span className="text-sm font-semibold" style={{ color: '#F2B71F' }}>$1,000 prize pool</span>
                         <div className="flex items-center gap-1.5 ml-1">
-                          {[['🥇', '$300', '#F2B71F', 'rgba(242,183,31,0.12)'], ['🥈', '$180', '#9ba8b5', 'rgba(155,168,181,0.1)'], ['🥉', '$120', '#c07b3a', 'rgba(192,123,58,0.1)']].map(([medal, amt, color, bg]) => (
-                            <span key={amt} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: bg as string, color: color as string }}>
+                          {[['🥇', '$600', '#F2B71F', 'rgba(242,183,31,0.12)'], ['🥈', '$300', '#9ba8b5', 'rgba(155,168,181,0.1)'], ['🥉', '$100', '#c07b3a', 'rgba(192,123,58,0.1)']].map(([medal, amt, color, bg]) => (
+                            <span key={amt} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: bg as string, color: color as string }}>
                               {medal} {amt}
                             </span>
                           ))}
@@ -635,7 +721,7 @@ export default function TeamsPage() {
                   style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.15)' }}
                   suppressHydrationWarning
                 >
-                  <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-1">Arena ends in</span>
+                  <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-1" suppressHydrationWarning>{countdownLabel}</span>
                   <span className="text-3xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
                     {countdown}
                   </span>

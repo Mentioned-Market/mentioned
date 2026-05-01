@@ -9,6 +9,14 @@ import {
   getDiscordIdByWallet,
 } from '@/lib/db'
 import { tryUnlockAchievement } from '@/lib/achievements'
+
+// Referral achievement disabled during Arena competition (May 4 – May 18 2026)
+const ARENA_START = new Date('2026-05-03T23:00:00.000Z') // midnight BST May 4
+const ARENA_END   = new Date('2026-05-17T23:00:00.000Z') // midnight BST May 18
+function referralAchievementEnabled(): boolean {
+  const now = new Date()
+  return now < ARENA_START || now >= ARENA_END
+}
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
 /**
@@ -92,7 +100,7 @@ export async function POST(req: NextRequest) {
     achievementEligible = ageDays >= REFERRAL_MIN_DISCORD_AGE_DAYS
   }
 
-  if (achievementEligible) {
+  if (achievementEligible && referralAchievementEnabled()) {
     tryUnlockAchievement(referrerWallet, 'refer_friend').catch(err =>
       console.error('Achievement error (referral):', err)
     )

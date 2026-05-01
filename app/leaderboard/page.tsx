@@ -1,5 +1,13 @@
 'use client'
 
+// Solo prizes paused during Arena competition (May 4 – May 18 2026 BST)
+const ARENA_START = new Date('2026-05-03T23:00:00.000Z')
+const ARENA_END   = new Date('2026-05-17T23:00:00.000Z')
+function isArenaActive(): boolean {
+  const now = new Date()
+  return now >= ARENA_START && now < ARENA_END
+}
+
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -213,14 +221,14 @@ function RankedRow({
         {pts.toLocaleString()}
       </span>
 
-      {/* Prize */}
-      {prize ? (
+      {/* Prize — hidden during Arena */}
+      {!isArenaActive() && (prize ? (
         <span className="text-xs font-semibold w-8 text-right flex-shrink-0" style={{ color: ACCENTS[rank as keyof typeof ACCENTS]?.color ?? '#6b7280' }}>
           {prize.amount}
         </span>
       ) : (
         <span className="w-8 flex-shrink-0" />
-      )}
+      ))}
     </Link>
   )
 }
@@ -273,12 +281,34 @@ function UserPinnedRow({ entry, sort }: { entry: PointsEntry | null; sort: Point
 // ── Prize pool sidebar card ────────────────────────────────
 
 function PrizePoolCard({ weekStart, isPast }: { weekStart: string; isPast?: boolean }) {
+  if (isArenaActive()) {
+    return (
+      <div className="rounded-2xl p-4" style={{ background: 'rgba(242,183,31,0.04)', border: '1px solid rgba(242,183,31,0.15)' }}>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm">⚔️</span>
+          <span className="text-xs font-medium uppercase tracking-wide" style={{ color: '#F2B71F' }}>Arena Active</span>
+        </div>
+        <p className="text-neutral-400 text-xs leading-relaxed mb-3">
+          Solo prizes are paused May 4-17. All prizes this fortnight are going to the Arena. $1,000 for the top 3 teams.
+        </p>
+        <Link
+          href="/arena"
+          className="flex items-center justify-center gap-1.5 w-full py-2 rounded-xl text-xs font-semibold transition-colors"
+          style={{ background: 'rgba(242,183,31,0.12)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.2)' }}
+        >
+          View Arena
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm">🏆</span>
         <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">
-          {isPast ? 'Last Week’s Prize Pool' : 'Weekly Prize Pool'}
+          {isPast ? 'Last Week\'s Prize Pool' : 'Weekly Prize Pool'}
         </span>
       </div>
       <div className="flex flex-col gap-2">
@@ -437,8 +467,8 @@ export default function LeaderboardPage() {
                     <svg width="12" height="12" viewBox="0 0 20 20" fill="#F2B71F"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
                     <span className="text-[11px] font-medium" style={{ color: '#F2B71F' }}>
                       May 4–17: solo prizes paused.{' '}
-                      <Link href="/teams" className="underline hover:opacity-80">The Arena</Link>
-                      {' '}is live. $600 prize pool.
+                      <Link href="/arena" className="underline hover:opacity-80">The Arena</Link>
+                      {' '}is live. $1,000 prize pool.
                     </span>
                   </div>
                 </div>
@@ -524,7 +554,7 @@ export default function LeaderboardPage() {
                       <span className="w-8 flex-shrink-0" />
                       <span className="text-[10px] text-neutral-700 uppercase tracking-widest flex-1">Player</span>
                       <span className="text-[10px] text-neutral-700 uppercase tracking-widest flex-shrink-0">Points</span>
-                      <span className="text-[10px] text-neutral-700 uppercase tracking-widest w-8 text-right flex-shrink-0">Prize</span>
+                      {!isArenaActive() && <span className="text-[10px] text-neutral-700 uppercase tracking-widest w-8 text-right flex-shrink-0">Prize</span>}
                     </div>
 
                     <div className="p-1">

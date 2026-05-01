@@ -811,6 +811,14 @@ export async function hasDiscordLinked(wallet: string): Promise<boolean> {
 
 const REFERRAL_BONUS_RATE = 0.05 // 5% mutual bonus
 
+// Referral bonuses paused during Arena competition (May 4 – May 18 2026 BST)
+const ARENA_REFERRAL_PAUSE_START = new Date('2026-05-03T23:00:00.000Z')
+const ARENA_REFERRAL_PAUSE_END   = new Date('2026-05-17T23:00:00.000Z')
+function referralBonusEnabled(): boolean {
+  const now = new Date()
+  return now < ARENA_REFERRAL_PAUSE_START || now >= ARENA_REFERRAL_PAUSE_END
+}
+
 /**
  * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
  * Points are only awarded to wallets with a linked Discord account.
@@ -844,6 +852,9 @@ export async function insertPointEvent(
 
   // Don't award referral bonus on referral_bonus events (prevent recursion)
   if (action === 'referral_bonus') return awarded
+
+  // Referral bonuses paused during Arena competition
+  if (!referralBonusEnabled()) return awarded
 
   const bonus = Math.floor(awarded * REFERRAL_BONUS_RATE)
   if (bonus <= 0) return awarded
@@ -2222,6 +2233,8 @@ export interface TeamRow {
   created_by: string
   created_at: string
   pfp_data: string | null
+  bio: string | null
+  x_url: string | null
 }
 
 export interface TeamMemberRow {
@@ -2380,6 +2393,35 @@ export async function getTeamPfpData(slug: string): Promise<string | null> {
 
 export async function setTeamPfp(teamId: number, pfpData: string): Promise<void> {
   await pool.query(`UPDATE teams SET pfp_data = $1 WHERE id = $2`, [pfpData, teamId])
+}
+
+export async function updateTeamName(teamId: number, name: string): Promise<void> {
+  await pool.query(`UPDATE teams SET name = $1 WHERE id = $2`, [name.trim(), teamId])
+}
+
+export async function updateTeamBio(teamId: number, bio: string): Promise<void> {
+  await pool.query(`UPDATE teams SET bio = $1 WHERE id = $2`, [bio.trim() || null, teamId])
+}
+
+export async function updateTeamXUrl(teamId: number, xUrl: string | null): Promise<void> {
+  await pool.query(`UPDATE teams SET x_url = $1 WHERE id = $2`, [xUrl || null, teamId])
+}
+
+/**
+ * Count distinct markets traded by all members of the team the given wallet
+ * belongs to, within the current week (Mon 00:00 UTC).
+ * Returns 0 if the wallet is not in a team.
+ */
+export async function countTeamDistinctMarketsThisWeek(wallet: string): Promise<number> {
+  const result = await pool.query<{ c: string }>(
+    `SELECT COUNT(DISTINCT t.market_id)::text AS c
+     FROM custom_market_trades t
+     JOIN team_members tm ON tm.wallet = t.wallet
+     JOIN team_members me ON me.team_id = tm.team_id AND me.wallet = $1
+     WHERE t.created_at >= date_trunc('week', NOW() AT TIME ZONE 'UTC')`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.c ?? '0', 10)
 }
 
 export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
