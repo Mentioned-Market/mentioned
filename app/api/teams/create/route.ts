@@ -21,6 +21,12 @@ export async function POST(req: NextRequest) {
       if (err.message === 'ALREADY_IN_TEAM') {
         return NextResponse.json({ error: 'You are already in a team' }, { status: 409 })
       }
+      if (err.message === 'DISCORD_REQUIRED') {
+        return NextResponse.json({ error: 'You must link your Discord account before creating a team' }, { status: 403 })
+      }
+      if (err.message === 'DISCORD_TOO_NEW') {
+        return NextResponse.json({ error: 'Your Discord account must be at least 30 days old to create a team' }, { status: 403 })
+      }
       if (err.message.includes('teams_name_key') || err.message.includes('unique')) {
         return NextResponse.json({ error: 'That team name is already taken' }, { status: 409 })
       }

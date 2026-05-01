@@ -2196,6 +2196,24 @@ export async function recordVisitAndGetWeekCount(wallet: string): Promise<number
 
 // ── Teams ────────────────────────────────────────────
 
+const TEAM_MIN_DISCORD_AGE_DAYS = 30
+
+function discordAccountAgeDays(discordId: string): number {
+  const createdAt = new Date(Number(BigInt(discordId) >> 22n) + 1420070400000)
+  return (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+}
+
+async function assertDiscordEligible(wallet: string): Promise<void> {
+  const result = await pool.query(
+    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  const discordId = result.rows[0]?.discord_id
+  if (!discordId) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(discordId)
+  if (ageDays < TEAM_MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
+}
+
 export interface TeamRow {
   id: number
   name: string
@@ -2203,6 +2221,7 @@ export interface TeamRow {
   join_code: string
   created_by: string
   created_at: string
+  pfp_data: string | null
 }
 
 export interface TeamMemberRow {
@@ -2246,6 +2265,7 @@ function generateJoinCode(): string {
 }
 
 export async function createTeam(name: string, wallet: string): Promise<TeamRow> {
+  await assertDiscordEligible(wallet)
   const join_code = generateJoinCode()
   const client = await pool.connect()
   try {
@@ -2283,6 +2303,7 @@ export async function createTeam(name: string, wallet: string): Promise<TeamRow>
 }
 
 export async function joinTeam(join_code: string, wallet: string): Promise<TeamRow> {
+  await assertDiscordEligible(wallet)
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -2328,9 +2349,6 @@ export async function joinTeam(join_code: string, wallet: string): Promise<TeamR
   }
 }
 
-export async function leaveTeam(wallet: string): Promise<void> {
-  await pool.query(`DELETE FROM team_members WHERE wallet = $1`, [wallet])
-}
 
 export async function getTeamByWallet(wallet: string): Promise<(TeamRow & { role: string }) | null> {
   const result = await pool.query(
@@ -2353,6 +2371,17 @@ export async function getTeamBySlug(slug: string): Promise<TeamRow | null> {
   return result.rows[0] ?? null
 }
 
+export async function getTeamPfpData(slug: string): Promise<string | null> {
+  const result = await pool.query<{ pfp_data: string | null }>(
+    `SELECT pfp_data FROM teams WHERE slug = $1`, [slug]
+  )
+  return result.rows[0]?.pfp_data ?? null
+}
+
+export async function setTeamPfp(teamId: number, pfpData: string): Promise<void> {
+  await pool.query(`UPDATE teams SET pfp_data = $1 WHERE id = $2`, [pfpData, teamId])
+}
+
 export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
   const result = await pool.query(
     `SELECT tm.*, up.username, up.pfp_emoji
@@ -2365,35 +2394,51 @@ export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
   return result.rows
 }
 
-export async function getTeamLeaderboard(weekStart: Date): Promise<TeamLeaderboardEntry[]> {
+export async function getTeamLeaderboard(
+  compStart: Date,
+  compEnd: Date,
+): Promise<TeamLeaderboardEntry[]> {
+  const now = new Date()
+  // Before comp starts: show all points since each member joined (no window floor)
+  // During/after comp: use compStart as the floor
+  const windowStart = now < compStart ? new Date(0) : compStart
   const result = await pool.query(
     `SELECT
        t.id AS team_id,
        t.name AS team_name,
        t.slug AS team_slug,
        COUNT(DISTINCT tm.wallet)::int AS member_count,
-       COALESCE(SUM(pe.points) FILTER (WHERE pe.created_at >= $1), 0)::int AS weekly_points,
+       COALESCE(SUM(pe.points) FILTER (
+         WHERE pe.created_at >= GREATEST(tm.joined_at, $1)
+           AND pe.created_at < $2
+       ), 0)::int AS weekly_points,
        COALESCE(SUM(pe.points), 0)::int AS all_time_points
      FROM teams t
      JOIN team_members tm ON tm.team_id = t.id
      LEFT JOIN point_events pe ON pe.wallet = tm.wallet
      GROUP BY t.id, t.name, t.slug
      ORDER BY weekly_points DESC`,
-    [weekStart.toISOString()],
+    [windowStart.toISOString(), compEnd.toISOString()],
   )
   return result.rows
 }
 
 export async function getTeamMemberPointTotals(
   teamId: number,
-  weekStart: Date,
+  compStart: Date,
+  compEnd: Date,
 ): Promise<{ wallet: string; weekly: number; all_time: number; username: string | null; pfp_emoji: string | null }[]> {
+  const now = new Date()
+  const windowStart = now < compStart ? new Date(0) : compStart
   const result = await pool.query(
     `SELECT
        tm.wallet,
        up.username,
        up.pfp_emoji,
-       COALESCE(SUM(pe.points) FILTER (WHERE pe.created_at >= $2), 0)::int AS weekly,
+       COALESCE(SUM(pe.points) FILTER (
+         WHERE pe.created_at >= GREATEST(tm.joined_at, $2)
+           AND pe.created_at < $3
+       ), 0)::int AS weekly,
        COALESCE(SUM(pe.points), 0)::int AS all_time
      FROM team_members tm
      LEFT JOIN user_profiles up ON up.wallet = tm.wallet
@@ -2401,7 +2446,7 @@ export async function getTeamMemberPointTotals(
      WHERE tm.team_id = $1
      GROUP BY tm.wallet, up.username, up.pfp_emoji
      ORDER BY weekly DESC`,
-    [teamId, weekStart.toISOString()],
+    [teamId, windowStart.toISOString(), compEnd.toISOString()],
   )
   return result.rows
 }

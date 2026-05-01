@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTeamBySlug, getTeamMembers, getTeamMemberPointTotals } from '@/lib/db'
-import { getWeekStart } from '@/lib/points'
+import { COMP_START, COMP_END } from '@/lib/teamComp'
 
 export async function GET(
   _req: NextRequest,
@@ -10,14 +10,12 @@ export async function GET(
   if (!slug) return NextResponse.json({ error: 'Invalid team name' }, { status: 400 })
 
   try {
-    const weekStart = getWeekStart()
     const team = await getTeamBySlug(slug)
-
     if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 })
 
     const [members, memberPoints] = await Promise.all([
       getTeamMembers(team.id),
-      getTeamMemberPointTotals(team.id, weekStart),
+      getTeamMemberPointTotals(team.id, COMP_START, COMP_END),
     ])
 
     const pointMap = new Map(memberPoints.map(m => [m.wallet, m]))
@@ -36,7 +34,8 @@ export async function GET(
       members: membersWithPoints,
       weeklyTotal,
       allTimeTotal,
-      weekStart: weekStart.toISOString(),
+      compStart: COMP_START.toISOString(),
+      compEnd: COMP_END.toISOString(),
     })
   } catch (err) {
     console.error('Team profile error:', err)

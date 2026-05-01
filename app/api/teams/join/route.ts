@@ -22,6 +22,12 @@ export async function POST(req: NextRequest) {
       if (err.message === 'TEAM_FULL') {
         return NextResponse.json({ error: 'This team is full (max 3 members)' }, { status: 409 })
       }
+      if (err.message === 'DISCORD_REQUIRED') {
+        return NextResponse.json({ error: 'You must link your Discord account before joining a team' }, { status: 403 })
+      }
+      if (err.message === 'DISCORD_TOO_NEW') {
+        return NextResponse.json({ error: 'Your Discord account must be at least 30 days old to join a team' }, { status: 403 })
+      }
     }
     console.error('Team join error:', err)
     return NextResponse.json({ error: 'Failed to join team' }, { status: 500 })
