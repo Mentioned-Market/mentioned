@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -29,16 +30,6 @@ interface MyTeam {
 
 // ── Helpers ────────────────────────────────────────────────
 
-function getMsUntilNextMonday(): number {
-  const now = new Date()
-  const day = now.getUTCDay()
-  const daysUntilMonday = day === 0 ? 1 : 8 - day
-  const next = new Date(now)
-  next.setUTCDate(now.getUTCDate() + daysUntilMonday)
-  next.setUTCHours(0, 0, 0, 0)
-  return next.getTime() - now.getTime()
-}
-
 function formatCountdown(ms: number): string {
   if (ms <= 0) return '00:00:00'
   const s = Math.floor(ms / 1000)
@@ -46,11 +37,19 @@ function formatCountdown(ms: number): string {
   const h = Math.floor((s % 86400) / 3600)
   const m = Math.floor((s % 3600) / 60)
   const sec = s % 60
-  if (d > 0) return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`
+  if (d > 0) return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(sec).padStart(2, '0')}s`
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
-type SortKey = 'weekly' | 'alltime'
+const TEAM_PRIZES = [
+  { place: 1, amount: '$300', pct: '50%' },
+  { place: 2, amount: '$180', pct: '30%' },
+  { place: 3, amount: '$120', pct: '20%' },
+]
+
+function getMsUntilCompEnd(): number {
+  return new Date('2026-05-18T00:00:00.000Z').getTime() - Date.now()
+}
 
 const ACCENTS = {
   1: { color: '#F2B71F', ring: 'rgba(242,183,31,0.5)', bg: 'rgba(242,183,31,0.06)' },
@@ -87,19 +86,19 @@ function AnimatedBackground() {
 function TeamRow({
   rank,
   entry,
-  sort,
   isYourTeam,
   index,
   maxPts,
 }: {
   rank: number
   entry: TeamLeaderboardEntry
-  sort: SortKey
   isYourTeam: boolean
   index: number
   maxPts: number
 }) {
-  const pts = sort === 'weekly' ? entry.weekly_points : entry.all_time_points
+  const [imgFailed, setImgFailed] = useState(false)
+  const pts = entry.weekly_points
+  const prize = TEAM_PRIZES.find(p => p.place === rank)
   const a = ACCENTS[rank as keyof typeof ACCENTS]
   const isTop3 = rank <= 3
   const barWidth = maxPts > 0 ? Math.max(2, (pts / maxPts) * 100) : 0
@@ -122,13 +121,23 @@ function TeamRow({
 
       {/* Team icon */}
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 overflow-hidden"
         style={isTop3
           ? { background: a.bg, boxShadow: `0 0 0 1.5px ${a.ring}` }
           : { background: 'rgba(255,255,255,0.04)' }
         }
       >
-        🛡️
+        {imgFailed ? (
+          <span>🛡️</span>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`/api/teams/pfp/${entry.team_slug}`}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={() => setImgFailed(true)}
+          />
+        )}
       </div>
 
       {/* Name + bar */}
@@ -166,6 +175,15 @@ function TeamRow({
       >
         {pts.toLocaleString()}
       </span>
+
+      {/* Prize */}
+      {prize ? (
+        <span className="text-xs font-semibold w-10 text-right flex-shrink-0" style={{ color: ACCENTS[rank as keyof typeof ACCENTS]?.color ?? '#6b7280' }}>
+          {prize.amount}
+        </span>
+      ) : (
+        <span className="w-10 flex-shrink-0" />
+      )}
     </Link>
   )
 }
@@ -213,7 +231,12 @@ function CreateTeamModal({
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold text-white mb-1">Create a team</h2>
-        <p className="text-neutral-500 text-xs mb-5">Pick a name — you&apos;ll get a shareable join code to send to teammates.</p>
+        <p className="text-neutral-500 text-xs mb-3">Pick a name. You&apos;ll get a shareable join code to send to teammates.</p>
+        <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
+          <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
+            Discord must be linked and your account must be at least 30 days old to enter the Arena.
+          </p>
+        </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input
             type="text"
@@ -293,7 +316,12 @@ function JoinTeamModal({
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold text-white mb-1">Join a team</h2>
-        <p className="text-neutral-500 text-xs mb-5">Enter the 6-character join code from your teammate.</p>
+        <p className="text-neutral-500 text-xs mb-3">Enter the 6-character join code from your teammate.</p>
+        <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
+          <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
+            Discord must be linked and your account must be at least 30 days old to enter the Arena.
+          </p>
+        </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input
             type="text"
@@ -332,15 +360,8 @@ function JoinTeamModal({
 
 // ── My Team sidebar card ──────────────────────────────────
 
-function MyTeamCard({
-  team,
-  onLeave,
-}: {
-  team: MyTeam
-  onLeave: () => void
-}) {
+function MyTeamCard({ team }: { team: MyTeam }) {
   const [copied, setCopied] = useState(false)
-  const [leaving, setLeaving] = useState(false)
 
   function copyCode() {
     navigator.clipboard.writeText(team.join_code).then(() => {
@@ -377,27 +398,13 @@ function MyTeamCard({
         </button>
       </div>
 
-      <div className="flex gap-2">
-        <Link
-          href={`/teams/${team.slug}`}
-          className="flex-1 py-2 rounded-xl text-xs font-semibold text-center transition-all duration-150 hover:opacity-90"
-          style={{ background: 'rgba(242,183,31,0.1)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.2)' }}
-        >
-          View team
-        </Link>
-        <button
-          onClick={async () => {
-            if (!confirm('Leave your team?')) return
-            setLeaving(true)
-            onLeave()
-          }}
-          disabled={leaving}
-          className="py-2 px-3 rounded-xl text-xs font-medium text-neutral-600 hover:text-red-400 transition-colors disabled:opacity-40"
-          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          Leave
-        </button>
-      </div>
+      <Link
+        href={`/teams/${team.slug}`}
+        className="block w-full py-2 rounded-xl text-xs font-semibold text-center transition-all duration-150 hover:opacity-90"
+        style={{ background: 'rgba(242,183,31,0.1)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.2)' }}
+      >
+        View team
+      </Link>
     </div>
   )
 }
@@ -416,12 +423,20 @@ function NoTeamCard({
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-sm">🛡️</span>
-        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Teams</span>
+        <span className="text-sm">⚔️</span>
+        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">Enter the Arena</span>
       </div>
-      <p className="text-neutral-500 text-xs leading-relaxed mb-4">
-        Team up with friends, pool your points, and compete on the team leaderboard each week.
+      <p className="text-neutral-500 text-xs leading-relaxed mb-2">
+        Teams can be 1 to 3 members. Go solo if you&apos;re confident, but 3 members is advised. More traders means more points.
       </p>
+      <p className="text-neutral-600 text-xs leading-relaxed mb-3">
+        Top 3 teams share the <span className="text-[#F2B71F] font-semibold">$600 prize pool</span> (May 4–17).
+      </p>
+      <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
+        <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
+          Discord must be linked and your account must be at least 30 days old to enter the Arena.
+        </p>
+      </div>
       {connected ? (
         <div className="flex flex-col gap-2">
           <button
@@ -452,14 +467,14 @@ function HowTeamsWorkCard() {
   const steps = [
     { emoji: '🛡️', text: 'Create a team or join one with a code' },
     { emoji: '📈', text: 'Trade on free markets to earn points' },
-    { emoji: '🏆', text: 'Team scores = sum of all member points' },
-    { emoji: '🎯', text: 'Top teams on the weekly leaderboard' },
+    { emoji: '🏆', text: 'Team score = sum of all member points earned after joining' },
+    { emoji: '🎯', text: 'Top 3 teams share the $600 prize pool (May 4–17)' },
   ]
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm">⭐</span>
-        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">How teams work</span>
+        <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">How the Arena works</span>
       </div>
       <div className="flex flex-col gap-2.5">
         {steps.map((s, i) => (
@@ -479,14 +494,13 @@ export default function TeamsPage() {
   const { publicKey, connected } = useWallet()
   const [entries, setEntries] = useState<TeamLeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [sort, setSort] = useState<SortKey>('weekly')
   const [countdown, setCountdown] = useState('')
   const [myTeam, setMyTeam] = useState<MyTeam | null | undefined>(undefined)
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
 
   useEffect(() => {
-    const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
+    const tick = () => setCountdown(formatCountdown(getMsUntilCompEnd()))
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
@@ -511,21 +525,8 @@ export default function TeamsPage() {
       .catch(() => setMyTeam(null))
   }, [publicKey])
 
-  const sorted = [...entries].sort((a, b) =>
-    sort === 'weekly' ? b.weekly_points - a.weekly_points : b.all_time_points - a.all_time_points
-  )
-  const maxPts = sorted.length > 0 ? (sort === 'weekly' ? sorted[0].weekly_points : sorted[0].all_time_points) : 0
-
-  async function handleLeave() {
-    if (!publicKey) return
-    await fetch('/api/teams/leave', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet: publicKey }),
-    })
-    setMyTeam(null)
-    fetchLeaderboard()
-  }
+  const sorted = [...entries].sort((a, b) => b.weekly_points - a.weekly_points)
+  const maxPts = sorted.length > 0 ? sorted[0].weekly_points : 0
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -539,54 +540,44 @@ export default function TeamsPage() {
         <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
           <div className="flex flex-col w-full max-w-6xl flex-1 py-10">
 
-            {/* Page header */}
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8 animate-fade-in" style={{ animationFillMode: 'both' }}>
-              <div>
-                <h1 className="text-4xl md:text-5xl font-black tracking-tight" style={{ color: '#F2B71F' }}>
-                  Teams
-                </h1>
-                <p className="text-neutral-600 text-sm mt-1">Compete together on the weekly leaderboard</p>
-              </div>
-
-              {/* Countdown */}
-              <div
-                className="flex items-center gap-3 px-4 py-2.5 rounded-2xl self-start sm:self-auto"
-                style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.15)' }}
-                suppressHydrationWarning
-              >
-                <div className="flex flex-col items-start">
-                  <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-0.5">Resets in</span>
-                  <span className="text-xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
-                    {countdown}
-                  </span>
-                </div>
-              </div>
-            </div>
-
             {/* Two-column layout */}
-            <div className="flex flex-col lg:flex-row gap-6 flex-1">
+            <div className="flex flex-col lg:flex-row gap-6 flex-1 animate-fade-in" style={{ animationFillMode: 'both' }}>
 
-              {/* Main leaderboard */}
-              <div className="flex-1 min-w-0 animate-fade-in" style={{ animationDelay: '80ms', animationFillMode: 'both' }}>
+              {/* Main: banner + leaderboard */}
+              <div className="flex-1 min-w-0 flex flex-col gap-4">
 
-                {/* Sort toggle */}
-                <div className="flex items-center justify-between mb-5">
-                  <span className="text-xs font-medium text-neutral-600 uppercase tracking-widest">Standings</span>
-                  <div className="flex items-center gap-0.5 p-0.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    {([['weekly', 'This Week'], ['alltime', 'All Time']] as const).map(([k, lbl]) => (
-                      <button
-                        key={k}
-                        onClick={() => setSort(k)}
-                        className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
-                        style={sort === k
-                          ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }
-                          : { color: '#6b7280' }
-                        }
-                      >
-                        {lbl}
-                      </button>
-                    ))}
+                {/* Hero banner */}
+                <div
+                  className="flex items-center justify-between gap-4 rounded-2xl px-6 py-6"
+                  style={{ background: 'rgba(242,183,31,0.04)', border: '1px solid rgba(242,183,31,0.12)' }}
+                >
+                  <div className="flex flex-col flex-1 min-w-0 items-center">
+                    <div className="flex flex-col items-start text-left">
+                      <h1 className="text-3xl md:text-4xl font-black tracking-tight leading-none" style={{ color: '#F2B71F' }}>
+                        The Arena
+                      </h1>
+                      <p className="text-neutral-500 text-sm mt-2">Enter the Mentioned Arena. Form a team, earn points, win prizes.</p>
+                      <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        <span className="text-[10px] text-neutral-600 uppercase tracking-widest">May 4–17</span>
+                        <span className="text-neutral-700 text-[10px]">·</span>
+                        <span className="text-[11px] font-semibold" style={{ color: '#F2B71F' }}>$600 prize pool</span>
+                        <div className="flex items-center gap-1.5 ml-1">
+                          {[['🥇', '$300', '#F2B71F', 'rgba(242,183,31,0.12)'], ['🥈', '$180', '#9ba8b5', 'rgba(155,168,181,0.1)'], ['🥉', '$120', '#c07b3a', 'rgba(192,123,58,0.1)']].map(([medal, amt, color, bg]) => (
+                            <span key={amt} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: bg as string, color: color as string }}>
+                              {medal} {amt}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/src/img/mentioned_arena_animated_right_facing.svg"
+                    alt=""
+                    style={{ height: 209, width: 'auto', marginLeft: '-40px', marginTop: '-24px' }}
+                    className="hidden sm:block flex-shrink-0"
+                  />
                 </div>
 
                 {loading && <MentionedSpinner className="py-20" />}
@@ -617,6 +608,7 @@ export default function TeamsPage() {
                       <span className="w-8 flex-shrink-0" />
                       <span className="text-[10px] text-neutral-700 uppercase tracking-widest flex-1">Team</span>
                       <span className="text-[10px] text-neutral-700 uppercase tracking-widest flex-shrink-0">Points</span>
+                      <span className="text-[10px] text-neutral-700 uppercase tracking-widest w-10 text-right flex-shrink-0">Prize</span>
                     </div>
 
                     <div className="p-1">
@@ -625,7 +617,6 @@ export default function TeamsPage() {
                           key={e.team_id}
                           rank={i + 1}
                           entry={e}
-                          sort={sort}
                           isYourTeam={myTeam?.id === e.team_id}
                           index={i}
                           maxPts={maxPts}
@@ -638,9 +629,21 @@ export default function TeamsPage() {
 
               {/* Sidebar */}
               <div className="w-full lg:w-72 flex-shrink-0 flex flex-col gap-4 animate-fade-in" style={{ animationDelay: '160ms', animationFillMode: 'both' }}>
+                {/* Countdown — centered above YOUR TEAM */}
+                <div
+                  className="flex flex-col items-center justify-center py-3 rounded-2xl"
+                  style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.15)' }}
+                  suppressHydrationWarning
+                >
+                  <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-1">Arena ends in</span>
+                  <span className="text-3xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
+                    {countdown}
+                  </span>
+                </div>
+
                 {myTeam !== undefined && (
                   myTeam ? (
-                    <MyTeamCard team={myTeam} onLeave={handleLeave} />
+                    <MyTeamCard team={myTeam} />
                   ) : (
                     <NoTeamCard
                       connected={connected}

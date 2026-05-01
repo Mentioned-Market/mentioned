@@ -372,6 +372,7 @@ CREATE TABLE IF NOT EXISTS teams (
 );
 
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS slug TEXT;
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS pfp_data TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_slug ON teams(slug) WHERE slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_teams_join_code ON teams(join_code);

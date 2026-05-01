@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -103,8 +103,51 @@ export default function TeamProfilePage() {
     })
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [pfpPreview, setPfpPreview] = useState<string | null>(null)
+  const [pfpUploading, setPfpUploading] = useState(false)
+  const [pfpError, setPfpError] = useState('')
+  // Cache-busting key so the img re-fetches after upload
+  const [pfpKey, setPfpKey] = useState(0)
+  const [pfpImgFailed, setPfpImgFailed] = useState(false)
+
   const isMember = publicKey ? data?.members.some(m => m.wallet === publicKey) : false
   const myRole = data?.members.find(m => m.wallet === publicKey)?.role
+  const isCaptain = myRole === 'captain'
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPfpError('')
+    if (!file.type.startsWith('image/')) { setPfpError('Must be an image file'); return }
+    if (file.size > 1024 * 1024) { setPfpError('Image must be under 1 MB'); return }
+    const reader = new FileReader()
+    reader.onload = ev => setPfpPreview(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  async function handlePfpUpload() {
+    const file = fileInputRef.current?.files?.[0]
+    if (!file || !publicKey || !data) return
+    setPfpUploading(true)
+    setPfpError('')
+    try {
+      const form = new FormData()
+      form.append('wallet', publicKey)
+      form.append('file', file)
+      const res = await fetch(`/api/teams/pfp/${teamSlug}`, { method: 'POST', body: form })
+      const json = await res.json()
+      if (!res.ok) { setPfpError(json.error ?? 'Upload failed'); return }
+      setPfpPreview(null)
+      setPfpImgFailed(false)
+      setPfpKey(k => k + 1)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch {
+      setPfpError('Upload failed')
+    } finally {
+      setPfpUploading(false)
+    }
+  }
 
   const sortedMembers = data ? [...data.members].sort((a, b) =>
     sort === 'weekly' ? b.weekly_points - a.weekly_points : b.all_time_points - a.all_time_points
@@ -154,20 +197,88 @@ export default function TeamProfilePage() {
 
                   {/* Team header */}
                   <div className="mb-8">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0"
-                        style={{ background: 'rgba(242,183,31,0.1)', border: '1px solid rgba(242,183,31,0.2)' }}
-                      >
-                        🛡️
+                    <div className="flex items-center gap-4 mb-2">
+                      {/* PFP avatar */}
+                      <div className="relative flex-shrink-0 group">
+                        <div
+                          className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl overflow-hidden"
+                          style={{ background: 'rgba(242,183,31,0.1)', border: '1px solid rgba(242,183,31,0.2)' }}
+                        >
+                          {pfpPreview ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={pfpPreview} alt="preview" className="w-full h-full object-cover" />
+                          ) : pfpImgFailed ? (
+                            <span>🛡️</span>
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={pfpKey}
+                              src={`/api/teams/pfp/${teamSlug}`}
+                              alt={data.team.name}
+                              className="w-full h-full object-cover"
+                              onError={() => setPfpImgFailed(true)}
+                            />
+                          )}
+                        </div>
+                        {/* Upload overlay — captain only */}
+                        {isCaptain && !pfpPreview && (
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="absolute inset-0 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[10px] font-semibold text-white"
+                            style={{ background: 'rgba(0,0,0,0.6)' }}
+                          >
+                            Change
+                          </button>
+                        )}
                       </div>
-                      <div>
+
+                      <div className="flex-1 min-w-0">
                         <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">{data.team.name}</h1>
                         <p className="text-neutral-600 text-xs mt-0.5">
                           {data.members.length} {data.members.length === 1 ? 'member' : 'members'} &middot; since {new Date(data.team.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                         </p>
                       </div>
                     </div>
+
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+
+                    {/* Upload confirm / error */}
+                    {pfpPreview && (
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          onClick={handlePfpUpload}
+                          disabled={pfpUploading}
+                          className="px-4 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-40"
+                          style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}
+                        >
+                          {pfpUploading ? 'Uploading...' : 'Save photo'}
+                        </button>
+                        <button
+                          onClick={() => { setPfpPreview(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
+                          className="px-4 py-1.5 rounded-xl text-xs font-medium text-neutral-500 hover:text-white transition-colors"
+                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                        >
+                          Cancel
+                        </button>
+                        {pfpError && <p className="text-xs text-red-400">{pfpError}</p>}
+                      </div>
+                    )}
+                    {!pfpPreview && pfpError && <p className="text-xs text-red-400 mt-2">{pfpError}</p>}
+                    {isCaptain && !pfpPreview && (
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="mt-2 text-[11px] text-neutral-600 hover:text-neutral-400 transition-colors"
+                      >
+                        + Set team photo
+                      </button>
+                    )}
                   </div>
 
                   {/* Stat cards */}
