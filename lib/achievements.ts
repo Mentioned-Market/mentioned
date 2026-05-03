@@ -31,11 +31,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     points: 40,
   },
   {
-    id: 'set_profile',
-    emoji: '🏷️',
-    title: 'Make It Official',
-    description: 'Set your username',
-    points: 40,
+    id: 'full_house',
+    emoji: '🏠',
+    title: 'Full House',
+    description: 'All 3 teammates each place a trade on the same day',
+    points: 100,
   },
   {
     id: 'free_trade',

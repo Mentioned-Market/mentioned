@@ -2424,6 +2424,31 @@ export async function countTeamDistinctMarketsThisWeek(wallet: string): Promise<
   return parseInt(result.rows[0]?.c ?? '0', 10)
 }
 
+/**
+ * Returns true if every member of the wallet's team has placed at least one
+ * free-market trade today (UTC). Used to trigger the Full House achievement.
+ * Returns false if the wallet has no team or the team has fewer than 3 members.
+ */
+export async function checkTeamFullHouseToday(wallet: string): Promise<boolean> {
+  const result = await pool.query<{ all_traded: boolean }>(
+    `SELECT
+       COUNT(DISTINCT tm.wallet) FILTER (
+         WHERE EXISTS (
+           SELECT 1 FROM custom_market_trades t
+           WHERE t.wallet = tm.wallet
+             AND t.created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+         )
+       ) = COUNT(DISTINCT tm.wallet)
+       AND COUNT(DISTINCT tm.wallet) = 3
+       AS all_traded
+     FROM team_members me
+     JOIN team_members tm ON tm.team_id = me.team_id
+     WHERE me.wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0]?.all_traded ?? false
+}
+
 export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
   const result = await pool.query(
     `SELECT tm.*, up.username, up.pfp_emoji
