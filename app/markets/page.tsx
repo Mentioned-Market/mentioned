@@ -434,7 +434,7 @@ function TeamCompBanner() {
             <span className="text-white">Enter the </span>
             <span className="text-[#F2B71F]">Arena</span>
             <span className="text-white">, Win </span>
-            <span className="text-apple-green">$1,000.</span>
+            <span className="text-apple-green">Prizes.</span>
           </h2>
           <Link
             href="/arena"
@@ -462,7 +462,7 @@ function TeamCompBanner() {
           ) : (
             <>Trade on free markets to earn points for your team.</>
           )}
-          {' '}Top 3 Arena teams share the <span className="text-[#F2B71F] font-semibold">$1,000 prize pool</span>.
+          {' '}Top 3 Arena teams compete for prizes. Pool TBD.
           {' '}<span className="text-neutral-600 tabular-nums" suppressHydrationWarning>{countdown}</span>
         </p>
       </div>

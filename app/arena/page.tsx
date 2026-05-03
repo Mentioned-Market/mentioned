@@ -42,9 +42,9 @@ function formatCountdown(ms: number): string {
 }
 
 const TEAM_PRIZES = [
-  { place: 1, amount: '$600', pct: '60%' },
-  { place: 2, amount: '$300', pct: '30%' },
-  { place: 3, amount: '$100', pct: '10%' },
+  { place: 1, amount: 'TBD', pct: '60%' },
+  { place: 2, amount: 'TBD', pct: '30%' },
+  { place: 3, amount: 'TBD', pct: '10%' },
 ]
 
 // May 4 00:00 BST = May 3 23:00 UTC
@@ -511,7 +511,7 @@ function NoTeamCard({
         Teams can be 1 to 3 members. Go solo if you&apos;re confident, but 3 members is advised. More traders means more points.
       </p>
       <p className="text-neutral-600 text-xs leading-relaxed mb-3">
-        Top 3 teams share the <span className="text-[#F2B71F] font-semibold">$1,000 prize pool</span> (May 4–17).
+        Top 3 teams share the <span className="text-[#F2B71F] font-semibold">prize pool</span> (May 4–17).
       </p>
       <div className="rounded-xl px-3 py-2 mb-4" style={{ background: 'rgba(88,101,242,0.08)', border: '1px solid rgba(88,101,242,0.2)' }}>
         <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(88,101,242,0.9)' }}>
@@ -549,7 +549,7 @@ function HowTeamsWorkCard() {
     { emoji: '🛡️', text: 'Create a team or join one with a code' },
     { emoji: '📈', text: 'Trade on free markets to earn points' },
     { emoji: '🏆', text: 'Team score = sum of all member points earned after joining' },
-    { emoji: '🎯', text: 'Top 3 teams share the $1,000 prize pool (May 4–17)' },
+    { emoji: '🎯', text: 'Top 3 teams share the prize pool (May 4–17)' },
   ]
   return (
     <div className="rounded-2xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -646,9 +646,9 @@ export default function TeamsPage() {
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
                         <span className="text-xs text-neutral-400 uppercase tracking-widest">May 4–17</span>
                         <span className="text-neutral-500 text-xs">·</span>
-                        <span className="text-sm font-semibold" style={{ color: '#F2B71F' }}>$1,000 prize pool</span>
+                        <span className="text-sm font-semibold" style={{ color: '#F2B71F' }}>Prize pool TBD</span>
                         <div className="flex items-center gap-1.5 ml-1">
-                          {[['🥇', '$600', '#F2B71F', 'rgba(242,183,31,0.12)'], ['🥈', '$300', '#9ba8b5', 'rgba(155,168,181,0.1)'], ['🥉', '$100', '#c07b3a', 'rgba(192,123,58,0.1)']].map(([medal, amt, color, bg]) => (
+                          {[['🥇', 'TBD', '#F2B71F', 'rgba(242,183,31,0.12)'], ['🥈', 'TBD', '#9ba8b5', 'rgba(155,168,181,0.1)'], ['🥉', 'TBD', '#c07b3a', 'rgba(192,123,58,0.1)']].map(([medal, amt, color, bg]) => (
                             <span key={amt} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: bg as string, color: color as string }}>
                               {medal} {amt}
                             </span>
