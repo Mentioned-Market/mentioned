@@ -1,5 +1,13 @@
 'use client'
 
+// Referrals hidden during Arena competition (May 4 – May 18 2026 BST)
+const ARENA_START = new Date('2026-05-03T23:00:00.000Z')
+const ARENA_END   = new Date('2026-05-17T23:00:00.000Z')
+function isArenaActive(): boolean {
+  const now = new Date()
+  return now >= ARENA_START && now < ARENA_END
+}
+
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { useParams } from 'next/navigation'
@@ -1397,7 +1405,8 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/* Referral button — right side */}
+            {/* Referral button — hidden during Arena comp */}
+            {!isArenaActive() && (
             <button
               onClick={openReferralModal}
               className="flex items-center gap-2 px-4 py-3 rounded-xl glass border border-white/10 hover:border-white/20 transition-colors flex-shrink-0"
@@ -1408,10 +1417,11 @@ export default function ProfilePage() {
                 <span className="text-[10px] bg-apple-green/20 text-apple-green px-1.5 py-0.5 rounded-full font-bold">{referralCount}</span>
               )}
             </button>
+            )}
           </div>
 
-          {/* Referral modal */}
-          {referralModalOpen && (
+          {/* Referral modal — hidden during Arena comp */}
+          {referralModalOpen && !isArenaActive() && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
               <div ref={referralModalRef} className="w-full max-w-md glass rounded-2xl border border-white/10 p-6 shadow-2xl">
                 {/* Header */}

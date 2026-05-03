@@ -155,7 +155,8 @@ export async function GET(req: NextRequest) {
           // (prevents sybil attacks with freshly-created Discord accounts)
           if (applied) {
             const ageDays = discordAccountAge(discordId)
-            if (ageDays >= REFERRAL_MIN_DISCORD_AGE_DAYS) {
+            const arenaActive = Date.now() >= new Date('2026-05-03T23:00:00.000Z').getTime() && Date.now() < new Date('2026-05-17T23:00:00.000Z').getTime()
+            if (ageDays >= REFERRAL_MIN_DISCORD_AGE_DAYS && !arenaActive) {
               tryUnlockAchievement(referrerWallet, 'refer_friend').catch(err =>
                 console.error('Achievement error (referral via Discord):', err)
               )

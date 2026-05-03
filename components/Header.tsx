@@ -101,6 +101,10 @@ export default function Header() {
           <Link href="/markets" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Markets</Link>
           <Link href="/leaderboard" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Leaderboard</Link>
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
+          <Link href="/arena" className="hidden md:flex items-center gap-1.5 text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">
+            Arena
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}>NEW</span>
+          </Link>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           <UserSearch />
@@ -273,6 +277,10 @@ export default function Header() {
                 <Link href="/markets" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Markets</Link>
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
+                <Link href="/arena" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2 px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">
+                  Arena
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(242,183,31,0.15)', color: '#F2B71F', border: '1px solid rgba(242,183,31,0.25)' }}>NEW</span>
+                </Link>
                 <Link href="/points" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-[#F2B71F] text-sm font-semibold hover:bg-white/10 transition-colors duration-200">Points & Prizes</Link>
                 <div className="border-t border-white/10" />
                 <button

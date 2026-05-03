@@ -320,7 +320,8 @@ function PrizeTooltip() {
   )
 }
 
-// Points explainer banner — shown at top of free markets column
+// Points explainer banner — hidden during team comp (May 4–17), restore after
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PointsExplainerBanner() {
   const { connected, discordLinked, setShowConnectModal, publicKey } = useWallet()
 
@@ -383,6 +384,86 @@ function PointsExplainerBanner() {
             </>
           )}
           {' '}Top traders share the <PrizeTooltip />.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Team competition banner — active May 4–17 2026. Swap back to PointsExplainerBanner after.
+function TeamCompBanner() {
+  const { connected, discordLinked, setShowConnectModal, publicKey } = useWallet()
+  const [countdown, setCountdown] = useState('')
+
+  useEffect(() => {
+    const COMP_END = new Date('2026-05-18T00:00:00.000Z')
+    const COMP_START = new Date('2026-05-04T00:00:00.000Z')
+
+    function fmt(ms: number): string {
+      if (ms <= 0) return 'Ended'
+      const s = Math.floor(ms / 1000)
+      const d = Math.floor(s / 86400)
+      const h = Math.floor((s % 86400) / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const sec = s % 60
+      if (d > 0) return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    }
+
+    function tick() {
+      const now = Date.now()
+      const target = now < COMP_START.getTime() ? COMP_START : COMP_END
+      const label = now < COMP_START.getTime() ? 'Starts in ' : 'Ends in '
+      setCountdown(label + fmt(target.getTime() - now))
+    }
+
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div className="rounded-2xl border border-white/10 p-4 mb-4 relative z-10" style={{ background: '#0d0d0d' }}>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-[#F2B71F] animate-pulse" />
+          <span className="text-neutral-400 text-xs font-medium uppercase tracking-wide">The Arena · May 4–17</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <h2 className="text-xl font-bold leading-tight">
+            <span className="text-white">Enter the </span>
+            <span className="text-[#F2B71F]">Arena</span>
+            <span className="text-white">, Win </span>
+            <span className="text-apple-green">Prizes.</span>
+          </h2>
+          <Link
+            href="/arena"
+            className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#F2B71F]/15 text-[#F2B71F] text-xs font-semibold hover:bg-[#F2B71F]/25 transition-colors whitespace-nowrap"
+          >
+            Enter Arena
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
+        <p className="text-neutral-500 text-[11px] mt-2">
+          {!connected ? (
+            <>
+              <button onClick={() => setShowConnectModal(true)} className="text-[#F2B71F] font-semibold hover:underline">Log in</button>
+              {' and '}
+              <button onClick={() => setShowConnectModal(true)} className="text-[#5865F2] font-semibold hover:underline">link Discord</button>
+              {' to join a team.'}
+            </>
+          ) : !discordLinked ? (
+            <>
+              <Link href={`/profile/${publicKey}`} className="text-[#5865F2] font-semibold hover:underline">Link Discord</Link>
+              {' to earn points for your team.'}
+            </>
+          ) : (
+            <>Trade on free markets to earn points for your team.</>
+          )}
+          {' '}Top 3 Arena teams compete for prizes. Pool TBD.
+          {' '}<span className="text-neutral-600 tabular-nums" suppressHydrationWarning>{countdown}</span>
         </p>
       </div>
     </div>
@@ -818,7 +899,7 @@ export default function MarketsPage() {
 
                     {/* Free markets */}
                     <div className="flex-1 min-w-0">
-                      <PointsExplainerBanner />
+                      <TeamCompBanner />
                       {featuredMarket && (
                         <div style={{ background: '#000', borderRadius: '1rem' }}>
                           <FeaturedMarket market={featuredMarket} />

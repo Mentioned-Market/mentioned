@@ -252,8 +252,8 @@ export default function PointsPage() {
                     { id: 'free_trade', title: 'Place a free market trade', points: 60, unlocked: false },
                     { id: 'win_free_trade', title: 'Win a free market trade', points: 100, unlocked: false },
                     { id: 'send_chat', title: 'Send a chat message', points: 40, unlocked: false },
-                    { id: 'set_profile', title: 'Set your username', points: 40, unlocked: false },
-                    { id: 'refer_friend', title: 'Refer a new user', points: 100, unlocked: false },
+                    { id: 'full_house', title: 'All 3 teammates trade on the same day', points: 100, unlocked: false },
+                    { id: 'market_sweep', title: 'Team trades on 5+ different markets this week', points: 150, unlocked: false },
                   ] as Pick<Achievement, 'id' | 'title' | 'points' | 'unlocked'>[]).map((ach) => (
                     <div key={ach.id} className="px-5 py-3 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">

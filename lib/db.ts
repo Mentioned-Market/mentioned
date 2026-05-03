@@ -811,6 +811,14 @@ export async function hasDiscordLinked(wallet: string): Promise<boolean> {
 
 const REFERRAL_BONUS_RATE = 0.05 // 5% mutual bonus
 
+// Referral bonuses paused during Arena competition (May 4 – May 18 2026 BST)
+const ARENA_REFERRAL_PAUSE_START = new Date('2026-05-03T23:00:00.000Z')
+const ARENA_REFERRAL_PAUSE_END   = new Date('2026-05-17T23:00:00.000Z')
+function referralBonusEnabled(): boolean {
+  const now = new Date()
+  return now < ARENA_REFERRAL_PAUSE_START || now >= ARENA_REFERRAL_PAUSE_END
+}
+
 /**
  * Insert a point event. Returns awarded points, or null if deduped (ON CONFLICT DO NOTHING).
  * Points are only awarded to wallets with a linked Discord account.
@@ -844,6 +852,9 @@ export async function insertPointEvent(
 
   // Don't award referral bonus on referral_bonus events (prevent recursion)
   if (action === 'referral_bonus') return awarded
+
+  // Referral bonuses paused during Arena competition
+  if (!referralBonusEnabled()) return awarded
 
   const bonus = Math.floor(awarded * REFERRAL_BONUS_RATE)
   if (bonus <= 0) return awarded
@@ -2192,6 +2203,319 @@ export async function recordVisitAndGetWeekCount(wallet: string): Promise<number
   )
 
   return parseInt(result.rows[0].count, 10)
+}
+
+// ── Teams ────────────────────────────────────────────
+
+const TEAM_MIN_DISCORD_AGE_DAYS = 30
+
+function discordAccountAgeDays(discordId: string): number {
+  const createdAt = new Date(Number(BigInt(discordId) >> 22n) + 1420070400000)
+  return (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+}
+
+async function assertDiscordEligible(wallet: string): Promise<void> {
+  const result = await pool.query(
+    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  const discordId = result.rows[0]?.discord_id
+  if (!discordId) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(discordId)
+  if (ageDays < TEAM_MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
+}
+
+export interface TeamRow {
+  id: number
+  name: string
+  slug: string
+  join_code: string
+  created_by: string
+  created_at: string
+  pfp_data: string | null
+  bio: string | null
+  x_url: string | null
+}
+
+export interface TeamMemberRow {
+  team_id: number
+  wallet: string
+  role: string
+  joined_at: string
+  username: string | null
+  pfp_emoji: string | null
+}
+
+export interface TeamLeaderboardEntry {
+  team_id: number
+  team_name: string
+  team_slug: string
+  member_count: number
+  weekly_points: number
+  all_time_points: number
+}
+
+const TEAM_MAX_MEMBERS = 3
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 50)
+}
+
+function generateJoinCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  const bytes = crypto.randomBytes(6)
+  for (let i = 0; i < 6; i++) {
+    code += chars[bytes[i] % chars.length]
+  }
+  return code
+}
+
+export async function createTeam(name: string, wallet: string): Promise<TeamRow> {
+  await assertDiscordEligible(wallet)
+  const join_code = generateJoinCode()
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Check this wallet isn't already on a team
+    const existing = await client.query(
+      `SELECT team_id FROM team_members WHERE wallet = $1`,
+      [wallet],
+    )
+    if ((existing.rowCount ?? 0) > 0) {
+      throw new Error('ALREADY_IN_TEAM')
+    }
+
+    const slug = slugify(name)
+    const teamRes = await client.query<TeamRow>(
+      `INSERT INTO teams (name, slug, join_code, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [name, slug, join_code, wallet],
+    )
+    const team = teamRes.rows[0]
+
+    await client.query(
+      `INSERT INTO team_members (team_id, wallet, role) VALUES ($1, $2, 'captain')`,
+      [team.id, wallet],
+    )
+
+    await client.query('COMMIT')
+    return team
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function joinTeam(join_code: string, wallet: string): Promise<TeamRow> {
+  await assertDiscordEligible(wallet)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Check wallet isn't already on a team
+    const existing = await client.query(
+      `SELECT team_id FROM team_members WHERE wallet = $1`,
+      [wallet],
+    )
+    if ((existing.rowCount ?? 0) > 0) {
+      throw new Error('ALREADY_IN_TEAM')
+    }
+
+    const teamRes = await client.query<TeamRow>(
+      `SELECT * FROM teams WHERE join_code = $1`,
+      [join_code.toUpperCase()],
+    )
+    if ((teamRes.rowCount ?? 0) === 0) {
+      throw new Error('INVALID_CODE')
+    }
+    const team = teamRes.rows[0]
+
+    const countRes = await client.query(
+      `SELECT COUNT(*)::int AS c FROM team_members WHERE team_id = $1`,
+      [team.id],
+    )
+    if ((countRes.rows[0]?.c ?? 0) >= TEAM_MAX_MEMBERS) {
+      throw new Error('TEAM_FULL')
+    }
+
+    await client.query(
+      `INSERT INTO team_members (team_id, wallet, role) VALUES ($1, $2, 'member')`,
+      [team.id, wallet],
+    )
+
+    await client.query('COMMIT')
+    return team
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+
+export async function getTeamByWallet(wallet: string): Promise<(TeamRow & { role: string }) | null> {
+  const result = await pool.query(
+    `SELECT t.*, tm.role
+     FROM teams t
+     JOIN team_members tm ON tm.team_id = t.id
+     WHERE tm.wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getTeamById(teamId: number): Promise<TeamRow | null> {
+  const result = await pool.query(`SELECT * FROM teams WHERE id = $1`, [teamId])
+  return result.rows[0] ?? null
+}
+
+export async function getTeamBySlug(slug: string): Promise<TeamRow | null> {
+  const result = await pool.query(`SELECT * FROM teams WHERE slug = $1`, [slug])
+  return result.rows[0] ?? null
+}
+
+export async function getTeamPfpData(slug: string): Promise<string | null> {
+  const result = await pool.query<{ pfp_data: string | null }>(
+    `SELECT pfp_data FROM teams WHERE slug = $1`, [slug]
+  )
+  return result.rows[0]?.pfp_data ?? null
+}
+
+export async function setTeamPfp(teamId: number, pfpData: string): Promise<void> {
+  await pool.query(`UPDATE teams SET pfp_data = $1 WHERE id = $2`, [pfpData, teamId])
+}
+
+export async function updateTeamName(teamId: number, name: string): Promise<void> {
+  await pool.query(`UPDATE teams SET name = $1 WHERE id = $2`, [name.trim(), teamId])
+}
+
+export async function updateTeamBio(teamId: number, bio: string): Promise<void> {
+  await pool.query(`UPDATE teams SET bio = $1 WHERE id = $2`, [bio.trim() || null, teamId])
+}
+
+export async function updateTeamXUrl(teamId: number, xUrl: string | null): Promise<void> {
+  await pool.query(`UPDATE teams SET x_url = $1 WHERE id = $2`, [xUrl || null, teamId])
+}
+
+/**
+ * Count distinct markets traded by all members of the team the given wallet
+ * belongs to, within the current week (Mon 00:00 UTC).
+ * Returns 0 if the wallet is not in a team.
+ */
+export async function countTeamDistinctMarketsThisWeek(wallet: string): Promise<number> {
+  const result = await pool.query<{ c: string }>(
+    `SELECT COUNT(DISTINCT t.market_id)::text AS c
+     FROM custom_market_trades t
+     JOIN team_members tm ON tm.wallet = t.wallet
+     JOIN team_members me ON me.team_id = tm.team_id AND me.wallet = $1
+     WHERE t.created_at >= date_trunc('week', NOW() AT TIME ZONE 'UTC')`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.c ?? '0', 10)
+}
+
+/**
+ * Returns true if every member of the wallet's team has placed at least one
+ * free-market trade today (UTC). Used to trigger the Full House achievement.
+ * Returns false if the wallet has no team or the team has fewer than 3 members.
+ */
+export async function checkTeamFullHouseToday(wallet: string): Promise<boolean> {
+  const result = await pool.query<{ all_traded: boolean }>(
+    `SELECT
+       COUNT(DISTINCT tm.wallet) FILTER (
+         WHERE EXISTS (
+           SELECT 1 FROM custom_market_trades t
+           WHERE t.wallet = tm.wallet
+             AND t.created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+         )
+       ) = COUNT(DISTINCT tm.wallet)
+       AND COUNT(DISTINCT tm.wallet) = 3
+       AS all_traded
+     FROM team_members me
+     JOIN team_members tm ON tm.team_id = me.team_id
+     WHERE me.wallet = $1`,
+    [wallet],
+  )
+  return result.rows[0]?.all_traded ?? false
+}
+
+export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
+  const result = await pool.query(
+    `SELECT tm.*, up.username, up.pfp_emoji
+     FROM team_members tm
+     LEFT JOIN user_profiles up ON up.wallet = tm.wallet
+     WHERE tm.team_id = $1
+     ORDER BY CASE WHEN tm.role = 'captain' THEN 0 ELSE 1 END, tm.joined_at ASC`,
+    [teamId],
+  )
+  return result.rows
+}
+
+export async function getTeamLeaderboard(
+  compStart: Date,
+  compEnd: Date,
+): Promise<TeamLeaderboardEntry[]> {
+  const now = new Date()
+  // Before comp starts: show all points since each member joined (no window floor)
+  // During/after comp: use compStart as the floor
+  const windowStart = now < compStart ? new Date(0) : compStart
+  const result = await pool.query(
+    `SELECT
+       t.id AS team_id,
+       t.name AS team_name,
+       t.slug AS team_slug,
+       COUNT(DISTINCT tm.wallet)::int AS member_count,
+       COALESCE(SUM(pe.points) FILTER (
+         WHERE pe.created_at >= GREATEST(tm.joined_at, $1)
+           AND pe.created_at < $2
+       ), 0)::int AS weekly_points,
+       COALESCE(SUM(pe.points), 0)::int AS all_time_points
+     FROM teams t
+     JOIN team_members tm ON tm.team_id = t.id
+     LEFT JOIN point_events pe ON pe.wallet = tm.wallet
+     GROUP BY t.id, t.name, t.slug
+     ORDER BY weekly_points DESC`,
+    [windowStart.toISOString(), compEnd.toISOString()],
+  )
+  return result.rows
+}
+
+export async function getTeamMemberPointTotals(
+  teamId: number,
+  compStart: Date,
+  compEnd: Date,
+): Promise<{ wallet: string; weekly: number; all_time: number; username: string | null; pfp_emoji: string | null }[]> {
+  const now = new Date()
+  const windowStart = now < compStart ? new Date(0) : compStart
+  const result = await pool.query(
+    `SELECT
+       tm.wallet,
+       up.username,
+       up.pfp_emoji,
+       COALESCE(SUM(pe.points) FILTER (
+         WHERE pe.created_at >= GREATEST(tm.joined_at, $2)
+           AND pe.created_at < $3
+       ), 0)::int AS weekly,
+       COALESCE(SUM(pe.points), 0)::int AS all_time
+     FROM team_members tm
+     LEFT JOIN user_profiles up ON up.wallet = tm.wallet
+     LEFT JOIN point_events pe ON pe.wallet = tm.wallet
+     WHERE tm.team_id = $1
+     GROUP BY tm.wallet, up.username, up.pfp_emoji
+     ORDER BY weekly DESC`,
+    [teamId, windowStart.toISOString(), compEnd.toISOString()],
+  )
+  return result.rows
 }
 
 export { pool }
