@@ -227,6 +227,25 @@ Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` 
 - **Market pages**: Use fixed bottom sheet for trading on mobile (`lg:hidden`), desktop sidebar (`hidden lg:block`)
 - **CSS utility**: `.scrollbar-hide` in `globals.css` hides scrollbars cross-browser
 
+## Teams System
+
+Teams feature lives in `app/arena/` (leaderboard + create/join) and `app/arena/[name]/` (team profile). API routes at `app/api/teams/`.
+
+Key files:
+- `lib/teamComp.ts` — `COMP_START` / `COMP_END` constants for the active competition window. Update these dates for future runs.
+- `lib/db.ts` — `createTeam`, `joinTeam`, `leaveTeam`, `getTeamLeaderboard`, `getTeamMemberPointTotals`, `getTeamBySlug`
+- DB tables: `teams` (id, name, slug, join_code, created_by), `team_members` (wallet PK, team_id, role, joined_at)
+
+Scoring rules:
+- Team score = sum of member `point_events` earned after `GREATEST(tm.joined_at, comp_start)` and before `comp_end`
+- Before the comp starts, `windowStart = new Date(0)` (epoch) so all points since joining are shown
+- Discord link required to earn points — enforced at point_events level, applies automatically to teams
+- Max 3 members per team, enforced in `joinTeam` with a count check inside the transaction
+
+**Current competition:** May 4–17 2026, $1,000 prize pool (1st $600 / 2nd $300 / 3rd $100), top 3 teams win.
+
+**Markets page banner:** `PointsExplainerBanner` is hidden during the team comp. `TeamCompBanner` is active in its place (`app/markets/page.tsx`). After May 17, swap `<TeamCompBanner />` back to `<PointsExplainerBanner />` in the JSX (line ~902) and remove the eslint-disable comment from `PointsExplainerBanner`.
+
 ## Maintaining This File
 
 After completing work, consider whether CLAUDE.md needs updating. **Not every change warrants an update** — only update when:

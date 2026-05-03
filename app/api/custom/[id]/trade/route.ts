@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked, countTeamDistinctMarketsThisWeek, checkTeamFullHouseToday } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
@@ -138,6 +138,28 @@ export async function POST(
       if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
     } catch (err) {
       console.error('Achievement error (custom trade):', err)
+    }
+    // Market Sweep — check if team has now traded on 5+ distinct markets this week
+    try {
+      const distinctCount = await countTeamDistinctMarketsThisWeek(wallet)
+      if (distinctCount >= 5) {
+        const ach = await tryUnlockAchievement(wallet, 'market_sweep')
+        if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+      }
+    } catch (err) {
+      console.error('Achievement error (market_sweep):', err)
+    }
+    // Full House — check if all 3 teammates have each traded today
+    try {
+      const fullHouse = await checkTeamFullHouseToday(wallet)
+      if (fullHouse) {
+        // Award to every team member so each gets the toast on their next trade
+        // tryUnlockAchievement is idempotent per wallet per week, so safe to call for all
+        const ach = await tryUnlockAchievement(wallet, 'full_house')
+        if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
+      }
+    } catch (err) {
+      console.error('Achievement error (full_house):', err)
     }
 
     return NextResponse.json({
