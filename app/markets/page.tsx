@@ -434,7 +434,7 @@ function TeamCompBanner() {
             <span className="text-white">Enter the </span>
             <span className="text-[#F2B71F]">Arena</span>
             <span className="text-white">, Win </span>
-            <span className="text-apple-green">Prizes.</span>
+            <span className="text-apple-green">$750.</span>
           </h2>
           <Link
             href="/arena"
@@ -462,7 +462,7 @@ function TeamCompBanner() {
           ) : (
             <>Trade on free markets to earn points for your team.</>
           )}
-          {' '}Top 3 Arena teams compete for prizes. Pool TBD.
+          {' '}Top 3 Arena teams share the <span className="text-[#F2B71F] font-semibold">$750 prize pool</span>.
           {' '}<span className="text-neutral-600 tabular-nums" suppressHydrationWarning>{countdown}</span>
         </p>
       </div>
@@ -563,7 +563,34 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
 
 // ── Sidebar Widgets ────────────────────────────────────────────────────────
 
+const ARENA_END = new Date('2026-05-17T23:00:00.000Z')
+function isArenaActive(): boolean {
+  const now = new Date()
+  return now >= new Date('2026-05-03T23:00:00.000Z') && now < ARENA_END
+}
+
 function WeekCycleBanner({ countdown }: { countdown: string }) {
+  if (isArenaActive()) {
+    return (
+      <div className="rounded-2xl p-4 mb-4" style={{ background: 'rgba(242,183,31,0.04)', border: '1px solid rgba(242,183,31,0.15)' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-[#F2B71F] animate-pulse" />
+          <span className="text-xs font-medium uppercase tracking-wide" style={{ color: '#F2B71F' }}>Arena · May 4–17</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <p className="text-[#F2B71F] text-xl font-bold tabular-nums whitespace-nowrap">{countdown}</p>
+          <Link
+            href="/arena"
+            className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap"
+            style={{ background: 'rgba(242,183,31,0.12)', color: '#F2B71F' }}
+          >
+            Arena
+          </Link>
+        </div>
+        <p className="text-neutral-500 text-[11px] mt-2">Top 3 teams share the $750 prize pool.</p>
+      </div>
+    )
+  }
   return (
     <div className="rounded-2xl glass p-4 mb-4" style={{ background: '#0d0d0d' }}>
       <div className="flex items-center gap-2 mb-1">
@@ -811,9 +838,14 @@ export default function MarketsPage() {
   const [paidOpen, setPaidOpen] = useState(false)
   const polyFetchedRef = useRef(false)
 
-  // Live countdown
+  // Live countdown — shows arena end during competition, otherwise next Monday
   useEffect(() => {
-    const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
+    const tick = () => {
+      const ms = isArenaActive()
+        ? Math.max(0, ARENA_END.getTime() - Date.now())
+        : getMsUntilNextMonday()
+      setCountdown(formatCountdown(ms))
+    }
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
