@@ -447,20 +447,24 @@ function TeamCompBanner() {
           </Link>
         </div>
         <p className="text-neutral-500 text-[11px] mt-2">
+          <Link href="/arena" className="text-white font-semibold hover:opacity-80 transition-opacity"><span className="underline font-bold">Only teams can win</span> — join or create one to compete.</Link>{' '}
           {!connected ? (
             <>
               <button onClick={() => setShowConnectModal(true)} className="text-[#F2B71F] font-semibold hover:underline">Log in</button>
               {' and '}
               <button onClick={() => setShowConnectModal(true)} className="text-[#5865F2] font-semibold hover:underline">link Discord</button>
-              {' to join a team.'}
+              {' to get started.'}
             </>
           ) : !discordLinked ? (
             <>
               <Link href={`/profile/${publicKey}`} className="text-[#5865F2] font-semibold hover:underline">Link Discord</Link>
-              {' to earn points for your team.'}
+              {' to get started.'}
             </>
           ) : (
-            <>Trade on free markets to earn points for your team.</>
+            <>
+              Head to the <Link href="/arena" className="text-[#F2B71F] font-semibold hover:underline">Arena</Link>
+              {' to join or create a team.'}
+            </>
           )}
           {' '}Top 3 Arena teams share the <span className="text-[#F2B71F] font-semibold">$750 prize pool</span>.
           {' '}<span className="text-neutral-600 tabular-nums" suppressHydrationWarning>{countdown}</span>
