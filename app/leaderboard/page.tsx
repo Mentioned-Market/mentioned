@@ -289,7 +289,7 @@ function PrizePoolCard({ weekStart, isPast }: { weekStart: string; isPast?: bool
           <span className="text-xs font-medium uppercase tracking-wide" style={{ color: '#F2B71F' }}>Arena Active</span>
         </div>
         <p className="text-neutral-400 text-xs leading-relaxed mb-3">
-          Solo prizes are paused May 4-17. All prizes this fortnight are going to the Arena. Prize pool TBD.
+          Solo prizes are paused May 4-17. All prizes this fortnight are going to the Arena. $750 for the top 3 teams.
         </p>
         <Link
           href="/arena"
@@ -468,7 +468,7 @@ export default function LeaderboardPage() {
                     <span className="text-[11px] font-medium" style={{ color: '#F2B71F' }}>
                       May 4–17: solo prizes paused.{' '}
                       <Link href="/arena" className="underline hover:opacity-80">The Arena</Link>
-                      {' '}is live. Prize pool TBD.
+                      {' '}is live. $750 prize pool.
                     </span>
                   </div>
                 </div>
