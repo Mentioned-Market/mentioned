@@ -233,12 +233,12 @@ Teams feature lives in `app/arena/` (leaderboard + create/join) and `app/arena/[
 
 Key files:
 - `lib/teamComp.ts` — `COMP_START` / `COMP_END` constants for the active competition window. Update these dates for future runs.
-- `lib/db.ts` — `createTeam`, `joinTeam`, `leaveTeam`, `getTeamLeaderboard`, `getTeamMemberPointTotals`, `getTeamBySlug`
+- `lib/db.ts` — `createTeam`, `joinTeam`, `getTeamLeaderboard`, `getTeamMemberPointTotals`, `getTeamBySlug` (no leave-team functionality)
 - DB tables: `teams` (id, name, slug, join_code, created_by), `team_members` (wallet PK, team_id, role, joined_at)
 
 Scoring rules:
-- Team score = sum of member `point_events` earned after `GREATEST(tm.joined_at, comp_start)` and before `comp_end`
-- Before the comp starts, `windowStart = new Date(0)` (epoch) so all points since joining are shown
+- Team score = sum of member `point_events` with `created_at` in `[comp_start, comp_end)`. Points earned before joining (during the comp window) DO count — joining a team retroactively credits comp-window points.
+- Before the comp starts, `windowStart = new Date(0)` (epoch) so the preview shows all-time points
 - Discord link required to earn points — enforced at point_events level, applies automatically to teams
 - Max 3 members per team, enforced in `joinTeam` with a count check inside the transaction
 
