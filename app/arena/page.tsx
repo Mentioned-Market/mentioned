@@ -548,7 +548,7 @@ function HowTeamsWorkCard() {
   const steps = [
     { emoji: '🛡️', text: 'Create a team or join one with a code' },
     { emoji: '📈', text: 'Trade on free markets to earn points' },
-    { emoji: '🏆', text: 'Team score = sum of all member points earned after joining' },
+    { emoji: '🏆', text: 'Team score = sum of all member points' },
     { emoji: '🎯', text: 'Top 3 teams share the $750 prize pool (May 4–17)' },
   ]
   return (

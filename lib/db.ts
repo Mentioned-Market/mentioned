@@ -2466,8 +2466,8 @@ export async function getTeamLeaderboard(
   compEnd: Date,
 ): Promise<TeamLeaderboardEntry[]> {
   const now = new Date()
-  // Before comp starts: show all points since each member joined (no window floor)
-  // During/after comp: use compStart as the floor
+  // Before comp starts: show all-time points (preview).
+  // During/after comp: use compStart as the floor — pre-join points earned during the comp count toward the team.
   const windowStart = now < compStart ? new Date(0) : compStart
   const result = await pool.query(
     `SELECT
@@ -2476,7 +2476,7 @@ export async function getTeamLeaderboard(
        t.slug AS team_slug,
        COUNT(DISTINCT tm.wallet)::int AS member_count,
        COALESCE(SUM(pe.points) FILTER (
-         WHERE pe.created_at >= GREATEST(tm.joined_at, $1)
+         WHERE pe.created_at >= $1
            AND pe.created_at < $2
        ), 0)::int AS weekly_points,
        COALESCE(SUM(pe.points), 0)::int AS all_time_points
@@ -2503,7 +2503,7 @@ export async function getTeamMemberPointTotals(
        up.username,
        up.pfp_emoji,
        COALESCE(SUM(pe.points) FILTER (
-         WHERE pe.created_at >= GREATEST(tm.joined_at, $2)
+         WHERE pe.created_at >= $2
            AND pe.created_at < $3
        ), 0)::int AS weekly,
        COALESCE(SUM(pe.points), 0)::int AS all_time
