@@ -409,6 +409,18 @@ CREATE TABLE IF NOT EXISTS custom_market_results (
 
 CREATE INDEX IF NOT EXISTS idx_cmr_market ON custom_market_results(market_id);
 CREATE INDEX IF NOT EXISTS idx_cmr_wallet ON custom_market_results(wallet, market_id);
+
+-- User feedback submissions
+CREATE TABLE IF NOT EXISTS feedback_submissions (
+  id              SERIAL PRIMARY KEY,
+  wallet          TEXT NOT NULL UNIQUE,
+  honest_thoughts TEXT NOT NULL,
+  sad_if_gone     TEXT NOT NULL,
+  improvements    TEXT NOT NULL,
+  real_money      TEXT NOT NULL,
+  extra           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
 `
 
 async function main() {
