@@ -474,6 +474,30 @@ function TeamCompBanner() {
   )
 }
 
+function FeedbackBanner() {
+  return (
+    <Link
+      href="/feedback"
+      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 px-4 py-3 mb-4 hover:border-[#9dfad7]/30 hover:bg-[#9dfad7]/5 transition-colors group"
+      style={{ background: '#0d0d0d' }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-lg shrink-0">📝</span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white leading-tight">Share your feedback on Mentioned</p>
+          <p className="text-[11px] text-neutral-500 mt-0.5">Takes 2 minutes, earn <span className="text-[#9dfad7] font-semibold">+100 points</span></p>
+        </div>
+      </div>
+      <div className="shrink-0 flex items-center gap-1 text-[#9dfad7] text-xs font-semibold group-hover:gap-2 transition-all">
+        Give feedback
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </Link>
+  )
+}
+
 // Featured market — large hero card for one free market
 function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
@@ -936,6 +960,7 @@ export default function MarketsPage() {
                     {/* Free markets */}
                     <div className="flex-1 min-w-0">
                       <TeamCompBanner />
+                      <FeedbackBanner />
                       {featuredMarket && (
                         <div style={{ background: '#000', borderRadius: '1rem' }}>
                           <FeaturedMarket market={featuredMarket} />

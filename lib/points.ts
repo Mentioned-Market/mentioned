@@ -3,9 +3,10 @@ import { insertPointEvent } from './db'
 // ── Config ───────────────────────────────────────────────
 
 export const POINT_CONFIG = {
-  chat_message:      { points: 2,  description: 'Sent a chat message', dailyCap: 10 },
-  custom_market_win: { points: 0,  description: 'Won points on a free market (variable)' },
-  achievement:       { points: 0,  description: 'Achievement unlocked' },
+  chat_message:        { points: 2,  description: 'Sent a chat message', dailyCap: 10 },
+  custom_market_win:   { points: 0,  description: 'Won points on a free market (variable)' },
+  achievement:         { points: 0,  description: 'Achievement unlocked' },
+  feedback_submitted:  { points: 100, description: 'Submitted platform feedback' },
 } as const
 
 export type PointAction = keyof typeof POINT_CONFIG
