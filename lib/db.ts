@@ -2518,4 +2518,37 @@ export async function getTeamMemberPointTotals(
   return result.rows
 }
 
+// ── Feedback ─────────────────────────────────────────────────────────────────
+
+export interface FeedbackData {
+  honestThoughts: string
+  sadIfGone: string
+  improvements: string
+  realMoney: string
+  extra?: string
+}
+
+export async function insertFeedback(wallet: string, data: FeedbackData): Promise<boolean> {
+  try {
+    const result = await pool.query(
+      `INSERT INTO feedback_submissions (wallet, honest_thoughts, sad_if_gone, improvements, real_money, extra)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (wallet) DO NOTHING
+       RETURNING id`,
+      [wallet, data.honestThoughts, data.sadIfGone, data.improvements, data.realMoney, data.extra ?? null],
+    )
+    return result.rows.length > 0
+  } catch {
+    return false
+  }
+}
+
+export async function hasFeedbackSubmitted(wallet: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM feedback_submissions WHERE wallet = $1`,
+    [wallet],
+  )
+  return result.rows.length > 0
+}
+
 export { pool }
