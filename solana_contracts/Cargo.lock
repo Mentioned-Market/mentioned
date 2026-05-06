@@ -898,7 +898,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mention-market"
+name = "mention-market-amm"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
@@ -907,7 +907,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mention-market-amm"
+name = "mention-market-usdc-amm"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",

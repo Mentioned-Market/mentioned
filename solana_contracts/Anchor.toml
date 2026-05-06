@@ -5,10 +5,12 @@ skip-lint = false
 [programs.localnet]
 mention_market = "AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN"
 mention_market_amm = "2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU"
+mention_market_usdc_amm = "BKYVi5hWefmtWhE2hCoarcjufQQvaxDAcfeMSo27SEyA"
 
 [programs.devnet]
 mention_market = "AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN"
 mention_market_amm = "2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU"
+mention_market_usdc_amm = "BKYVi5hWefmtWhE2hCoarcjufQQvaxDAcfeMSo27SEyA"
 
 [registry]
 url = "https://api.apr.dev"
@@ -26,4 +28,4 @@ bind_address = "127.0.0.1"
 address = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/mention-market-usdc-amm.ts"

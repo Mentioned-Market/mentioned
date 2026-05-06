@@ -83,6 +83,8 @@ interface WalletContextType {
   disconnect: () => void
   connected: boolean
   signer: TransactionSendingSigner | null
+  /** Sign raw transaction bytes via Phantom without simulate or send. For devnet use. */
+  signOnly: ((txBytes: Uint8Array) => Promise<Uint8Array>) | null
   mode: 'normal' | 'pro'
   setMode: (mode: 'normal' | 'pro') => void
   walletType: 'phantom' | 'privy' | null
@@ -251,6 +253,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const walletRef = useRef<Wallet | null>(null)
   const walletTypeRef = useRef<'phantom' | 'privy' | null>(null)
+  const walletAccountRef = useRef<WalletAccount | null>(null)
   const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
   const disconnectingRef = useRef(false)
 
@@ -284,6 +287,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     (wallet: Wallet, account: WalletAccount) => {
       walletRef.current = wallet
       walletTypeRef.current = 'phantom'
+      walletAccountRef.current = account
       setPubkey(account.address)
       setConnected(true)
       setSigner(buildPhantomSigner(wallet, account))
@@ -309,6 +313,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     privyWalletRef.current = null
     walletRef.current = null
     walletTypeRef.current = null
+    walletAccountRef.current = null
   }, [])
 
   useEffect(() => {
@@ -766,6 +771,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [walletType, clearState, privyLogout])
 
+  // Sign raw tx bytes via Phantom's signTransaction feature — no simulate, no send.
+  // Used for devnet on-chain markets where the mainnet simulate/send proxy is wrong network.
+  const signOnly = useCallback(async (txBytes: Uint8Array): Promise<Uint8Array> => {
+    const wallet = walletRef.current
+    const account = walletAccountRef.current
+    if (!wallet || !account) throw new Error('Wallet not connected')
+    if (!(FEAT_SIGN in wallet.features)) throw new Error('Wallet does not support signTransaction')
+    const signFeature = wallet.features[FEAT_SIGN] as {
+      signTransaction(...inputs: Array<{ transaction: Uint8Array; account: WalletAccount; chain?: string }>): Promise<Array<{ signedTransaction: Uint8Array }>>
+    }
+    const [result] = await signFeature.signTransaction({ transaction: txBytes, account, chain: 'solana:devnet' })
+    return result.signedTransaction
+  }, [])
+
   return (
     <WalletContext.Provider
       value={{
@@ -775,6 +794,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         disconnect,
         connected,
         signer,
+        signOnly,
         mode,
         setMode,
         walletType,
