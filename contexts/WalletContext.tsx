@@ -98,6 +98,8 @@ interface WalletContextType {
   pfpEmoji: string | null
   /** Whether the user has linked their Discord account. null = not yet fetched. */
   discordLinked: boolean | null
+  /** Whether the linked Discord account is less than 30 days old (trading blocked). */
+  discordTooNew: boolean
   /** True while profile is being fetched */
   profileLoading: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
@@ -245,6 +247,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [username, setUsername] = useState<string | null>(null)
   const [pfpEmoji, setPfpEmoji] = useState<string | null>(null)
   const [discordLinked, setDiscordLinked] = useState<boolean | null>(null)
+  const [discordTooNew, setDiscordTooNew] = useState(false)
   const [profileLoading, setProfileLoading] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const profileFetchedForRef = useRef<string | null>(null)
@@ -523,14 +526,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true)
     fetch(`/api/profile?wallet=${wallet}`)
       .then(r => r.json())
-      .then(d => { setUsername(d.username ?? null); setPfpEmoji(d.pfpEmoji ?? null); setDiscordLinked(!!d.discordId) })
-      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(false) })
+      .then(d => {
+        setUsername(d.username ?? null)
+        setPfpEmoji(d.pfpEmoji ?? null)
+        setDiscordLinked(!!d.discordId)
+        if (d.discordId) {
+          const created = new Date(Number(BigInt(d.discordId) >> 22n) + 1420070400000)
+          const ageDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)
+          setDiscordTooNew(ageDays < 30)
+        } else {
+          setDiscordTooNew(false)
+        }
+      })
+      .catch(() => { setUsername(null); setPfpEmoji(null); setDiscordLinked(false); setDiscordTooNew(false) })
       .finally(() => setProfileLoading(false))
     profileFetchedForRef.current = wallet
   }, [])
 
   useEffect(() => {
-    if (!pubkey) { setUsername(null); setPfpEmoji(null); setDiscordLinked(null); setProfileLoading(false); profileFetchedForRef.current = null; return }
+    if (!pubkey) { setUsername(null); setPfpEmoji(null); setDiscordLinked(null); setDiscordTooNew(false); setProfileLoading(false); profileFetchedForRef.current = null; return }
     if (profileFetchedForRef.current === pubkey) return
     fetchProfile(pubkey)
   }, [pubkey, fetchProfile])
@@ -787,6 +801,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         username,
         pfpEmoji,
         discordLinked,
+        discordTooNew,
         profileLoading,
         walletReady,
         refreshProfile,

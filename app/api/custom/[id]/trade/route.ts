@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked, countTeamDistinctMarketsThisWeek, checkTeamFullHouseToday } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked, assertDiscordTradingEligible, countTeamDistinctMarketsThisWeek, checkTeamFullHouseToday } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
@@ -88,6 +88,15 @@ export async function POST(
       { error: 'You must link your Discord account to trade on free markets' },
       { status: 403 },
     )
+  }
+
+  // Require Discord account to be at least 30 days old
+  try {
+    await assertDiscordTradingEligible(wallet)
+  } catch (e) {
+    if (e instanceof Error && e.message === 'DISCORD_TOO_NEW') {
+      return NextResponse.json({ error: 'DISCORD_TOO_NEW' }, { status: 403 })
+    }
   }
 
   // Sliding window rate limit (DB-backed, survives restarts)
