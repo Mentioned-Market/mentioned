@@ -12,6 +12,9 @@ export async function POST(req: NextRequest) {
     await unlinkDiscord(wallet)
     return NextResponse.json({ success: true })
   } catch (err) {
+    if (err instanceof Error && err.message === 'WALLET_LOCKED') {
+      return NextResponse.json({ error: 'Account locked' }, { status: 403 })
+    }
     console.error('Discord unlink error:', err)
     return NextResponse.json({ error: 'Failed to unlink Discord' }, { status: 500 })
   }

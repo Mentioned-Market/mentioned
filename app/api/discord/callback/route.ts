@@ -16,12 +16,13 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET!
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID
 
-function popupResponse(status: 'linked' | 'error' | 'cancelled' | 'already_linked') {
+function popupResponse(status: 'linked' | 'error' | 'cancelled' | 'already_linked' | 'wallet_locked') {
   const messages: Record<string, { emoji: string; title: string; sub: string }> = {
     linked: { emoji: '✅', title: 'Discord linked!', sub: 'You can close this tab.' },
     error: { emoji: '❌', title: 'Something went wrong', sub: 'Please close this tab and try again.' },
     cancelled: { emoji: '↩️', title: 'Linking cancelled', sub: 'You can close this tab.' },
     already_linked: { emoji: '⚠️', title: 'Already linked', sub: 'This Discord account is linked to another wallet.' },
+    wallet_locked: { emoji: '🔒', title: 'Account locked', sub: 'This wallet has been locked. Contact support on Discord.' },
   }
   const { emoji, title, sub } = messages[status]
   const html = `<!DOCTYPE html><html><head><title>Discord</title>
@@ -105,8 +106,15 @@ export async function GET(req: NextRequest) {
       return popupResponse('already_linked')
     }
 
-    // Link Discord to wallet
-    await linkDiscord(wallet, discordId, discordUsername)
+    // Link Discord to wallet (throws WALLET_LOCKED if the wallet is admin-locked)
+    try {
+      await linkDiscord(wallet, discordId, discordUsername)
+    } catch (err) {
+      if (err instanceof Error && err.message === 'WALLET_LOCKED') {
+        return popupResponse('wallet_locked')
+      }
+      throw err
+    }
 
     // Retroactively award points for any achievements earned this week before Discord was linked
     backfillAchievementPoints(wallet).catch(err => console.error('Achievement backfill error:', err))

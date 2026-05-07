@@ -378,11 +378,25 @@ export async function updatePfpEmoji(
   )
 }
 
+/**
+ * Throws WALLET_LOCKED if the wallet exists and has been admin-locked.
+ * Used to prevent locked users from changing their discord_id (which would
+ * free up the previously-banned Discord for re-link on a fresh wallet).
+ */
+async function assertNotLocked(wallet: string): Promise<void> {
+  const result = await pool.query(
+    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND locked_at IS NOT NULL LIMIT 1`,
+    [wallet],
+  )
+  if (result.rows.length > 0) throw new Error('WALLET_LOCKED')
+}
+
 export async function linkDiscord(
   wallet: string,
   discordId: string,
   discordUsername: string,
 ): Promise<void> {
+  await assertNotLocked(wallet)
   // Ensure the wallet row exists (upsert with minimal data), then set discord fields
   await pool.query(
     `INSERT INTO user_profiles (wallet, username, discord_id, discord_username, updated_at)
@@ -397,6 +411,7 @@ export async function linkDiscord(
 }
 
 export async function unlinkDiscord(wallet: string): Promise<void> {
+  await assertNotLocked(wallet)
   await pool.query(
     `UPDATE user_profiles SET discord_id = NULL, discord_username = NULL, updated_at = NOW() WHERE wallet = $1`,
     [wallet],
