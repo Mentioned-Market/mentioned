@@ -15,11 +15,13 @@ import {
   createDepositLiquidityIx,
   createWithdrawLiquidityIx,
   createWithdrawFeesIx,
+  createAtaIx,
   sendInstructions,
   formatUsdc,
   statusLabel,
   statusColor,
   MarketStatus,
+  USDC_MINT,
   USDC_PRECISION,
   type UsdcMarketAccount,
   type LpPosition,
@@ -286,8 +288,9 @@ export default function PaidCustomAdminPage() {
     setTxPending(true)
     try {
       const amountBase = BigInt(Math.round(amount * 1_000_000))
+      const ataIx = await createAtaIx(publicKey as Address, publicKey as Address, USDC_MINT)
       const ix = await createDepositLiquidityIx(publicKey as Address, market.account.marketId, amountBase)
-      await sendInstructions(signer, signOnly!, [ix])
+      await sendInstructions(signer, signOnly!, [ataIx, ix])
       show(`Deposited ${amount} USDC`)
       setDepositAmounts(prev => ({ ...prev, [market.pubkey]: '' }))
       await fetchMarkets()

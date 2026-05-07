@@ -276,13 +276,9 @@ export async function createCreateMarketIx(
   const remainingAccounts: AccountMeta[] = []
   for (let i = 0; i < wordLabels.length; i++) {
     const [yesMint] = await getYesMintPDA(marketId, i)
-    const [yesMetadata] = await getMetadataPDA(yesMint)
     const [noMint] = await getNoMintPDA(marketId, i)
-    const [noMetadata] = await getMetadataPDA(noMint)
     remainingAccounts.push({ address: yesMint, role: AccountRole.WRITABLE })
-    remainingAccounts.push({ address: yesMetadata, role: AccountRole.WRITABLE })
     remainingAccounts.push({ address: noMint, role: AccountRole.WRITABLE })
-    remainingAccounts.push({ address: noMetadata, role: AccountRole.WRITABLE })
   }
 
   const wordLabelsParts: Uint8Array[] = [u32LE(wordLabels.length)]
@@ -302,7 +298,6 @@ export async function createCreateMarketIx(
       { address: ASSOCIATED_TOKEN_PROGRAM, role: AccountRole.READONLY },
       { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
       { address: RENT_SYSVAR, role: AccountRole.READONLY },
-      { address: TOKEN_METADATA_PROGRAM, role: AccountRole.READONLY },
       ...remainingAccounts,
     ] as AccountMeta[],
     data: concat(
