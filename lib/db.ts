@@ -2207,7 +2207,7 @@ export async function recordVisitAndGetWeekCount(wallet: string): Promise<number
 
 // ── Teams ────────────────────────────────────────────
 
-const TEAM_MIN_DISCORD_AGE_DAYS = 30
+const MIN_DISCORD_AGE_DAYS = 30
 
 function discordAccountAgeDays(discordId: string): number {
   const createdAt = new Date(Number(BigInt(discordId) >> 22n) + 1420070400000)
@@ -2222,7 +2222,18 @@ async function assertDiscordEligible(wallet: string): Promise<void> {
   const discordId = result.rows[0]?.discord_id
   if (!discordId) throw new Error('DISCORD_REQUIRED')
   const ageDays = discordAccountAgeDays(discordId)
-  if (ageDays < TEAM_MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
+  if (ageDays < MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
+}
+
+export async function assertDiscordTradingEligible(wallet: string): Promise<void> {
+  const result = await pool.query(
+    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    [wallet],
+  )
+  const discordId = result.rows[0]?.discord_id
+  if (!discordId) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(discordId)
+  if (ageDays < MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
 }
 
 export interface TeamRow {
