@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, hasDiscordLinked, assertDiscordTradingEligible, countTeamDistinctMarketsThisWeek, checkTeamFullHouseToday } from '@/lib/db'
+import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomMarket, getRecentCustomTradeCount, assertDiscordTradingEligible, countTeamDistinctMarketsThisWeek, checkTeamFullHouseToday } from '@/lib/db'
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
@@ -81,22 +81,25 @@ export async function POST(
 
   const amountType: 'tokens' | 'shares' = amount_type === 'shares' ? 'shares' : 'tokens'
 
-  // Require Discord linked to trade on free markets
-  const discordOk = await hasDiscordLinked(wallet)
-  if (!discordOk) {
-    return NextResponse.json(
-      { error: 'You must link your Discord account to trade on free markets' },
-      { status: 403 },
-    )
-  }
-
-  // Require Discord account to be at least 30 days old
+  // Discord eligibility: not locked, linked, account age >= 30 days
   try {
     await assertDiscordTradingEligible(wallet)
   } catch (e) {
-    if (e instanceof Error && e.message === 'DISCORD_TOO_NEW') {
-      return NextResponse.json({ error: 'DISCORD_TOO_NEW' }, { status: 403 })
+    if (e instanceof Error) {
+      if (e.message === 'WALLET_LOCKED') {
+        return NextResponse.json({ error: 'Account locked' }, { status: 403 })
+      }
+      if (e.message === 'DISCORD_REQUIRED') {
+        return NextResponse.json(
+          { error: 'You must link your Discord account to trade on free markets' },
+          { status: 403 },
+        )
+      }
+      if (e.message === 'DISCORD_TOO_NEW') {
+        return NextResponse.json({ error: 'DISCORD_TOO_NEW' }, { status: 403 })
+      }
     }
+    return NextResponse.json({ error: 'Discord eligibility check failed' }, { status: 403 })
   }
 
   // Sliding window rate limit (DB-backed, survives restarts)

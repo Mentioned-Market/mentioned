@@ -243,7 +243,7 @@ function HowItWorks({ onRerunTutorial, upward, compact }: { onRerunTutorial?: ()
 // ── Main Page ──────────────────────────────────────────
 
 export default function CustomMarketPageContent({ marketId, onLoaded }: { marketId: number; onLoaded?: () => void }) {
-  const { connected, connect, publicKey, discordLinked, discordTooNew, profileLoading, refreshProfile } = useWallet()
+  const { connected, connect, publicKey, discordLinked, discordTooNew, lockedAt, profileLoading, refreshProfile } = useWallet()
   const { showAchievementToast } = useAchievements()
   const [contentVisible, setContentVisible] = useState(false)
 
@@ -622,6 +622,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
     if (tradeMode === 'buy' && amountNum < 1) return
     if (discordLinked !== true) return
     if (discordTooNew) return
+    if (lockedAt) return
 
     setTrading(true)
     setTradeStatus(null)
@@ -861,6 +862,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               :                                  'Market Closed'
           })() : 'Market Closed'}
         </button>
+      ) : connected && lockedAt ? (
+        <div className="p-3 rounded-lg bg-apple-red/10 border border-apple-red/40 text-xs">
+          <p className="font-semibold mb-1 text-apple-red">Your account is locked</p>
+          <p className="text-neutral-300">Trading is disabled. If you believe this is a mistake, please contact support on Discord.</p>
+        </div>
       ) : connected && discordLinked === true && discordTooNew ? (
         <div className="p-3 rounded-lg bg-neutral-800/60 border border-neutral-700/50 text-neutral-300 text-xs">
           <p className="font-medium mb-1 text-neutral-200">Account currently under review</p>

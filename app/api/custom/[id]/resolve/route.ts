@@ -41,9 +41,10 @@ export async function POST(
 
     if (allResolved && statusUpdated) {
       // Fire-and-forget scoring (idempotent via point_events dedup)
+      const scoringStart = Date.now()
       resolveAndScoreVirtualMarket(marketId)
-        .then(() => console.log(`Scored virtual market ${marketId}`))
-        .catch(err => console.error(`Scoring error for market ${marketId}:`, err))
+        .then(() => console.log(`Scored virtual market ${marketId} in ${Date.now() - scoringStart}ms`))
+        .catch(err => console.error(`Scoring error for market ${marketId} after ${Date.now() - scoringStart}ms:`, err))
     }
 
     return NextResponse.json({

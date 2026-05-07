@@ -165,6 +165,7 @@ interface PublicProfile {
   wallet: string
   pfpEmoji: string | null
   createdAt: string | null
+  lockedAt: string | null
   positions: PublicPosition[]
   history: HistoryEvent[]
   stats: Stats
@@ -981,6 +982,20 @@ export default function ProfilePage() {
 
   return shell(
     <div className="animate-fade-in">
+
+      {/* ── Locked account banner (owner only) ────────── */}
+      {isOwnProfile && profile.lockedAt && (
+        <div className="mb-4 rounded-lg border border-apple-red/40 bg-apple-red/10 px-4 py-3 flex items-start gap-3">
+          <span aria-hidden className="text-apple-red text-lg leading-none mt-0.5">⚠</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-apple-red font-semibold text-sm">Your account is locked</p>
+            <p className="text-neutral-300 text-xs mt-1">
+              Trading, points, and team participation are disabled. If you believe this is a mistake,
+              please contact support on Discord.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Profile mode toggle + weekly points ────────── */}
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
