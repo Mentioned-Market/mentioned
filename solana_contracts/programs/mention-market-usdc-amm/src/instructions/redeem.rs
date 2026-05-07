@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{MarketAccount, Side};
+use crate::state::{MarketAccount, MarketStatus, Side};
 use crate::errors::AmmError;
 
 #[derive(Accounts)]
@@ -9,7 +9,13 @@ pub struct Redeem<'info> {
     #[account(mut)]
     pub redeemer: Signer<'info>,
 
-    #[account(mut)]
+    // C1: Require the entire market to be Resolved. Without this, partial word
+    // resolution on multi-word markets allows concurrent trading + redemption,
+    // draining the vault faster than LMSR pricing replenishes it.
+    #[account(
+        mut,
+        constraint = market.status == MarketStatus::Resolved @ AmmError::MarketNotResolved,
+    )]
     pub market: Box<Account<'info, MarketAccount>>,
 
     /// Market's USDC vault — source of payout
@@ -83,6 +89,10 @@ pub fn handle_redeem(
     // 1:1 payout: 1 winning token (1_000_000 base units) = 1 USDC (1_000_000 base units)
     // Both YES/NO tokens and USDC use 6 decimals, so base units are equal.
     let payout = token_amount;
+
+    // L2: Explicit vault check before burn. Solana reverts atomically so the burn
+    // would also revert on vault failure, but the explicit check gives a clear error.
+    require!(ctx.accounts.vault.amount >= payout, AmmError::InsufficientBalance);
 
     // Burn all winning tokens (redeemer is authority)
     token::burn(

@@ -79,4 +79,14 @@ pub enum AmmError {
     InvalidUsdcMint,
     #[msg("No accumulated fees to withdraw")]
     NoFeesToWithdraw,
+
+    // Security / parameter validation
+    #[msg("trade_fee_bps exceeds maximum (1000 bps = 10%)")]
+    FeeTooHigh,
+    #[msg("base_b_per_usdc must be <= PRECISION (1_000_000) to guarantee vault solvency")]
+    InvalidBParameter,
+    #[msg("Vault balance is insufficient relative to the fixed b parameter; deposit more USDC")]
+    InsufficientLiquidityForB,
+    #[msg("Cannot resolve before the scheduled resolves_at timestamp")]
+    ResolutionTooEarly,
 }

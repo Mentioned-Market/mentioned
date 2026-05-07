@@ -55,6 +55,9 @@ pub fn handle_buy(
     max_cost: u64,
 ) -> Result<()> {
     require!(quantity > 0, AmmError::ZeroAmount);
+    // H3: quantity is passed as u64 but stored/used as i64. Values above i64::MAX
+    // wrap silently before checked arithmetic, producing incorrect LMSR costs.
+    require!(quantity <= i64::MAX as u64, AmmError::MathOverflow);
 
     let market = &ctx.accounts.market;
     require!((word_index as usize) < market.num_words as usize, AmmError::InvalidWordIndex);

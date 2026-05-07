@@ -2518,4 +2518,55 @@ export async function getTeamMemberPointTotals(
   return result.rows
 }
 
+// ── Paid Market Metadata ─────────────────────────────
+
+export interface PaidMarketMetadata {
+  market_id: string
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  stream_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function upsertPaidMarketMetadata(
+  marketId: bigint,
+  data: {
+    title: string
+    description?: string | null
+    coverImageUrl?: string | null
+    streamUrl?: string | null
+  },
+): Promise<PaidMarketMetadata> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (market_id) DO UPDATE SET
+       title           = EXCLUDED.title,
+       description     = EXCLUDED.description,
+       cover_image_url = EXCLUDED.cover_image_url,
+       stream_url      = EXCLUDED.stream_url,
+       updated_at      = NOW()
+     RETURNING *`,
+    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null],
+  )
+  return result.rows[0]
+}
+
+export async function getPaidMarketMetadata(marketId: bigint): Promise<PaidMarketMetadata | null> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `SELECT * FROM paid_market_metadata WHERE market_id = $1`,
+    [marketId.toString()],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getAllPaidMarketMetadata(): Promise<PaidMarketMetadata[]> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `SELECT * FROM paid_market_metadata ORDER BY created_at DESC`,
+  )
+  return result.rows
+}
+
 export { pool }

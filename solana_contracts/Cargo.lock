@@ -898,15 +898,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mention-market-amm"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "blake3",
-]
-
-[[package]]
 name = "mention-market-usdc-amm"
 version = "0.1.0"
 dependencies = [

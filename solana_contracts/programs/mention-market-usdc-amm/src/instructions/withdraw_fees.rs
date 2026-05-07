@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};
-use crate::state::MarketAccount;
+use crate::state::{MarketAccount, MarketStatus};
 use crate::errors::AmmError;
 
 #[derive(Accounts)]
@@ -34,6 +34,13 @@ pub struct WithdrawFees<'info> {
 }
 
 pub fn handle_withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
+    // C3: Fees are part of the vault balance that backs 1:1 redemptions. Withdrawing
+    // while the market is active can leave the vault insolvent for winners.
+    require!(
+        ctx.accounts.market.status == MarketStatus::Resolved,
+        AmmError::MarketNotResolved,
+    );
+
     let fees = ctx.accounts.market.accumulated_fees;
     require!(fees > 0, AmmError::NoFeesToWithdraw);
 

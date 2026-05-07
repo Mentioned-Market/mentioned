@@ -9,7 +9,7 @@ use instructions::*;
 use state::Side;
 
 // Placeholder — replace with actual program ID after `anchor deploy`
-declare_id!("BKYVi5hWefmtWhE2hCoarcjufQQvaxDAcfeMSo27SEyA");
+declare_id!("9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk");
 
 #[program]
 pub mod mention_market_usdc_amm {

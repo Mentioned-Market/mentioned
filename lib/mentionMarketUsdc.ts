@@ -22,7 +22,7 @@ import {
 // ── Constants ────────────────────────────────────────────
 
 export const PROGRAM_ID = toAddress(
-  'BKYVi5hWefmtWhE2hCoarcjufQQvaxDAcfeMSo27SEyA'
+  '9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk'
 )
 export const USDC_MINT = toAddress(
   'CxRN4jp8ki3o3Bs16Ld6JsKsAP8rG8Jrp6dq48TYig9L'
@@ -753,7 +753,7 @@ export async function sendInstructions(
     createTransactionMessage({ version: 0 }),
     (m) => setTransactionMessageFeePayerSigner(signer, m),
     (m) => setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
-    (m) => setTransactionMessageComputeUnitLimit(800_000, m),
+    (m) => setTransactionMessageComputeUnitLimit(1_400_000, m),
     (m) => appendTransactionMessageInstructions(instructions, m)
   )
 
@@ -761,6 +761,32 @@ export async function sendInstructions(
   // then broadcast directly to devnet — bypasses the mainnet preSimulate proxy.
   const compiled = compileTransaction(txMsg)
   const txBytes = new Uint8Array(getTransactionEncoder().encode(compiled))
+
+  // Simulate first with unsigned tx to surface program logs on failure.
+  const unsignedBase64 = btoa(String.fromCharCode(...txBytes))
+  const simRes = await fetch(DEVNET_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'simulateTransaction',
+      params: [unsignedBase64, { encoding: 'base64', sigVerify: false, commitment: 'confirmed', replaceRecentBlockhash: true }],
+    }),
+  })
+  const simJson = await simRes.json()
+  if (simJson.result?.value?.err) {
+    const logs: string[] = simJson.result.value.logs ?? []
+    // Surface the Anchor error message directly when one is present in the logs.
+    // This gives readable messages for all new and existing error codes automatically.
+    for (const log of logs) {
+      const match = log.match(/Error Message: (.+)/)
+      if (match) throw new Error(match[1])
+    }
+    const logSummary = logs.filter((l: string) => l.startsWith('Program log:') || l.includes('failed') || l.includes('Error')).slice(-10).join('\n')
+    throw new Error(`Simulation failed: ${JSON.stringify(simJson.result.value.err)}${logSummary ? '\n' + logSummary : ''}`)
+  }
+
   const signedBytes = await signOnly(txBytes)
 
   const base64Tx = btoa(String.fromCharCode(...signedBytes))
@@ -771,7 +797,7 @@ export async function sendInstructions(
       jsonrpc: '2.0',
       id: 1,
       method: 'sendTransaction',
-      params: [base64Tx, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed' }],
+      params: [base64Tx, { encoding: 'base64', skipPreflight: true, preflightCommitment: 'confirmed' }],
     }),
   })
   const json = await res.json()

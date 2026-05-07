@@ -12,6 +12,9 @@ pub struct DepositLiquidity<'info> {
     #[account(
         mut,
         constraint = market.status == MarketStatus::Open @ AmmError::MarketNotOpen,
+        // M1: Only the market authority can provide liquidity. Open deposits allow
+        // anyone to rescale b mid-market, creating MEV and LP-dilution vectors.
+        constraint = market.authority == lp_wallet.key() @ AmmError::NotAuthority,
     )]
     pub market: Box<Account<'info, MarketAccount>>,
 
@@ -68,6 +71,20 @@ pub fn handle_deposit_liquidity(ctx: Context<DepositLiquidity>, amount: u64) -> 
     let vault_balance_after = vault_balance_before
         .checked_add(amount)
         .ok_or(AmmError::MathOverflow)?;
+
+    // C2: Fixed-b solvency check. Dynamic-b markets are safe by construction (b <= vault
+    // when base_b_per_usdc <= PRECISION, enforced at create_market). For fixed-b markets
+    // the vault must hold at least b * ln(2) ≈ b * 693_148 / 1_000_000 USDC so that the
+    // worst-case LP loss is fully covered and 1:1 redemptions remain solvent.
+    if ctx.accounts.market.base_b_per_usdc == 0 {
+        let b = ctx.accounts.market.liquidity_param_b;
+        let min_vault = (b as u128)
+            .checked_mul(693_148u128)
+            .ok_or(AmmError::MathOverflow)?
+            .checked_div(PRECISION as u128)
+            .ok_or(AmmError::MathOverflow)? as u64;
+        require!(vault_balance_after >= min_vault, AmmError::InsufficientLiquidityForB);
+    }
 
     // Capture values before mutable borrows
     let market_key = ctx.accounts.market.key();

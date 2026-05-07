@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -33,6 +33,27 @@ interface MarketWithMeta {
   lpPosition?: LpPosition | null
 }
 
+// Estimate createMarket transaction size in bytes.
+// Each word adds 4 accounts (yes_mint, yes_metadata, no_mint, no_metadata) to the account table.
+// Fixed accounts: authority + market + usdc_mint + vault + token_prog + assoc_token_prog +
+//                 system_prog + rent + metadata_prog + compute_budget_prog = 10
+// Solana limit: 1232 bytes.
+function estimateCreateMarketTxBytes(label: string, words: string[]): number {
+  const accts = 10 + 4 * words.length
+  const wordsDataBytes = 4 + words.reduce((s, w) => s + 4 + w.length, 0)
+  const ixData = 8 + 8 + (4 + label.length) + wordsDataBytes + 8 + 32 + 2 + 8 + 8
+  return (
+    65 +          // 1-byte compact sig count + 64-byte signature placeholder
+    3 +           // message header (numReqSig, numReadonlySig, numReadonlyUnsig)
+    1 +           // compact-u16 account count
+    accts * 32 +  // unique account keys
+    32 +          // recent blockhash
+    1 +           // compact-u16 instruction count
+    8 +           // ComputeBudget SetComputeUnitLimit ix (1+1+1+5)
+    1 + 1 + accts + 2 + ixData  // createMarket ix
+  )
+}
+
 export default function PaidCustomAdminPage() {
   const { publicKey, signer, signOnly } = useWallet()
 
@@ -45,12 +66,25 @@ export default function PaidCustomAdminPage() {
 
   // Create form
   const [label, setLabel] = useState('')
+  const [description, setDescription] = useState('')
+  const [coverImageUrl, setCoverImageUrl] = useState('')
+  const [streamUrl, setStreamUrl] = useState('')
   const [wordsInput, setWordsInput] = useState('')
   const [resolvesAt, setResolvesAt] = useState('')
   const [tradeFeeBps, setTradeFeeBps] = useState('50')
   const [initialB, setInitialB] = useState('100000000')
   const [baseBPerUsdc, setBaseBPerUsdc] = useState('500000')
   const [creating, setCreating] = useState(false)
+
+  const parsedWords = useMemo(
+    () => wordsInput.split(/[,\n]+/).map(w => w.trim()).filter(Boolean),
+    [wordsInput]
+  )
+  const estimatedTxBytes = useMemo(
+    () => estimateCreateMarketTxBytes(label, parsedWords),
+    [label, parsedWords]
+  )
+  const txTooBig = estimatedTxBytes > 1200
 
   // Expanded market
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -124,13 +158,17 @@ export default function PaidCustomAdminPage() {
       show('Label is required', 'error')
       return
     }
-    const words = wordsInput.split(/[,\n]+/).map(w => w.trim()).filter(Boolean)
+    const words = parsedWords
     if (words.length === 0) {
       show('At least one word is required', 'error')
       return
     }
     if (words.length > 8) {
       show('Maximum 8 words', 'error')
+      return
+    }
+    if (txTooBig) {
+      show(`Transaction too large (~${estimatedTxBytes}B, limit 1232B). Use fewer or shorter words.`, 'error')
       return
     }
     if (!resolvesAt) {
@@ -159,8 +197,26 @@ export default function PaidCustomAdminPage() {
       )
 
       await sendInstructions(signer, signOnly!, [ix])
+
+      // Persist metadata to DB (best-effort — on-chain tx already succeeded)
+      await fetch('/api/paid-markets/metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: marketId.toString(),
+          title: label.trim(),
+          description: description.trim() || undefined,
+          coverImageUrl: coverImageUrl.trim() || undefined,
+          streamUrl: streamUrl.trim() || undefined,
+        }),
+      })
+
       show(`Market "${label.trim()}" created on-chain`)
       setLabel('')
+      setDescription('')
+      setCoverImageUrl('')
+      setStreamUrl('')
       setWordsInput('')
       setResolvesAt('')
       setTradeFeeBps('50')
@@ -379,6 +435,40 @@ export default function PaidCustomAdminPage() {
                 </div>
 
                 <div className="mb-4">
+                  <label className="block text-xs font-medium text-neutral-400 mb-1.5">Description</label>
+                  <textarea
+                    placeholder="Optional market description shown to users"
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
+                    rows={2}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 resize-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-400 mb-1.5">Cover Image URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://..."
+                      value={coverImageUrl}
+                      onChange={e => setCoverImageUrl(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-400 mb-1.5">Stream URL</label>
+                    <input
+                      type="url"
+                      placeholder="YouTube or Twitch URL"
+                      value={streamUrl}
+                      onChange={e => setStreamUrl(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="mb-4">
                   <label className="block text-xs font-medium text-neutral-400 mb-1.5">
                     Words <span className="text-apple-red">*</span>
                   </label>
@@ -387,9 +477,23 @@ export default function PaidCustomAdminPage() {
                     value={wordsInput}
                     onChange={e => setWordsInput(e.target.value)}
                     rows={3}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 resize-none"
+                    className={`w-full bg-white/5 border rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none resize-none transition-colors ${
+                      txTooBig ? 'border-apple-red/50 focus:border-apple-red' : 'border-white/10 focus:border-white/20'
+                    }`}
                   />
-                  <p className="text-[10px] text-neutral-600 mt-1 px-1">Max 8 words, each max 32 chars</p>
+                  <div className="flex items-center justify-between mt-1 px-1">
+                    <p className="text-[10px] text-neutral-600">Max 8 words, each max 32 chars</p>
+                    {parsedWords.length > 0 && (
+                      <p className={`text-[10px] font-mono ${txTooBig ? 'text-apple-red' : 'text-neutral-500'}`}>
+                        ~{estimatedTxBytes}B / 1232B{txTooBig ? ' — too large' : ''}
+                      </p>
+                    )}
+                  </div>
+                  {txTooBig && (
+                    <p className="text-[10px] text-apple-red mt-0.5 px-1">
+                      Transaction too large. Use fewer or shorter words (4 words is the safe maximum).
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
@@ -434,7 +538,7 @@ export default function PaidCustomAdminPage() {
 
                 <button
                   onClick={handleCreate}
-                  disabled={creating || !signer}
+                  disabled={creating || !signer || txTooBig}
                   className="px-5 py-2.5 bg-apple-blue text-white text-sm font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors disabled:opacity-50"
                 >
                   {creating ? 'Creating...' : 'Create Market On-Chain'}
@@ -609,7 +713,7 @@ export default function PaidCustomAdminPage() {
                                     </div>
                                   )}
 
-                                  {mk.accumulatedFees > 0n && (
+                                  {mk.status === MarketStatus.Resolved && mk.accumulatedFees > 0n && (
                                     <button
                                       onClick={() => handleWithdrawFees(market)}
                                       disabled={txPending}
@@ -625,9 +729,18 @@ export default function PaidCustomAdminPage() {
                               {mk.status !== MarketStatus.Resolved && mk.words.some(w => w.outcome === null) && (
                                 <div className="pt-1 border-t border-white/5">
                                   <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Resolve Words</h3>
-                                  <p className="text-[10px] text-neutral-600 mb-4">
+                                  <p className="text-[10px] text-neutral-600 mb-2">
                                     When all words are resolved the market transitions to Resolved automatically.
                                   </p>
+                                  {BigInt(Math.floor(Date.now() / 1000)) < mk.resolvesAt ? (
+                                    <p className="text-[10px] text-yellow-500/80 mb-4">
+                                      Resolution opens {new Date(Number(mk.resolvesAt) * 1000).toLocaleString()}
+                                    </p>
+                                  ) : (
+                                    <p className="text-[10px] text-apple-green/70 mb-4">
+                                      Resolution window is open.
+                                    </p>
+                                  )}
                                   <div className="space-y-2.5 mb-4">
                                     {mk.words.filter(w => w.outcome === null).map(w => (
                                       <div key={w.wordIndex} className="flex items-center gap-3">
@@ -678,7 +791,8 @@ export default function PaidCustomAdminPage() {
                                     </button>
                                     <button
                                       onClick={() => handleResolveWords(market)}
-                                      disabled={txPending}
+                                      disabled={txPending || BigInt(Math.floor(Date.now() / 1000)) < mk.resolvesAt}
+                                      title={BigInt(Math.floor(Date.now() / 1000)) < mk.resolvesAt ? `Opens ${new Date(Number(mk.resolvesAt) * 1000).toLocaleString()}` : undefined}
                                       className="px-4 py-1.5 text-xs bg-apple-blue text-white font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors disabled:opacity-50"
                                     >
                                       {txPending ? 'Sending...' : 'Resolve Selected'}

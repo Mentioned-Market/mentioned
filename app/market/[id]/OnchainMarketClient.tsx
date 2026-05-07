@@ -5,6 +5,8 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import FlashValue from '@/components/FlashValue'
+import EventPriceChart from '@/components/EventPriceChart'
+import MentionedSpinner from '@/components/MentionedSpinner'
 import { useWallet } from '@/contexts/WalletContext'
 import {
   fetchMarket,
@@ -89,6 +91,45 @@ function statusPillClasses(status: MarketStatus): string {
 
 const POLL_INTERVAL = 12_000
 
+interface PaidMarketMetadata {
+  market_id: string
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  stream_url: string | null
+}
+
+function toEmbedUrl(url: string): string {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  const twitchChannel = url.match(/twitch\.tv\/([^/?]+)/i)
+  if (twitchChannel) return `https://player.twitch.tv/?channel=${twitchChannel[1]}&parent=${hostname}&muted=true`
+  const twitchVod = url.match(/twitch\.tv\/videos\/(\d+)/i)
+  if (twitchVod) return `https://player.twitch.tv/?video=v${twitchVod[1]}&parent=${hostname}&muted=true`
+  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?]+)/)
+  if (ytMatch) return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1`
+  const ytLive = url.match(/youtube\.com\/live\/([^?&]+)/)
+  if (ytLive) return `https://www.youtube-nocookie.com/embed/${ytLive[1]}?autoplay=1&mute=1`
+  return url
+}
+
+function DescriptionBlock({ text, limit }: { text: string; limit: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const needsTrunc = text.length > limit
+  return (
+    <div className="mb-5 text-sm text-neutral-400 leading-relaxed">
+      {expanded || !needsTrunc ? text : `${text.slice(0, limit).trimEnd()}…`}
+      {needsTrunc && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="ml-1 text-neutral-500 hover:text-neutral-300 transition-colors"
+        >
+          {expanded ? 'less' : 'more'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────
 
 export default function OnchainMarketClient({ marketId }: Props) {
@@ -98,6 +139,10 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
   // ── Data state ────────────────────────────────────────────
   const [market, setMarket] = useState<UsdcMarketAccount | null>(null)
+  const [metadata, setMetadata] = useState<PaidMarketMetadata | null>(null)
+  const [chartData, setChartData] = useState<{ wordIndex: number; history: { t: number; p: number }[] }[]>([])
+  const [chartLoading, setChartLoading] = useState(true)
+  const [tradeVolume, setTradeVolume] = useState<bigint>(0n)
   const [vaultBalance, setVaultBalance] = useState<bigint>(0n)
   const [userUsdc, setUserUsdc] = useState<bigint>(0n)
   const [userTokens, setUserTokens] = useState<UserTokens[]>([])
@@ -116,19 +161,24 @@ export default function OnchainMarketClient({ marketId }: Props) {
   // ── Mobile sheet ──────────────────────────────────────────
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
 
+  // ── Stream ────────────────────────────────────────────────
+  const [streamHidden, setStreamHidden] = useState(false)
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Data fetching ─────────────────────────────────────────
 
   const loadMarket = useCallback(async () => {
     try {
-      const [mkt, vault] = await Promise.all([
+      const [mkt, vault, metaRes] = await Promise.all([
         fetchMarket(id),
         fetchVaultBalance(id),
+        fetch(`/api/paid-markets/metadata?id=${marketId}`).then(r => r.ok ? r.json() : null),
       ])
       if (!mkt) { setError('Market not found'); setLoading(false); return }
       setMarket(mkt)
       setVaultBalance(vault)
+      if (metaRes && !metaRes.error) setMetadata(metaRes)
       setError(null)
     } catch (e) {
       setError('Failed to load market')
@@ -136,7 +186,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, marketId])
 
   const loadUserData = useCallback(async (mkt: UsdcMarketAccount) => {
     if (!publicKey) return
@@ -160,11 +210,28 @@ export default function OnchainMarketClient({ marketId }: Props) {
     }
   }, [publicKey])
 
+  const loadChart = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/paid-markets/chart?id=${marketId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setChartData(data.words || [])
+        if (typeof data.totalVolume === 'number') {
+          setTradeVolume(BigInt(Math.round(data.totalVolume)))
+        }
+      }
+    } catch { /* ignore */ } finally {
+      setChartLoading(false)
+    }
+  }, [marketId])
+
   useEffect(() => {
     loadMarket()
     pollRef.current = setInterval(loadMarket, POLL_INTERVAL)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadMarket])
+
+  useEffect(() => { loadChart() }, [loadChart])
 
   useEffect(() => {
     if (market) loadUserData(market)
@@ -216,10 +283,38 @@ export default function OnchainMarketClient({ marketId }: Props) {
     ? (userTokens[selectedWordIdx]?.yes ?? 0n)
     : (userTokens[selectedWordIdx]?.no ?? 0n)
 
+  const streamEmbedUrl = metadata?.stream_url ? toEmbedUrl(metadata.stream_url) : null
+  const DESC_LIMIT = 180
+
+  const chartMarkets = useMemo(() => {
+    if (!market) return []
+    return market.words.map((w, i) => ({
+      marketId: String(i),
+      title: w.label,
+      currentPrice: impliedYesPrice(w, market.liquidityParamB),
+    }))
+  }, [market])
+
+  const chartSeries = useMemo(() => {
+    if (!market) return []
+    return market.words.map((w, i) => {
+      const wordData = chartData.find(cd => cd.wordIndex === i)
+      const currentPrice = impliedYesPrice(w, market.liquidityParamB)
+      const data: { t: number; p: number }[] = wordData?.history.length
+        ? [...wordData.history]
+        : [{ t: Math.floor((Date.now() - 3600000) / 1000), p: 0.5 }]
+      if (market.status !== MarketStatus.Resolved) {
+        data.push({ t: Math.floor(Date.now() / 1000), p: currentPrice })
+      }
+      return { marketId: String(i), title: w.label, currentPrice, data }
+    })
+  }, [market, chartData])
+
   const sliderMax = tradeMode === 'buy' ? userUsdc : heldForSide
   const sliderValue = sliderMax > 0n ? Math.min(100, (amountNum * 1_000_000 / Number(sliderMax)) * 100) : 0
 
   const isOpen = market?.status === MarketStatus.Open
+  const isResolved = market?.status === MarketStatus.Resolved
   const canTrade = isOpen && !!publicKey && !!signer && !!signOnly
 
   const showBuyPreview = tradeMode === 'buy' && amountNum > 0 && estimatedShares > 0n
@@ -328,8 +423,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
     <>
       {/* Header: market icon + selected word */}
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/10">
-        <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0 flex items-center justify-center text-base">
-          🎯
+        <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0">
+          {metadata?.cover_image_url ? (
+            <img src={metadata.cover_image_url} alt={word.label} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-base">🎯</div>
+          )}
         </div>
         <span className="text-white font-semibold text-base truncate">{word.label}</span>
       </div>
@@ -566,10 +665,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
                     {tok.yes > 0n && (
                       <button
                         onClick={() => {
-                          if (w.outcome !== null) {
-                            // Resolved: show redeem
-                            if (w.outcome === true) handleRedeem(i, 'YES')
-                          } else {
+                          if (isResolved && w.outcome === true) {
+                            handleRedeem(i, 'YES')
+                          } else if (!w.outcome) {
                             setSelectedWordIdx(i)
                             setTradeMode('sell')
                             setSide('YES')
@@ -577,24 +675,24 @@ export default function OnchainMarketClient({ marketId }: Props) {
                           }
                         }}
                         className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
-                          w.outcome !== null
+                          isResolved && w.outcome !== null
                             ? w.outcome === true
                               ? 'border-apple-green/40 bg-apple-green/10 text-apple-green hover:bg-apple-green/20'
                               : 'border-white/10 bg-white/5 text-neutral-500 cursor-default'
                             : 'border-apple-green/30 text-apple-green hover:bg-apple-green/10'
                         }`}
-                        disabled={w.outcome !== null && w.outcome === false}
+                        disabled={isResolved && w.outcome !== true}
                       >
                         {formatTokens(tok.yes)} YES
-                        {w.outcome === true ? ' · Redeem' : w.outcome === null ? ' · sell' : ''}
+                        {isResolved && w.outcome === true ? ' · Redeem' : !w.outcome ? ' · sell' : ''}
                       </button>
                     )}
                     {tok.no > 0n && (
                       <button
                         onClick={() => {
-                          if (w.outcome !== null) {
-                            if (w.outcome === false) handleRedeem(i, 'NO')
-                          } else {
+                          if (isResolved && w.outcome === false) {
+                            handleRedeem(i, 'NO')
+                          } else if (!w.outcome) {
                             setSelectedWordIdx(i)
                             setTradeMode('sell')
                             setSide('NO')
@@ -602,16 +700,16 @@ export default function OnchainMarketClient({ marketId }: Props) {
                           }
                         }}
                         className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
-                          w.outcome !== null
+                          isResolved && w.outcome !== null
                             ? w.outcome === false
                               ? 'border-apple-red/40 bg-apple-red/10 text-apple-red hover:bg-apple-red/20'
                               : 'border-white/10 bg-white/5 text-neutral-500 cursor-default'
                             : 'border-apple-red/30 text-apple-red hover:bg-apple-red/10'
                         }`}
-                        disabled={w.outcome !== null && w.outcome === true}
+                        disabled={isResolved && w.outcome !== false}
                       >
                         {formatTokens(tok.no)} NO
-                        {w.outcome === false ? ' · Redeem' : w.outcome === null ? ' · sell' : ''}
+                        {isResolved && w.outcome === false ? ' · Redeem' : !w.outcome ? ' · sell' : ''}
                       </button>
                     )}
                   </div>
@@ -674,8 +772,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
               {/* Market header */}
               <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
-                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800 flex items-center justify-center text-2xl">
-                  🎯
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
+                  {metadata?.cover_image_url ? (
+                    <img src={metadata.cover_image_url} alt={market.label} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h1 className="text-lg md:text-xl font-semibold text-white leading-tight">
@@ -685,8 +787,8 @@ export default function OnchainMarketClient({ marketId }: Props) {
               </div>
 
               {/* Meta bar */}
-              <div className="flex items-center flex-wrap gap-3 mb-5 text-xs md:text-sm text-neutral-400">
-                <span>—</span>
+              <div className="flex items-center flex-wrap gap-3 mb-4 text-xs md:text-sm text-neutral-400">
+                <span>${formatUsdc(tradeVolume)} volume</span>
                 <span className="text-neutral-700">·</span>
                 <span>{market.words.length} word{market.words.length !== 1 ? 's' : ''}</span>
                 <span className="text-neutral-700">·</span>
@@ -703,18 +805,63 @@ export default function OnchainMarketClient({ marketId }: Props) {
                     <span>{timeUntil(market.resolvesAt)} left</span>
                   </>
                 )}
-                {market.status === MarketStatus.Resolved && (
-                  <>
-                    <span className="text-neutral-700">·</span>
-                    <span>Pool: ${formatUsdc(vaultBalance)} USDC</span>
-                  </>
-                )}
               </div>
+
+              {/* Stream label row */}
+              {streamEmbedUrl && !streamHidden && (
+                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse flex-shrink-0" />
+                  <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
+                  <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                    Hide stream
+                  </button>
+                </div>
+              )}
+              {streamEmbedUrl && streamHidden && (
+                <button
+                  onClick={() => setStreamHidden(false)}
+                  className="flex items-center gap-2 mb-4 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                  <span className="text-xs font-medium text-neutral-300">Show live stream</span>
+                </button>
+              )}
 
               {/* Two-column layout */}
               <div className="flex gap-6">
                 {/* Left column */}
                 <div className="flex-1 min-w-0">
+                  {/* Stream embed */}
+                  {streamEmbedUrl && !streamHidden && (
+                    <div className="mb-5">
+                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
+                        <iframe
+                          src={streamEmbedUrl}
+                          className="absolute inset-0 w-full h-full"
+                          allowFullScreen
+                          allow="autoplay; encrypted-media"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Price chart */}
+                  {chartLoading ? (
+                    <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
+                      <MentionedSpinner className="" />
+                    </div>
+                  ) : chartMarkets.length > 0 && (
+                    <div className="mb-5">
+                      <EventPriceChart
+                        eventId={`paid_${marketId}`}
+                        markets={chartMarkets}
+                        selectedMarketId={String(selectedWordIdx)}
+                        hoveredMarketId={null}
+                        preloadedSeries={chartSeries.length > 0 ? chartSeries : undefined}
+                      />
+                    </div>
+                  )}
+
                   {/* Words table */}
                   <div className="mb-6">
                     {/* Table header */}
@@ -840,28 +987,13 @@ export default function OnchainMarketClient({ marketId }: Props) {
                     })}
                   </div>
 
-                  {/* Pool info */}
-                  <div className="glass rounded-2xl p-4 mb-6">
-                    <div className="grid grid-cols-3 gap-4 text-center">
-                      <div>
-                        <div className="text-xs text-neutral-500 mb-1">Pool</div>
-                        <div className="text-sm font-semibold text-white">${formatUsdc(vaultBalance)}</div>
-                        <div className="text-[10px] text-neutral-600">USDC</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500 mb-1">Fee</div>
-                        <div className="text-sm font-semibold text-white">{(market.tradeFeeBps / 100).toFixed(1)}%</div>
-                        <div className="text-[10px] text-neutral-600">per trade</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500 mb-1">Resolves</div>
-                        <div className="text-sm font-semibold text-white">{timeUntil(market.resolvesAt)}</div>
-                        <div className="text-[10px] text-neutral-600">
-                          {new Date(Number(market.resolvesAt) * 1000).toLocaleDateString()}
-                        </div>
-                      </div>
+                  {/* Description */}
+                  {metadata?.description && (
+                    <div className="mb-5">
+                      <DescriptionBlock text={metadata.description} limit={DESC_LIMIT} />
                     </div>
-                  </div>
+                  )}
+
 
                   {/* Spacer for mobile bottom bar */}
                   <div className="h-20 lg:hidden" />

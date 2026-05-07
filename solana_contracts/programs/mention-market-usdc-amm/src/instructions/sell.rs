@@ -55,6 +55,9 @@ pub fn handle_sell(
     min_return: u64,
 ) -> Result<()> {
     require!(quantity > 0, AmmError::ZeroAmount);
+    // H3: quantity is passed as u64 but stored/used as i64. Values above i64::MAX
+    // wrap silently before checked arithmetic, producing incorrect LMSR returns.
+    require!(quantity <= i64::MAX as u64, AmmError::MathOverflow);
 
     let market = &ctx.accounts.market;
     require!((word_index as usize) < market.num_words as usize, AmmError::InvalidWordIndex);
@@ -97,6 +100,10 @@ pub fn handle_sell(
 
     // Slippage check
     require!(net_return >= min_return, AmmError::SlippageBelowMin);
+
+    // H2: Explicit vault check before burn. Guards against an underfunded vault
+    // (e.g. after fee withdrawal reduces the balance below what traders are owed).
+    require!(ctx.accounts.vault.amount >= net_return, AmmError::InsufficientBalance);
 
     // Burn tokens from trader (trader is authority — no PDA signer needed)
     token::burn(

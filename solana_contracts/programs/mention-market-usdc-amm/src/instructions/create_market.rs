@@ -13,6 +13,7 @@ use crate::state::{
     MAX_WORDS, MAX_MARKET_LABEL, MAX_WORD_LABEL, USDC_MINT,
 };
 use crate::errors::AmmError;
+use crate::math::PRECISION;
 
 #[derive(Accounts)]
 #[instruction(market_id: u64, label: String, word_labels: Vec<String>)]
@@ -75,6 +76,20 @@ pub fn handle_create_market<'info>(
     for wl in &word_labels {
         require!(wl.len() <= MAX_WORD_LABEL, AmmError::WordLabelTooLong);
     }
+
+    // H1: Cap fees at 10% to prevent trades that drain user funds
+    require!(trade_fee_bps <= 1000, AmmError::FeeTooHigh);
+
+    // M3: At least one b source must be non-zero or all trades fail immediately
+    require!(initial_b > 0 || base_b_per_usdc > 0, AmmError::ZeroLiquidity);
+
+    // C2: Cap dynamic b scaling so b can never exceed the vault balance.
+    // With base_b_per_usdc <= PRECISION (1:1), b = vault * ratio <= vault, which
+    // guarantees the vault always covers the worst-case LP loss of b * ln(2) < b.
+    require!(
+        base_b_per_usdc == 0 || base_b_per_usdc <= PRECISION,
+        AmmError::InvalidBParameter,
+    );
 
     let num_words = word_labels.len();
 
@@ -183,7 +198,7 @@ pub fn handle_create_market<'info>(
                 collection: None,
                 uses: None,
             },
-            true,  // is_mutable
+            false, // is_mutable — metadata locked after creation
             true,  // update_authority_is_signer
             None,  // collection_details
         )?;

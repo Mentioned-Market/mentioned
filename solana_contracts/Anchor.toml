@@ -3,14 +3,10 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-mention_market = "AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN"
-mention_market_amm = "2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU"
-mention_market_usdc_amm = "BKYVi5hWefmtWhE2hCoarcjufQQvaxDAcfeMSo27SEyA"
+mention_market_usdc_amm = "9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk"
 
 [programs.devnet]
-mention_market = "AJ4XSwJoh2C8vmd8U7xhpzMkzkZZPaBRpbfpkmm4DmeN"
-mention_market_amm = "2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU"
-mention_market_usdc_amm = "BKYVi5hWefmtWhE2hCoarcjufQQvaxDAcfeMSo27SEyA"
+mention_market_usdc_amm = "9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk"
 
 [registry]
 url = "https://api.apr.dev"
