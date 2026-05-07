@@ -817,17 +817,31 @@ export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl
  * Check if a wallet has a linked Discord account.
  */
 export async function hasDiscordLinked(wallet: string): Promise<boolean> {
+  // Cache the "is a Discord linked?" answer (rarely changes, 15 min TTL is fine).
+  let isLinked: boolean
   const cached = discordCache.get(wallet)
-  if (cached !== undefined) return cached
+  if (cached !== undefined) {
+    isLinked = cached
+  } else {
+    const result = await pool.query(
+      `SELECT 1 FROM user_profiles WHERE wallet = $1 AND discord_id IS NOT NULL`,
+      [wallet],
+    )
+    isLinked = result.rows.length > 0
+    discordCache.set(wallet, isLinked, isLinked ? undefined : DISCORD_UNLINKED_TTL)
+  }
 
-  const result = await pool.query(
-    `SELECT 1 FROM user_profiles
-      WHERE wallet = $1 AND discord_id IS NOT NULL AND locked_at IS NULL`,
+  if (!isLinked) return false
+
+  // Lock state is queried fresh every call — admins lock via raw SQL UPDATE,
+  // which doesn't go through any cache-invalidating code path. Caching this
+  // would let a locked user keep earning points (chat, resolution payouts,
+  // referral bonuses) until the 15-min TTL expired.
+  const lockResult = await pool.query(
+    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND locked_at IS NOT NULL LIMIT 1`,
     [wallet],
   )
-  const linked = result.rows.length > 0
-  discordCache.set(wallet, linked, linked ? undefined : DISCORD_UNLINKED_TTL)
-  return linked
+  return lockResult.rows.length === 0
 }
 
 const REFERRAL_BONUS_RATE = 0.05 // 5% mutual bonus
