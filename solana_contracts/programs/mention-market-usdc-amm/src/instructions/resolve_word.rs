@@ -33,11 +33,7 @@ pub fn handle_resolve_word(
         AmmError::WordAlreadyResolved
     );
 
-    // M2: Prevent early resolution. The scheduled resolves_at timestamp is the
-    // agreed-upon resolution window; resolving before it allows the resolver to
-    // lock in outcomes before the observed event has occurred.
     let now = Clock::get()?.unix_timestamp;
-    require!(now >= market.resolves_at, AmmError::ResolutionTooEarly);
 
     market.words[word_index as usize].outcome = Some(outcome);
 

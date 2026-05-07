@@ -735,15 +735,6 @@ export default function PaidCustomAdminPage() {
                                   <p className="text-[10px] text-neutral-600 mb-2">
                                     When all words are resolved the market transitions to Resolved automatically.
                                   </p>
-                                  {BigInt(Math.floor(Date.now() / 1000)) < mk.resolvesAt ? (
-                                    <p className="text-[10px] text-yellow-500/80 mb-4">
-                                      Resolution opens {new Date(Number(mk.resolvesAt) * 1000).toLocaleString()}
-                                    </p>
-                                  ) : (
-                                    <p className="text-[10px] text-apple-green/70 mb-4">
-                                      Resolution window is open.
-                                    </p>
-                                  )}
                                   <div className="space-y-2.5 mb-4">
                                     {mk.words.filter(w => w.outcome === null).map(w => (
                                       <div key={w.wordIndex} className="flex items-center gap-3">
@@ -794,8 +785,7 @@ export default function PaidCustomAdminPage() {
                                     </button>
                                     <button
                                       onClick={() => handleResolveWords(market)}
-                                      disabled={txPending || BigInt(Math.floor(Date.now() / 1000)) < mk.resolvesAt}
-                                      title={BigInt(Math.floor(Date.now() / 1000)) < mk.resolvesAt ? `Opens ${new Date(Number(mk.resolvesAt) * 1000).toLocaleString()}` : undefined}
+                                      disabled={txPending}
                                       className="px-4 py-1.5 text-xs bg-apple-blue text-white font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors disabled:opacity-50"
                                     >
                                       {txPending ? 'Sending...' : 'Resolve Selected'}
