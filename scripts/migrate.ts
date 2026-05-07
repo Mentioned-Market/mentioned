@@ -252,6 +252,12 @@ ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_id TEXT;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS discord_username TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_discord_id ON user_profiles(discord_id) WHERE discord_id IS NOT NULL;
 
+-- Account lock (admin enforcement). discord_id stays populated so the unique
+-- constraint still blocks the user from re-linking the same Discord on a fresh wallet.
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS locked_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_profile_locked ON user_profiles(locked_at) WHERE locked_at IS NOT NULL;
+
 -- Referral system
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS referred_by TEXT;
