@@ -301,20 +301,23 @@ export interface ProfileRow {
   pfp_emoji: string | null
   discord_id: string | null
   discord_username: string | null
+  locked_at: string | null
 }
 
 export async function getProfile(wallet: string): Promise<ProfileRow | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, discord_id, discord_username FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, discord_id, discord_username, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
 }
 
 
-export async function getProfileByUsername(username: string): Promise<(ProfileRow & { created_at: string }) | null> {
+export async function getProfileByUsername(
+  username: string,
+): Promise<(ProfileRow & { created_at: string; locked_at: string | null }) | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
+    `SELECT wallet, username, pfp_emoji, created_at, locked_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
     [username],
   )
   return result.rows[0] || null
@@ -341,9 +344,11 @@ export async function searchCustomMarkets(query: string): Promise<{ id: number; 
   return result.rows
 }
 
-export async function getProfileByWallet(wallet: string): Promise<(ProfileRow & { created_at: string }) | null> {
+export async function getProfileByWallet(
+  wallet: string,
+): Promise<(ProfileRow & { created_at: string; locked_at: string | null }) | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, created_at, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
@@ -801,7 +806,8 @@ export async function hasDiscordLinked(wallet: string): Promise<boolean> {
   if (cached !== undefined) return cached
 
   const result = await pool.query(
-    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND discord_id IS NOT NULL`,
+    `SELECT 1 FROM user_profiles
+      WHERE wallet = $1 AND discord_id IS NOT NULL AND locked_at IS NULL`,
     [wallet],
   )
   const linked = result.rows.length > 0
@@ -2216,23 +2222,25 @@ function discordAccountAgeDays(discordId: string): number {
 
 async function assertDiscordEligible(wallet: string): Promise<void> {
   const result = await pool.query(
-    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    `SELECT discord_id, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
-  const discordId = result.rows[0]?.discord_id
-  if (!discordId) throw new Error('DISCORD_REQUIRED')
-  const ageDays = discordAccountAgeDays(discordId)
+  const row = result.rows[0]
+  if (row?.locked_at) throw new Error('WALLET_LOCKED')
+  if (!row?.discord_id) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(row.discord_id)
   if (ageDays < MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
 }
 
 export async function assertDiscordTradingEligible(wallet: string): Promise<void> {
   const result = await pool.query(
-    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    `SELECT discord_id, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
-  const discordId = result.rows[0]?.discord_id
-  if (!discordId) throw new Error('DISCORD_REQUIRED')
-  const ageDays = discordAccountAgeDays(discordId)
+  const row = result.rows[0]
+  if (row?.locked_at) throw new Error('WALLET_LOCKED')
+  if (!row?.discord_id) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(row.discord_id)
   if (ageDays < MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
 }
 
