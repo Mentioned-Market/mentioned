@@ -26,6 +26,7 @@ export async function GET(
   let username: string | null
   let created_at: string | null
   let pfp_emoji: string | null = null
+  let locked_at: string | null = null
 
   if (WALLET_RE.test(identifier)) {
     const profile = await getProfileByWallet(identifier)
@@ -33,6 +34,7 @@ export async function GET(
     username = profile?.username ?? null
     created_at = profile?.created_at ?? null
     pfp_emoji = profile?.pfp_emoji ?? null
+    locked_at = profile?.locked_at ?? null
   } else if (USERNAME_RE.test(identifier)) {
     const profile = await getProfileByUsername(identifier)
     if (!profile) {
@@ -42,6 +44,7 @@ export async function GET(
     username = profile.username
     created_at = profile.created_at
     pfp_emoji = profile.pfp_emoji ?? null
+    locked_at = profile.locked_at ?? null
   } else {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
@@ -62,6 +65,7 @@ export async function GET(
     wallet,
     pfpEmoji: pfp_emoji,
     createdAt: created_at,
+    lockedAt: locked_at,
     positions: [],
     history: [],
     stats: {

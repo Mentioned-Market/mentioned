@@ -301,20 +301,23 @@ export interface ProfileRow {
   pfp_emoji: string | null
   discord_id: string | null
   discord_username: string | null
+  locked_at: string | null
 }
 
 export async function getProfile(wallet: string): Promise<ProfileRow | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, discord_id, discord_username FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, discord_id, discord_username, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
 }
 
 
-export async function getProfileByUsername(username: string): Promise<(ProfileRow & { created_at: string }) | null> {
+export async function getProfileByUsername(
+  username: string,
+): Promise<(ProfileRow & { created_at: string; locked_at: string | null }) | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
+    `SELECT wallet, username, pfp_emoji, created_at, locked_at FROM user_profiles WHERE LOWER(username) = LOWER($1)`,
     [username],
   )
   return result.rows[0] || null
@@ -341,9 +344,11 @@ export async function searchCustomMarkets(query: string): Promise<{ id: number; 
   return result.rows
 }
 
-export async function getProfileByWallet(wallet: string): Promise<(ProfileRow & { created_at: string }) | null> {
+export async function getProfileByWallet(
+  wallet: string,
+): Promise<(ProfileRow & { created_at: string; locked_at: string | null }) | null> {
   const result = await pool.query(
-    `SELECT wallet, username, pfp_emoji, created_at FROM user_profiles WHERE wallet = $1`,
+    `SELECT wallet, username, pfp_emoji, created_at, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
   return result.rows[0] || null
@@ -373,11 +378,25 @@ export async function updatePfpEmoji(
   )
 }
 
+/**
+ * Throws WALLET_LOCKED if the wallet exists and has been admin-locked.
+ * Used to prevent locked users from changing their discord_id (which would
+ * free up the previously-banned Discord for re-link on a fresh wallet).
+ */
+async function assertNotLocked(wallet: string): Promise<void> {
+  const result = await pool.query(
+    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND locked_at IS NOT NULL LIMIT 1`,
+    [wallet],
+  )
+  if (result.rows.length > 0) throw new Error('WALLET_LOCKED')
+}
+
 export async function linkDiscord(
   wallet: string,
   discordId: string,
   discordUsername: string,
 ): Promise<void> {
+  await assertNotLocked(wallet)
   // Ensure the wallet row exists (upsert with minimal data), then set discord fields
   await pool.query(
     `INSERT INTO user_profiles (wallet, username, discord_id, discord_username, updated_at)
@@ -392,6 +411,7 @@ export async function linkDiscord(
 }
 
 export async function unlinkDiscord(wallet: string): Promise<void> {
+  await assertNotLocked(wallet)
   await pool.query(
     `UPDATE user_profiles SET discord_id = NULL, discord_username = NULL, updated_at = NOW() WHERE wallet = $1`,
     [wallet],
@@ -797,16 +817,31 @@ export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl
  * Check if a wallet has a linked Discord account.
  */
 export async function hasDiscordLinked(wallet: string): Promise<boolean> {
+  // Cache the "is a Discord linked?" answer (rarely changes, 15 min TTL is fine).
+  let isLinked: boolean
   const cached = discordCache.get(wallet)
-  if (cached !== undefined) return cached
+  if (cached !== undefined) {
+    isLinked = cached
+  } else {
+    const result = await pool.query(
+      `SELECT 1 FROM user_profiles WHERE wallet = $1 AND discord_id IS NOT NULL`,
+      [wallet],
+    )
+    isLinked = result.rows.length > 0
+    discordCache.set(wallet, isLinked, isLinked ? undefined : DISCORD_UNLINKED_TTL)
+  }
 
-  const result = await pool.query(
-    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND discord_id IS NOT NULL`,
+  if (!isLinked) return false
+
+  // Lock state is queried fresh every call — admins lock via raw SQL UPDATE,
+  // which doesn't go through any cache-invalidating code path. Caching this
+  // would let a locked user keep earning points (chat, resolution payouts,
+  // referral bonuses) until the 15-min TTL expired.
+  const lockResult = await pool.query(
+    `SELECT 1 FROM user_profiles WHERE wallet = $1 AND locked_at IS NOT NULL LIMIT 1`,
     [wallet],
   )
-  const linked = result.rows.length > 0
-  discordCache.set(wallet, linked, linked ? undefined : DISCORD_UNLINKED_TTL)
-  return linked
+  return lockResult.rows.length === 0
 }
 
 const REFERRAL_BONUS_RATE = 0.05 // 5% mutual bonus
@@ -2216,23 +2251,25 @@ function discordAccountAgeDays(discordId: string): number {
 
 async function assertDiscordEligible(wallet: string): Promise<void> {
   const result = await pool.query(
-    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    `SELECT discord_id, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
-  const discordId = result.rows[0]?.discord_id
-  if (!discordId) throw new Error('DISCORD_REQUIRED')
-  const ageDays = discordAccountAgeDays(discordId)
+  const row = result.rows[0]
+  if (row?.locked_at) throw new Error('WALLET_LOCKED')
+  if (!row?.discord_id) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(row.discord_id)
   if (ageDays < MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
 }
 
 export async function assertDiscordTradingEligible(wallet: string): Promise<void> {
   const result = await pool.query(
-    `SELECT discord_id FROM user_profiles WHERE wallet = $1`,
+    `SELECT discord_id, locked_at FROM user_profiles WHERE wallet = $1`,
     [wallet],
   )
-  const discordId = result.rows[0]?.discord_id
-  if (!discordId) throw new Error('DISCORD_REQUIRED')
-  const ageDays = discordAccountAgeDays(discordId)
+  const row = result.rows[0]
+  if (row?.locked_at) throw new Error('WALLET_LOCKED')
+  if (!row?.discord_id) throw new Error('DISCORD_REQUIRED')
+  const ageDays = discordAccountAgeDays(row.discord_id)
   if (ageDays < MIN_DISCORD_AGE_DAYS) throw new Error('DISCORD_TOO_NEW')
 }
 

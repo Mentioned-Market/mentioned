@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
     pfpEmoji: profile?.pfp_emoji ?? null,
     discordId: profile?.discord_id ?? null,
     discordUsername: profile?.discord_username ?? null,
+    lockedAt: profile?.locked_at ?? null,
     referralCode,
     referralCount: referralStats.referralCount,
     referredBy: referralStats.referredBy,
