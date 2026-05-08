@@ -348,6 +348,14 @@ CREATE TABLE IF NOT EXISTS user_visit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_user_visit_logs_wallet_week ON user_visit_logs(wallet, week_start);
 
+-- IP / user-agent capture for multi-account detection.
+-- INET stores both v4 and v6 efficiently and supports subnet operators.
+ALTER TABLE user_visit_logs ADD COLUMN IF NOT EXISTS ip         INET;
+ALTER TABLE user_visit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT;
+CREATE INDEX IF NOT EXISTS idx_user_visit_logs_ip
+  ON user_visit_logs(ip, visit_date DESC)
+  WHERE ip IS NOT NULL;
+
 -- Featured market flag (only one market should be featured at a time)
 ALTER TABLE custom_markets ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
 

@@ -2210,8 +2210,17 @@ export async function executeVirtualTrade(
 /**
  * Record a visit for today. Idempotent — UNIQUE (wallet, visit_date) prevents duplicates.
  * Returns the number of distinct days visited this week (Mon–Sun UTC).
+ *
+ * `ip` and `userAgent` are captured for multi-account-abuse detection.
+ * On a same-day re-visit, the most recent IP/UA wins (so a network change
+ * mid-day surfaces in the logs); existing values are preserved if the new
+ * call doesn't supply them.
  */
-export async function recordVisitAndGetWeekCount(wallet: string): Promise<number> {
+export async function recordVisitAndGetWeekCount(
+  wallet: string,
+  ip: string | null = null,
+  userAgent: string | null = null,
+): Promise<number> {
   const now = new Date()
 
   // ISO week starts Monday
@@ -2224,10 +2233,12 @@ export async function recordVisitAndGetWeekCount(wallet: string): Promise<number
   const todayStr = now.toISOString().slice(0, 10)
 
   await pool.query(
-    `INSERT INTO user_visit_logs (wallet, visit_date, week_start)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (wallet, visit_date) DO NOTHING`,
-    [wallet, todayStr, weekStart],
+    `INSERT INTO user_visit_logs (wallet, visit_date, week_start, ip, user_agent)
+     VALUES ($1, $2, $3, $4::inet, $5)
+     ON CONFLICT (wallet, visit_date) DO UPDATE SET
+       ip         = COALESCE(EXCLUDED.ip,         user_visit_logs.ip),
+       user_agent = COALESCE(EXCLUDED.user_agent, user_visit_logs.user_agent)`,
+    [wallet, todayStr, weekStart, ip, userAgent],
   )
 
   const result = await pool.query<{ count: string }>(
