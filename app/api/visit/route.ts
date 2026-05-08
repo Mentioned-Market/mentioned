@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { recordVisitAndGetWeekCount } from '@/lib/db'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
+import { getClientIp } from '@/lib/clientIp'
 
 // Tier thresholds and their achievement IDs in ascending order
 const LOGIN_TIERS = [
@@ -16,9 +17,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
 
+  const ip = getClientIp(req)
+  const userAgent = req.headers.get('user-agent') || null
+
   let weekCount: number
   try {
-    weekCount = await recordVisitAndGetWeekCount(wallet)
+    weekCount = await recordVisitAndGetWeekCount(wallet, ip, userAgent)
   } catch (err) {
     console.error('Visit record error:', err)
     return NextResponse.json({ error: 'Failed to record visit' }, { status: 500 })
