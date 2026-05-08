@@ -6,7 +6,6 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import CustomEventCard from '@/components/CustomEventCard'
-import MentionedSpinner from '@/components/MentionedSpinner'
 import { useWallet } from '@/contexts/WalletContext'
 import {
   getDisplayStatus,
@@ -501,6 +500,7 @@ function FeedbackBanner() {
 // Featured market — large hero card for one free market
 function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
   const url = `/free/${market.slug}`
   const lockPassed = market.lock_time ? new Date(market.lock_time) <= new Date() : false
   const isLive = market.status === 'open' && !lockPassed && (
@@ -512,18 +512,32 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
 
   return (
     <Link href={url} className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift mb-6">
-      <div className="relative overflow-hidden" style={{ height: '220px' }}>
-        {market.cover_image_url && !imgError ? (
+      <div className="relative overflow-hidden bg-gradient-to-br from-neutral-800 to-neutral-900" style={{ height: '220px' }}>
+        {/* Placeholder / fallback */}
+        {(!market.cover_image_url || imgError) && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-neutral-500 text-4xl">🎯</span>
+          </div>
+        )}
+        {/* Shimmer while image fetches */}
+        {market.cover_image_url && !imgError && !imgLoaded && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%)',
+              animation: 'shimmerSlide 2.2s ease-in-out infinite',
+            }}
+          />
+        )}
+        {market.cover_image_url && !imgError && (
           <img
             src={market.cover_image_url}
             alt={market.title}
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+            style={{ opacity: imgLoaded ? 1 : 0 }}
+            onLoad={() => setImgLoaded(true)}
             onError={() => setImgError(true)}
           />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-neutral-800 to-neutral-900 flex items-center justify-center">
-            <span className="text-neutral-500 text-4xl">🎯</span>
-          </div>
         )}
         {/* Gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
@@ -852,6 +866,42 @@ function AnimatedBackground() {
   )
 }
 
+// ── Skeleton card shown while market data loads ────────────────────────────
+
+function MarketCardSkeleton({ index = 0 }: { index?: number }) {
+  const delay = `${index * 0.07}s`
+  return (
+    <div className="relative overflow-hidden rounded-2xl glass">
+      {/* image placeholder */}
+      <div className="w-full bg-white/[0.07]" style={{ height: 140 }} />
+      {/* content */}
+      <div className="p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
+          <div className="h-3 rounded bg-white/[0.08] w-3/4" />
+          <div className="h-3 rounded bg-white/[0.08] w-1/2" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-[30px] rounded-lg glass" />
+          ))}
+        </div>
+        <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+          <div className="h-4 w-16 rounded-full bg-white/[0.07]" />
+          <div className="h-4 w-12 rounded-full bg-white/[0.07]" />
+        </div>
+      </div>
+      {/* single sweep shimmer */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.055) 50%, transparent 70%)',
+          animation: `shimmerSlide 2.2s ease-in-out ${delay} infinite`,
+        }}
+      />
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function MarketsPage() {
@@ -948,19 +998,21 @@ export default function MarketsPage() {
             <Header />
             <main className="flex-1 pt-6 pb-4">
 
-              {!pageReady ? (
-                <div className="flex items-center justify-center py-32">
-                  <MentionedSpinner />
-                </div>
-              ) : (
-                <div className="animate-fade-up">
-                  {/* Free markets + sidebar — two columns */}
-                  <div className="flex gap-6 items-stretch mb-8">
+              {/* Free markets + sidebar — two columns */}
+              <div className="flex gap-6 items-stretch mb-8">
+                {/* Free markets */}
+                <div className="flex-1 min-w-0">
+                  <TeamCompBanner />
+                  <FeedbackBanner />
 
-                    {/* Free markets */}
-                    <div className="flex-1 min-w-0">
-                      <TeamCompBanner />
-                      <FeedbackBanner />
+                  {customLoading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <MarketCardSkeleton key={i} index={i} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="animate-fade-up">
                       {featuredMarket && (
                         <div style={{ background: '#000', borderRadius: '1rem' }}>
                           <FeaturedMarket market={featuredMarket} />
@@ -979,20 +1031,20 @@ export default function MarketsPage() {
                         <p className="text-neutral-500 text-sm py-4">No free markets available right now</p>
                       )}
                     </div>
-
-                    {/* Sidebar */}
-                    <aside className="hidden lg:flex lg:flex-col w-72 shrink-0">
-                      <WeekCycleBanner countdown={countdown} />
-                      {sidebarData && (
-                        <>
-                          <TrendingWordsWidget words={sidebarData.trendingWords} />
-                          <TopTradersWidget traders={sidebarData.topTraders} />
-                        </>
-                      )}
-                    </aside>
-                  </div>
+                  )}
                 </div>
-              )}
+
+                {/* Sidebar */}
+                <aside className="hidden lg:flex lg:flex-col w-72 shrink-0">
+                  <WeekCycleBanner countdown={countdown} />
+                  {sidebarData && (
+                    <>
+                      <TrendingWordsWidget words={sidebarData.trendingWords} />
+                      <TopTradersWidget traders={sidebarData.topTraders} />
+                    </>
+                  )}
+                </aside>
+              </div>
 
               {/* Paid Markets — collapsible, loads on expand */}
               {pageReady && <section className="border-t border-white/10 pt-6 mt-2">
@@ -1011,7 +1063,11 @@ export default function MarketsPage() {
                 </button>
                 {paidOpen && (
                   polyLoading ? (
-                    <MentionedSpinner />
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 py-2">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <MarketCardSkeleton key={i} index={i} />
+                      ))}
+                    </div>
                   ) : error ? (
                     <div className="flex flex-col items-start gap-2 py-4">
                       <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>

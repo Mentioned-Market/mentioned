@@ -1447,7 +1447,9 @@ export async function listCustomMarketsPublic(): Promise<CustomMarketListRow[]> 
        LEFT JOIN (SELECT market_id, COUNT(*)::int AS cnt FROM custom_market_words GROUP BY market_id) w ON w.market_id = m.id
        LEFT JOIN (SELECT market_id, COUNT(DISTINCT wallet)::int AS cnt FROM custom_market_positions GROUP BY market_id) p ON p.market_id = m.id
        WHERE ${PUBLIC_LISTING_FILTER}
-       ORDER BY m.created_at DESC
+       ORDER BY
+         CASE m.status WHEN 'open' THEN 0 WHEN 'locked' THEN 1 ELSE 2 END ASC,
+         m.lock_time ASC NULLS LAST
        LIMIT 200`,
     ),
     pool.query(

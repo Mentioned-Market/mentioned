@@ -131,6 +131,8 @@ function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; mark
 
 export default function CustomEventCard({ market }: { market: CustomMarketSummary }) {
   const [imgError, setImgError] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const [wordsReady, setWordsReady] = useState(!market.cover_image_url)
   const url = `/free/${market.slug}`
   const lockPassed = market.lock_time ? new Date(market.lock_time) <= new Date() : false
   const displayStatus = getDisplayStatus(market)
@@ -144,18 +146,33 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
   return (
     <div className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift">
       {/* Image */}
-      <Link href={url} className="block w-full relative overflow-hidden" style={{ height: '140px' }}>
-        {market.cover_image_url && !imgError ? (
+      <Link href={url} className="block w-full relative overflow-hidden bg-neutral-800" style={{ height: '140px' }}>
+        {/* Placeholder shown until image loads or on error */}
+        {(!market.cover_image_url || imgError) && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-neutral-500 text-2xl">🎯</span>
+          </div>
+        )}
+        {/* Shimmer while image is fetching */}
+        {market.cover_image_url && !imgError && !imgLoaded && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%)',
+              animation: 'shimmerSlide 2.2s ease-in-out infinite',
+            }}
+          />
+        )}
+        {market.cover_image_url && !imgError && (
           <img
             src={market.cover_image_url}
             alt={market.title}
-            className="w-full h-full object-cover"
-            onError={() => setImgError(true)}
+            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+            style={{ opacity: imgLoaded ? 1 : 0 }}
+            loading="lazy"
+            onLoad={() => { setImgLoaded(true); setWordsReady(true) }}
+            onError={() => { setImgError(true); setWordsReady(true) }}
           />
-        ) : (
-          <div className="w-full h-full bg-neutral-800 flex items-center justify-center">
-            <span className="text-neutral-500 text-2xl">🎯</span>
-          </div>
         )}
         <div className="absolute top-3 left-3">
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm whitespace-nowrap ${getDisplayStatusOverlayClasses(displayStatus)}`}>
@@ -186,10 +203,25 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
           )}
         </div>
 
-        {/* Scrolling word sentiment list */}
-        {market.words_prices.length > 0 && (
-          <ScrollingSentimentList words={market.words_prices} marketUrl={url} />
-        )}
+        {/* Scrolling word sentiment list — skeleton until image loads, then fade in */}
+        {!wordsReady ? (
+          <div className="relative overflow-hidden flex flex-col gap-1.5">
+            {Array.from({ length: Math.min(market.word_count || 4, 5) }).map((_, i) => (
+              <div key={i} className="h-[30px] rounded-lg bg-white/[0.07]" />
+            ))}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: 'linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.055) 50%, transparent 70%)',
+                animation: 'shimmerSlide 2.2s ease-in-out infinite',
+              }}
+            />
+          </div>
+        ) : market.words_prices.length > 0 ? (
+          <div style={{ animation: 'fadeUp 0.3s ease-out both' }}>
+            <ScrollingSentimentList words={market.words_prices} marketUrl={url} />
+          </div>
+        ) : null}
 
         <Link href={url} className="flex items-center gap-2 pt-2 border-t border-white/5">
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
