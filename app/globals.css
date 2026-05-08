@@ -232,6 +232,51 @@ html {
   animation-play-state: paused !important;
 }
 
+/* ── Homepage hero entrance animations ────────────────────────────────────────
+   Defined in globals.css so they are guaranteed to load before first paint.
+   fill-mode: both keeps elements at opacity:0 until the animation starts. */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hero-icon    { animation: fadeSlideUp 0.8s ease-out 0s    both; }
+.hero-title   { animation: fadeSlideUp 0.8s ease-out 0.15s both; }
+.hero-subtitle{ animation: fadeSlideUp 0.8s ease-out 0.35s both; }
+.hero-cta     { animation: fadeSlideUp 0.8s ease-out 0.55s both; }
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(8px); }
+}
+.scroll-bounce { animation: bounce 2s ease-in-out infinite; }
+
+@keyframes blink       { 50% { opacity: 0; } }
+@keyframes shimmerSlide { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0);    opacity: 0.3; }
+  40%           { transform: translateY(-3px); opacity: 1; }
+}
+
+.reveal          { opacity: 0; transition: opacity 0.7s ease-out, transform 0.7s ease-out; }
+.reveal.reveal-up    { transform: translateY(50px); }
+.reveal.reveal-left  { transform: translateX(-50px); }
+.reveal.reveal-right { transform: translateX(50px); }
+.reveal.reveal-scale { transform: scale(0.9); }
+.reveal.revealed     { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
+.stagger-1 { transition-delay: 0.12s; }
+.stagger-2 { transition-delay: 0.24s; }
+.stagger-3 { transition-delay: 0.36s; }
+
+@keyframes bg-scroll-up {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
+}
+@keyframes bg-scroll-down {
+  from { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
+  to   { transform: translate3d(0, 0, 0); }
+}
+
 /* Respect user's reduced-motion preference — stop the decorative scrolling bg entirely */
 @media (prefers-reduced-motion: reduce) {
   .bg-col-anim {

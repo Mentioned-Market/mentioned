@@ -172,11 +172,24 @@ export default function TradeTicker() {
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-3 h-full px-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-6 rounded-full bg-white/5 shrink-0" style={{ width: `${140 + (i % 3) * 40}px` }} />
-          ))}
-        </div>
+        <>
+          <div className="flex items-center gap-3 h-full px-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-6 rounded-full bg-white/[0.08] shrink-0"
+                style={{ width: `${140 + (i % 3) * 40}px` }}
+              />
+            ))}
+          </div>
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.09) 50%, transparent 70%)',
+              animation: 'shimmerSlide 2.2s ease-in-out infinite',
+            }}
+          />
+        </>
       )}
     </div>
   )
