@@ -435,6 +435,74 @@ CREATE TABLE IF NOT EXISTS feedback_submissions (
   extra           TEXT,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ── Live transcription / word mention detection ─────────────────────────────
+-- Spec: specs/live_transcription_spec.md
+-- Owned by the transcript-worker service (services/transcript-worker).
+-- v1: free markets only. event_id format follows event_chat_messages: 'custom_<id>'.
+
+-- Per-market monitoring intent. One active row per market.
+CREATE TABLE IF NOT EXISTS monitored_streams (
+  id              SERIAL PRIMARY KEY,
+  event_id        TEXT NOT NULL UNIQUE,             -- 'custom_<id>' for free markets
+  stream_url      TEXT NOT NULL,                    -- twitch.tv/foo, youtube.com/watch?v=...
+  status          TEXT NOT NULL DEFAULT 'pending',  -- pending | live | ended | error
+  source          TEXT,                             -- 'twitch' | 'youtube'
+  started_at      TIMESTAMPTZ,
+  ended_at        TIMESTAMPTZ,
+  minutes_used    NUMERIC NOT NULL DEFAULT 0,
+  cost_cents      INTEGER NOT NULL DEFAULT 0,
+  error_message   TEXT,
+  created_by      TEXT NOT NULL,                    -- admin wallet
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_monitored_streams_status
+  ON monitored_streams(status) WHERE status IN ('pending', 'live');
+
+-- Finalized transcript segments. One row per Deepgram is_final=true.
+CREATE TABLE IF NOT EXISTS live_transcript_segments (
+  id           BIGSERIAL PRIMARY KEY,
+  stream_id    INTEGER NOT NULL REFERENCES monitored_streams(id) ON DELETE CASCADE,
+  start_ms     INTEGER NOT NULL,
+  end_ms       INTEGER NOT NULL,
+  text         TEXT NOT NULL,
+  confidence   REAL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_lts_stream_time
+  ON live_transcript_segments(stream_id, start_ms);
+
+-- Detected word/phrase matches. Position-based dedupe via UNIQUE constraint.
+CREATE TABLE IF NOT EXISTS word_mentions (
+  id                 BIGSERIAL PRIMARY KEY,
+  stream_id          INTEGER NOT NULL REFERENCES monitored_streams(id) ON DELETE CASCADE,
+  event_id           TEXT NOT NULL,                          -- denormalized for fast filter
+  word_index         INTEGER NOT NULL,
+  word               TEXT NOT NULL,                          -- canonical from custom_market_words
+  matched_text       TEXT NOT NULL,                          -- actual variant that matched
+  segment_id         BIGINT REFERENCES live_transcript_segments(id) ON DELETE SET NULL,
+  stream_offset_ms   INTEGER NOT NULL,                       -- jump-to-time link
+  global_char_offset INTEGER NOT NULL,                       -- position-based dedupe key
+  snippet            TEXT NOT NULL,                          -- ±40 chars around the hit
+  confidence         REAL,
+  superseded         BOOLEAN NOT NULL DEFAULT FALSE,
+  superseded_by      TEXT,
+  superseded_at      TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (stream_id, word_index, global_char_offset)
+);
+CREATE INDEX IF NOT EXISTS idx_word_mentions_event_active
+  ON word_mentions(event_id, word_index) WHERE superseded = FALSE;
+CREATE INDEX IF NOT EXISTS idx_word_mentions_stream
+  ON word_mentions(stream_id, created_at);
+
+-- Word-level resolution rules. Default 1 = any-mention semantics (no behavioral
+-- change for existing markets). Higher = count-based ("said 10+ times").
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS mention_threshold INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS match_variants TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 `
 
 async function main() {
