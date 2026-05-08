@@ -6,21 +6,32 @@ Full design: [`specs/live_transcription_spec.md`](../../specs/live_transcription
 
 ## Status
 
-**Phase 1 (foundation).** The service:
+**Phases 1–3.** The service:
 
 - Connects to the existing Mentioned Postgres
 - Opens a health server on `PORT` (default 3001)
-- Subscribes to `LISTEN stream_added` and `LISTEN stream_canceled`
-- Performs boot recovery (logs in-flight streams from `monitored_streams`)
-- Heartbeats to logs every 60s
-- Handles graceful shutdown on `SIGTERM` / `SIGINT`
+- Subscribes to `LISTEN stream_added` / `stream_canceled` and CAS-claims
+  pending streams (the worker that flips `pending → live` owns them)
+- Boot recovery: re-spawns workers for any rows left in `pending` or `live`
+  state from a prior process (no API re-verify in Phase 3 — see spec for
+  Phase 4+ enhancement)
+- Per-stream pipeline: `streamlink|yt-dlp` → `ffmpeg` (16 kHz mono PCM) →
+  Deepgram Nova-3 streaming with keyterm prompting → finalized segments →
+  `live_transcript_segments` + `word_mentions` rows + `NOTIFY word_mention`
+- Sliding-window phrase matcher with position-based dedupe across segment
+  boundaries
+- Long-stream maintenance: Deepgram WS rotation (every 90 min), ffmpeg
+  recycle (every 4 h), fetcher restart-on-exit (5/15/45 s backoff)
+- Cost protection: `MAX_HOURS_PER_STREAM` hard cap, `MAX_SILENT_MINUTES`
+  watchdog
+- Heartbeats to logs every 60 s; graceful shutdown on `SIGTERM` / `SIGINT`
 
-Phase 1 does **not** yet:
-- Spawn stream workers
-- Pull HLS / run ffmpeg
-- Talk to Deepgram
+Phase 3 does **not** yet:
+- Post a Discord summary on stream end (Phase 4)
+- Run a VOD post-pass (Phase 6, optional)
+- Re-verify live streams against Twitch/YouTube APIs on boot (deferred per spec)
 
-Those come in Phase 3 and beyond. See the spec for the build phasing.
+See `specs/live_transcription_spec.md` for the full phasing.
 
 ## Local development
 

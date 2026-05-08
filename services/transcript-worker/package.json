@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@deepgram/sdk": "^4.11.3",
     "dotenv": "^16.4.5",
     "pg": "^8.11.3"
   },
