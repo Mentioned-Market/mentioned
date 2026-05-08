@@ -717,7 +717,7 @@ const HeroBackground = memo(function HeroBackground() {
       className="absolute inset-x-0 top-0 pointer-events-none overflow-hidden z-0"
       style={{ height: '115vh' }}
     >
-      <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 opacity-[0.5]">
+      <div className="absolute inset-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4" style={{ animation: 'heroBgIn 1.8s ease-out 0.3s both' }}>
         {BG_COLUMNS.map((col, i) => (
           <ScrollingColumn
             key={i}
@@ -784,7 +784,7 @@ export default function Home() {
       <HeroBackground />
 
       {/* Header */}
-      <div className="relative z-50 px-4 md:px-10 lg:px-20 flex justify-center">
+      <div className="relative z-50 px-4 md:px-10 lg:px-20 flex justify-center" style={{ animation: 'pageFadeIn 0.6s ease-out both' }}>
         <div className="w-full max-w-7xl"><Header /></div>
       </div>
 
@@ -797,7 +797,7 @@ export default function Home() {
           <Link href="/markets" className="h-10 md:h-12 px-6 md:px-8 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-100 transition-all duration-200 shadow-button inline-flex items-center">Browse Markets</Link>
           <Link href="/leaderboard" className="h-10 md:h-12 px-6 md:px-8 glass text-white text-sm font-semibold rounded-lg hover:bg-white/10 transition-all duration-200 inline-flex items-center">Leaderboard</Link>
         </div>
-        <div className="mt-12 flex flex-col items-center gap-2">
+        <div className="mt-12 flex flex-col items-center gap-2" style={{ animation: 'pageFadeIn 0.8s ease-out 1s both' }}>
           <p className="text-neutral-600 text-xs tracking-wide">Scroll to see how it works</p>
           <div className="scroll-bounce"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-neutral-600"><path d="M12 5v14M5 12l7 7 7-7" /></svg></div>
         </div>
