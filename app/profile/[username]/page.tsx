@@ -142,6 +142,20 @@ interface FreeTrade {
   created_at: string
 }
 
+interface OnchainPosition {
+  marketId: string
+  marketTitle: string
+  marketStatus: number
+  coverImageUrl: string | null
+  wordIndex: number
+  wordLabel: string
+  yesShares: string
+  noShares: string
+  yesPrice: number
+  noPrice: number
+  outcome: boolean | null
+}
+
 interface FreeMarketData {
   positions: FreePosition[]
   trades: FreeTrade[]
@@ -179,9 +193,17 @@ type FreeOwnerTab = 'positions' | 'history' | 'achievements'
 type FreePublicTab = 'positions' | 'activity' | 'achievements'
 type PositionFilter = 'active' | 'closed'
 type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
-type ProfileMode = 'paid' | 'free'
+type ProfileMode = 'mention' | 'paid' | 'free'
 
 // ── Helpers ────────────────────────────────────────────────
+
+function formatShares(baseUnits: string): string {
+  const n = BigInt(baseUnits)
+  const whole = n / 1_000_000n
+  const frac = n % 1_000_000n
+  const fracStr = frac.toString().padStart(6, '0').slice(0, 2)
+  return frac === 0n ? whole.toString() : `${whole}.${fracStr}`
+}
 
 function microToUsd(micro: number | string | null | undefined, signed = false): string {
   if (micro === null || micro === undefined) return '$0.00'
@@ -480,8 +502,10 @@ export default function ProfilePage() {
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
-  // ── Profile mode (paid vs free) ────────────────────────
-  const [profileMode, setProfileMode] = useState<ProfileMode>('free')
+  // ── Profile mode (mention / paid / free) ──────────────
+  const [profileMode, setProfileMode] = useState<ProfileMode>('mention')
+  const [onchainPositions, setOnchainPositions] = useState<OnchainPosition[]>([])
+  const [loadingOnchain, setLoadingOnchain] = useState(false)
   const [freeOwnerTab, setFreeOwnerTab] = useState<FreeOwnerTab>('positions')
   const [freePublicTab, setFreePublicTab] = useState<FreePublicTab>('positions')
 
@@ -578,6 +602,18 @@ export default function ProfilePage() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
   }, [usernameParam, fetchAchievements])
+
+  // ── Load on-chain mention market positions ─────────────
+  useEffect(() => {
+    const wallet = profile?.wallet
+    if (!wallet) return
+    setLoadingOnchain(true)
+    fetch(`/api/paid-markets/user-positions?wallet=${wallet}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setOnchainPositions(d.positions || []) })
+      .catch(() => {})
+      .finally(() => setLoadingOnchain(false))
+  }, [profile?.wallet])
 
   // ── Load owner-private data (discord, referral, etc.) ──
   useEffect(() => {
@@ -938,12 +974,13 @@ export default function ProfilePage() {
   const publicHistPg = usePagination(profile?.history ?? [])
   const freePosPg = usePagination(profile?.freeMarket?.positions ?? [])
   const freeTradesPg = usePagination(profile?.freeMarket?.trades ?? [])
+  const onchainPosPg = usePagination(onchainPositions)
 
   // Reset to page 1 on tab / mode changes
   useEffect(() => {
     ownerPosPg.setPage(1); ownerOrdersPg.setPage(1); ownerHistPg.setPage(1)
     publicPosPg.setPage(1); publicHistPg.setPage(1)
-    freePosPg.setPage(1); freeTradesPg.setPage(1)
+    freePosPg.setPage(1); freeTradesPg.setPage(1); onchainPosPg.setPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerTab, publicTab, freeOwnerTab, freePublicTab, profileMode])
 
@@ -999,15 +1036,23 @@ export default function ProfilePage() {
 
       {/* ── Profile mode toggle + weekly points ────────── */}
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
-        {/* Paid / Free toggle */}
+        {/* Mention / Paid / Free toggle */}
         <div className="flex items-center rounded-lg border border-white/10 overflow-hidden">
           <button
-            onClick={() => setProfileMode('paid')}
+            onClick={() => setProfileMode('mention')}
             className={`px-4 py-2 text-xs font-semibold transition-colors ${
+              profileMode === 'mention' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            Mention Markets
+          </button>
+          <button
+            onClick={() => setProfileMode('paid')}
+            className={`px-4 py-2 text-xs font-semibold transition-colors border-l border-white/10 ${
               profileMode === 'paid' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
             }`}
           >
-            Paid Markets
+            Polymarkets
           </button>
           <button
             onClick={() => setProfileMode('free')}
@@ -1234,7 +1279,24 @@ export default function ProfilePage() {
           </div>
 
           {/* Stats row */}
-          {profileMode === 'paid' ? (
+          {profileMode === 'mention' ? (
+            <div className="grid grid-cols-3 gap-4 pt-5 mt-5 border-t border-white/5">
+              <div>
+                <div className="text-white text-lg font-bold">{onchainPositions.length}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Positions</div>
+              </div>
+              <div>
+                <div className="text-white text-lg font-bold">
+                  ${onchainPositions.reduce((s, p) => s + (Number(BigInt(p.yesShares)) / 1_000_000) * p.yesPrice + (Number(BigInt(p.noShares)) / 1_000_000) * p.noPrice, 0).toFixed(2)}
+                </div>
+                <div className="text-neutral-500 text-xs mt-0.5">Est. Value</div>
+              </div>
+              <div>
+                <div className="text-white text-lg font-bold">{new Set(onchainPositions.map(p => p.marketId)).size}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Markets</div>
+              </div>
+            </div>
+          ) : profileMode === 'paid' ? (
             <div className="grid grid-cols-3 gap-4 pt-5 mt-5 border-t border-white/5">
               <div>
                 <div className="text-white text-lg font-bold">{microToUsd(stats.totalValue)}</div>
@@ -1295,7 +1357,42 @@ export default function ProfilePage() {
         </div>
 
         {/* P&L card (paid) / Points card (free) */}
-        {profileMode === 'paid' ? (
+        {profileMode === 'mention' ? (
+          <div className="glass rounded-2xl p-6 flex flex-col justify-center">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+              <span className="text-neutral-400 text-sm font-medium">Mention Market Positions</span>
+            </div>
+            {loadingOnchain ? (
+              <MentionedSpinner className="py-4" />
+            ) : onchainPositions.length === 0 ? (
+              <p className="text-neutral-600 text-sm">No on-chain positions yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {onchainPositions.slice(0, 4).map(p => {
+                  const yesHeld = BigInt(p.yesShares) > 0n
+                  return (
+                    <Link key={`${p.marketId}:${p.wordIndex}`} href={`/market/${p.marketId}`} className="flex items-center justify-between gap-2 text-sm hover:bg-white/5 px-2 py-1 rounded transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${yesHeld ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                          {yesHeld ? 'YES' : 'NO'}
+                        </span>
+                        <span className="text-neutral-300 truncate">{p.marketTitle}</span>
+                        <span className="text-neutral-600 text-xs flex-shrink-0">{p.wordLabel}</span>
+                      </div>
+                      <span className="text-neutral-400 text-xs tabular-nums flex-shrink-0">
+                        {(yesHeld ? p.yesPrice * 100 : p.noPrice * 100).toFixed(0)}¢
+                      </span>
+                    </Link>
+                  )
+                })}
+                {onchainPositions.length > 4 && (
+                  <p className="text-neutral-600 text-xs text-center pt-1">+{onchainPositions.length - 4} more</p>
+                )}
+              </div>
+            )}
+          </div>
+        ) : profileMode === 'paid' ? (
           <div className="glass rounded-2xl p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -1604,7 +1701,33 @@ export default function ProfilePage() {
           )}
 
           {/* Summary cards */}
-          {profileMode === 'paid' ? (
+          {profileMode === 'mention' ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
+                <div className="text-white text-xl font-bold">{onchainPositions.length}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Est. Value</div>
+                <div className="text-white text-xl font-bold">
+                  ${onchainPositions.reduce((s, p) => s + (Number(BigInt(p.yesShares)) / 1_000_000) * p.yesPrice + (Number(BigInt(p.noShares)) / 1_000_000) * p.noPrice, 0).toFixed(2)}
+                </div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Markets</div>
+                <div className="text-white text-xl font-bold">{new Set(onchainPositions.map(p => p.marketId)).size}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Redeemable</div>
+                <div className="text-white text-xl font-bold">
+                  {onchainPositions.filter(p => p.outcome !== null && (
+                    (p.outcome === true && BigInt(p.yesShares) > 0n) ||
+                    (p.outcome === false && BigInt(p.noShares) > 0n)
+                  )).length}
+                </div>
+              </div>
+            </div>
+          ) : profileMode === 'paid' ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <div className="glass rounded-xl p-4">
                 <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
@@ -1652,7 +1775,14 @@ export default function ProfilePage() {
 
       {/* ── Tabs ──────────────────────────────────────── */}
       <div className="flex items-center gap-1 mb-4 border-b border-white/10">
-        {profileMode === 'paid' ? (
+        {profileMode === 'mention' ? (
+          <button className="flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 border-white text-white -mb-px">
+            Positions
+            {onchainPositions.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/15 text-white">{onchainPositions.length}</span>
+            )}
+          </button>
+        ) : profileMode === 'paid' ? (
           isOwnerView ? (
             ([
               ['positions', 'Positions', ownerPositions.length],
@@ -2232,6 +2362,89 @@ export default function ProfilePage() {
             })}
             <Pagination page={publicHistPg.page} totalPages={publicHistPg.totalPages} totalItems={publicHistPg.totalItems} onPageChange={publicHistPg.setPage} />
           </div>
+        )}
+      </div>
+
+      {/* ════════════════════════════════════════════════
+          MENTION MARKET TAB CONTENT
+          ════════════════════════════════════════════════ */}
+
+      <div style={{ display: profileMode === 'mention' ? undefined : 'none' }}>
+        {loadingOnchain ? (
+          <MentionedSpinner className="py-16" />
+        ) : onchainPositions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="text-neutral-500 text-sm">No mention market positions</span>
+            <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>Browse markets</Link>
+          </div>
+        ) : (
+          <>
+            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+              <span>Market / Word</span>
+              <span className="text-right">YES Shares</span>
+              <span className="text-right">NO Shares</span>
+              <span className="text-right">YES Price</span>
+              <span className="text-right">Est. Value</span>
+              <span className="text-right">Status</span>
+            </div>
+            {onchainPosPg.paged.map((pos, i) => {
+              const yesHeld = BigInt(pos.yesShares) > 0n
+              const noHeld = BigInt(pos.noShares) > 0n
+              const isResolved = pos.outcome !== null
+              const isRedeemable = isResolved && (
+                (pos.outcome === true && yesHeld) || (pos.outcome === false && noHeld)
+              )
+              const estValue =
+                (Number(BigInt(pos.yesShares)) / 1_000_000) * pos.yesPrice +
+                (Number(BigInt(pos.noShares)) / 1_000_000) * pos.noPrice
+              return (
+                <div
+                  key={`${pos.marketId}:${pos.wordIndex}`}
+                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                  style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${yesHeld ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                      {yesHeld ? 'YES' : 'NO'}
+                    </span>
+                    <div className="min-w-0">
+                      <Link href={`/market/${pos.marketId}`} className="text-white text-sm font-medium truncate hover:underline block">{pos.marketTitle}</Link>
+                      <span className="text-neutral-500 text-xs">{pos.wordLabel}</span>
+                    </div>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-600 text-xs md:hidden">YES Shares</span>
+                    <span className={`text-sm tabular-nums ${yesHeld ? 'text-apple-green' : 'text-neutral-600'}`}>{formatShares(pos.yesShares)}</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-600 text-xs md:hidden">NO Shares</span>
+                    <span className={`text-sm tabular-nums ${noHeld ? 'text-apple-red' : 'text-neutral-600'}`}>{formatShares(pos.noShares)}</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-600 text-xs md:hidden">YES Price</span>
+                    <span className="text-neutral-300 text-sm tabular-nums">{(pos.yesPrice * 100).toFixed(0)}¢</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-600 text-xs md:hidden">Est. Value</span>
+                    <span className="text-white text-sm font-medium tabular-nums">${estValue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-600 text-xs md:hidden">Status</span>
+                    {isRedeemable ? (
+                      <Link href={`/market/${pos.marketId}`} className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block bg-apple-green/10 text-apple-green border border-apple-green/30 hover:bg-apple-green/20 transition-colors">
+                        Redeem
+                      </Link>
+                    ) : (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${isResolved ? 'bg-neutral-700/40 text-neutral-500' : 'bg-white/5 text-neutral-400'}`}>
+                        {isResolved ? 'Resolved' : 'Active'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            <Pagination page={onchainPosPg.page} totalPages={onchainPosPg.totalPages} totalItems={onchainPosPg.totalItems} onPageChange={onchainPosPg.setPage} />
+          </>
         )}
       </div>
 

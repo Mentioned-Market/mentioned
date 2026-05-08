@@ -142,7 +142,6 @@ export default function OnchainMarketClient({ marketId }: Props) {
   const [metadata, setMetadata] = useState<PaidMarketMetadata | null>(null)
   const [chartData, setChartData] = useState<{ wordIndex: number; history: { t: number; p: number }[] }[]>([])
   const [chartLoading, setChartLoading] = useState(true)
-  const [tradeVolume, setTradeVolume] = useState<bigint>(0n)
   const [vaultBalance, setVaultBalance] = useState<bigint>(0n)
   const [userUsdc, setUserUsdc] = useState<bigint>(0n)
   const [userTokens, setUserTokens] = useState<UserTokens[]>([])
@@ -216,9 +215,6 @@ export default function OnchainMarketClient({ marketId }: Props) {
       if (res.ok) {
         const data = await res.json()
         setChartData(data.words || [])
-        if (typeof data.totalVolume === 'number') {
-          setTradeVolume(BigInt(Math.round(data.totalVolume)))
-        }
       }
     } catch { /* ignore */ } finally {
       setChartLoading(false)
@@ -788,7 +784,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
               {/* Meta bar */}
               <div className="flex items-center flex-wrap gap-3 mb-4 text-xs md:text-sm text-neutral-400">
-                <span>${formatUsdc(tradeVolume)} volume</span>
+                <span>${formatUsdc(market.tradeFeeBps > 0 ? market.accumulatedFees * 10000n / BigInt(market.tradeFeeBps) : 0n)} volume</span>
                 <span className="text-neutral-700">·</span>
                 <span>{market.words.length} word{market.words.length !== 1 ? 's' : ''}</span>
                 <span className="text-neutral-700">·</span>

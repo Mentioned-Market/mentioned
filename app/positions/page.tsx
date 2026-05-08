@@ -85,7 +85,7 @@ interface HistoryEvent {
 }
 
 type Tab = 'positions' | 'orders' | 'history'
-type MarketMode = 'paid' | 'free'
+type MarketMode = 'mention' | 'paid' | 'free'
 
 interface FreePosition {
   id: number
@@ -101,6 +101,20 @@ interface FreePosition {
   market_title: string
   market_status: string
   market_slug: string
+}
+
+interface OnchainPosition {
+  marketId: string
+  marketTitle: string
+  marketStatus: number
+  coverImageUrl: string | null
+  wordIndex: number
+  wordLabel: string
+  yesShares: string
+  noShares: string
+  yesPrice: number
+  noPrice: number
+  outcome: boolean | null
 }
 
 interface FreeTrade {
@@ -121,6 +135,19 @@ interface FreeTrade {
 }
 
 // ── Helpers ────────────────────────────────────────────────
+
+function formatShares(baseUnits: string): string {
+  const n = BigInt(baseUnits)
+  const whole = n / 1_000_000n
+  const frac = n % 1_000_000n
+  const fracStr = frac.toString().padStart(6, '0').slice(0, 2)
+  return frac === 0n ? whole.toString() : `${whole}.${fracStr}`
+}
+
+function sharesValue(baseUnits: string, price: number): string {
+  const n = Number(BigInt(baseUnits))
+  return `$${((n / 1_000_000) * price).toFixed(2)}`
+}
 
 function microToUsd(micro: number | null | string | undefined): string {
   if (micro === null || micro === undefined) return '—'
@@ -201,7 +228,7 @@ export default function PositionsPage() {
   const { showAchievementToast } = useAchievements()
 
   const [tab, setTab] = useState<Tab>('positions')
-  const [marketMode, setMarketMode] = useState<MarketMode>('free')
+  const [marketMode, setMarketMode] = useState<MarketMode>('mention')
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
@@ -210,6 +237,10 @@ export default function PositionsPage() {
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
+  // Mention (on-chain USDC) market data
+  const [onchainPositions, setOnchainPositions] = useState<OnchainPosition[]>([])
+  const [loadingOnchain, setLoadingOnchain] = useState(false)
 
   // Free market data
   const [freePositions, setFreePositions] = useState<FreePosition[]>([])
@@ -275,6 +306,23 @@ export default function PositionsPage() {
     setLoadingHistory(false)
   }, [publicKey])
 
+  const fetchOnchainPositions = useCallback(async () => {
+    if (!publicKey) {
+      setOnchainPositions([])
+      setLoadingOnchain(false)
+      return
+    }
+    setLoadingOnchain(true)
+    try {
+      const res = await fetch(`/api/paid-markets/user-positions?wallet=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setOnchainPositions(json.positions || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingOnchain(false)
+  }, [publicKey])
+
   const fetchFreeActivity = useCallback(async () => {
     if (!publicKey) {
       setFreePositions([])
@@ -318,6 +366,11 @@ export default function PositionsPage() {
     const histInterval = setInterval(fetchHistory, 30_000)
     return () => clearInterval(histInterval)
   }, [tab, fetchHistory])
+
+  useEffect(() => {
+    if (marketMode !== 'mention') return
+    fetchOnchainPositions()
+  }, [marketMode, fetchOnchainPositions])
 
   useEffect(() => {
     if (marketMode !== 'free') return
@@ -472,6 +525,13 @@ export default function PositionsPage() {
   // Free market derived
   const freeTotalSpent = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_spent), 0)
 
+  // Mention market derived
+  const onchainTotalValue = onchainPositions.reduce((sum, p) => {
+    const yv = (Number(BigInt(p.yesShares)) / 1_000_000) * p.yesPrice
+    const nv = (Number(BigInt(p.noShares)) / 1_000_000) * p.noPrice
+    return sum + yv + nv
+  }, 0)
+
   // ── Pagination ────────────────────────────────────────────
 
   const posPg = usePagination(positions)
@@ -479,18 +539,19 @@ export default function PositionsPage() {
   const historyPg = usePagination(history)
   const freePosPg = usePagination(freePositions)
   const freeTradesPg = usePagination(freeTrades)
+  const onchainPosPg = usePagination(onchainPositions)
 
   // Reset to page 1 on tab or market mode change
   useEffect(() => {
     posPg.setPage(1); ordersPg.setPage(1); historyPg.setPage(1)
-    freePosPg.setPage(1); freeTradesPg.setPage(1)
+    freePosPg.setPage(1); freeTradesPg.setPage(1); onchainPosPg.setPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, marketMode])
 
   // ── Tab counts ────────────────────────────────────────────
 
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'positions', label: 'Positions', count: marketMode === 'paid' ? positions.length : freePositions.length },
+    { key: 'positions', label: 'Positions', count: marketMode === 'paid' ? positions.length : marketMode === 'mention' ? onchainPositions.length : freePositions.length },
     { key: 'orders', label: 'Open Orders', count: openOrders.length },
     { key: 'history', label: 'History', count: marketMode === 'paid' ? history.length : freeTrades.length },
   ]
@@ -517,6 +578,16 @@ export default function PositionsPage() {
                 </h1>
                 <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.05]">
                   <button
+                    onClick={() => setMarketMode('mention')}
+                    className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
+                    style={marketMode === 'mention'
+                      ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }
+                      : { color: '#6b7280' }
+                    }
+                  >
+                    Mention Markets
+                  </button>
+                  <button
                     onClick={() => setMarketMode('paid')}
                     className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
                     style={marketMode === 'paid'
@@ -524,7 +595,7 @@ export default function PositionsPage() {
                       : { color: '#6b7280' }
                     }
                   >
-                    Paid Markets
+                    Polymarkets
                   </button>
                   <button
                     onClick={() => setMarketMode('free')}
@@ -543,7 +614,9 @@ export default function PositionsPage() {
                 className="text-neutral-700 text-xs pb-2 animate-fade-in"
                 style={{ animationDelay: '60ms', animationFillMode: 'both' }}
               >
-                {marketMode === 'paid'
+                {marketMode === 'mention'
+                  ? 'Your on-chain USDC mention market positions'
+                  : marketMode === 'paid'
                   ? 'Your Polymarket positions, open orders, and trade history'
                   : 'Your free market positions and trade history'}
               </p>
@@ -566,7 +639,31 @@ export default function PositionsPage() {
                     className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 animate-fade-in"
                     style={{ animationDelay: '120ms', animationFillMode: 'both' }}
                   >
-                    {marketMode === 'paid' ? (
+                    {marketMode === 'mention' ? (
+                      <>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{onchainPositions.length}</div>
+                        </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Est. Value</div>
+                          <div className="text-white text-xl font-bold tabular-nums">${onchainTotalValue.toFixed(2)}</div>
+                        </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Markets</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{new Set(onchainPositions.map(p => p.marketId)).size}</div>
+                        </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Redeemable</div>
+                          <div className="text-white text-xl font-bold tabular-nums">
+                            {onchainPositions.filter(p => p.outcome !== null && (
+                              (p.outcome === true && BigInt(p.yesShares) > 0n) ||
+                              (p.outcome === false && BigInt(p.noShares) > 0n)
+                            )).length}
+                          </div>
+                        </div>
+                      </>
+                  ) : marketMode === 'paid' ? (
                       <>
                         <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
                           <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
@@ -619,7 +716,7 @@ export default function PositionsPage() {
                         {tab === 'positions' ? 'Open positions' : tab === 'orders' ? 'Open orders' : 'Trade history'}
                       </span>
                       <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.05]">
-                        {tabs.filter(t => marketMode === 'free' ? t.key !== 'orders' : true).map(t => (
+                        {tabs.filter(t => (marketMode === 'free' || marketMode === 'mention') ? t.key === 'positions' : true).map(t => (
                           <button
                             key={t.key}
                             onClick={() => setTab(t.key)}
@@ -639,6 +736,108 @@ export default function PositionsPage() {
                         ))}
                       </div>
                     </div>
+                  </div>
+
+                  {/* ── Mention Market Positions Tab ──────────────── */}
+                  <div style={{ display: marketMode === 'mention' ? undefined : 'none' }}>
+                    {loadingOnchain ? (
+                      <MentionedSpinner className="py-20" />
+                    ) : onchainPositions.length === 0 ? (
+                      <div className="flex flex-col items-center py-20 gap-3">
+                        <p className="text-neutral-500 text-sm">No mention market positions yet</p>
+                        <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
+                          Browse markets
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                        <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                          <div>Market / Word</div>
+                          <div className="text-right">YES Shares</div>
+                          <div className="text-right">NO Shares</div>
+                          <div className="text-right">Current Price</div>
+                          <div className="text-right">Est. Value</div>
+                          <div className="text-right">Status</div>
+                        </div>
+                        {onchainPosPg.paged.map((pos, i) => {
+                          const yesHeld = BigInt(pos.yesShares) > 0n
+                          const noHeld = BigInt(pos.noShares) > 0n
+                          const isResolved = pos.outcome !== null
+                          const wonYes = pos.outcome === true
+                          const wonNo = pos.outcome === false
+                          const isRedeemable =
+                            (wonYes && yesHeld) || (wonNo && noHeld)
+                          const estValue =
+                            (Number(BigInt(pos.yesShares)) / 1_000_000) * pos.yesPrice +
+                            (Number(BigInt(pos.noShares)) / 1_000_000) * pos.noPrice
+
+                          return (
+                            <div
+                              key={`${pos.marketId}:${pos.wordIndex}`}
+                              className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
+                              style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                                  yesHeld ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
+                                }`}>
+                                  {yesHeld ? 'YES' : 'NO'}
+                                </span>
+                                <div className="min-w-0">
+                                  <Link href={`/market/${pos.marketId}`} className="text-white text-sm font-semibold truncate hover:underline block leading-snug">
+                                    {pos.marketTitle}
+                                  </Link>
+                                  <span className="text-neutral-600 text-xs">{pos.wordLabel}</span>
+                                </div>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">YES Shares</span>
+                                <span className={`text-sm tabular-nums ${BigInt(pos.yesShares) > 0n ? 'text-apple-green' : 'text-neutral-600'}`}>
+                                  {formatShares(pos.yesShares)}
+                                </span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">NO Shares</span>
+                                <span className={`text-sm tabular-nums ${BigInt(pos.noShares) > 0n ? 'text-apple-red' : 'text-neutral-600'}`}>
+                                  {formatShares(pos.noShares)}
+                                </span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Current Price</span>
+                                <div className="text-right">
+                                  <span className="text-apple-green text-xs tabular-nums block">Y {(pos.yesPrice * 100).toFixed(0)}¢</span>
+                                  <span className="text-apple-red text-xs tabular-nums block">N {(pos.noPrice * 100).toFixed(0)}¢</span>
+                                </div>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Est. Value</span>
+                                <span className="text-white text-sm font-medium tabular-nums">${estValue.toFixed(2)}</span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Status</span>
+                                {isRedeemable ? (
+                                  <Link
+                                    href={`/market/${pos.marketId}`}
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block bg-apple-green/10 text-apple-green border border-apple-green/30 hover:bg-apple-green/20 transition-colors"
+                                  >
+                                    Redeem
+                                  </Link>
+                                ) : (
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
+                                    isResolved
+                                      ? 'bg-neutral-700/40 text-neutral-500'
+                                      : 'bg-white/5 text-neutral-400'
+                                  }`}>
+                                    {isResolved ? 'Resolved' : 'Active'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                        <Pagination page={onchainPosPg.page} totalPages={onchainPosPg.totalPages} totalItems={onchainPosPg.totalItems} onPageChange={onchainPosPg.setPage} />
+                      </div>
+                    )}
                   </div>
 
                   {/* ── Free Market Positions Tab ─────────────────── */}

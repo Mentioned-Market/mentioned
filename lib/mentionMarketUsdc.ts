@@ -717,7 +717,14 @@ export function sharesForUsdc(
   for (let i = 0; i < 80; i++) {
     const mid = (lo + hi) / 2n
     if (mid === lo) break
-    const cost = estimateBuyCost(word, b, direction, mid)
+    let cost: bigint
+    try {
+      cost = estimateBuyCost(word, b, direction, mid)
+    } catch {
+      // mid is too large and causes fpExp overflow — treat as cost > budget
+      hi = mid
+      continue
+    }
     if (cost <= usdcBaseUnits) {
       lo = mid
     } else {
