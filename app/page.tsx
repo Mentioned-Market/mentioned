@@ -790,7 +790,7 @@ export default function Home() {
 
       {/* Hero */}
       <section className="relative z-10 min-h-screen flex flex-col items-center justify-center text-center px-4 md:px-10 -translate-y-16 md:-translate-y-20">
-        <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="h-10 md:h-14 w-auto mb-6 md:mb-8" style={{ animation: 'fadeSlideUp 0.8s ease-out both' }} priority />
+        <Image src="/src/img/White Icon.svg" alt="Mentioned" width={56} height={56} className="hero-icon h-10 md:h-14 w-auto mb-6 md:mb-8" priority />
         <h1 className="text-3xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight hero-title">Trade on what gets said.</h1>
         <p className="mt-4 md:mt-6 text-neutral-400 text-base md:text-xl max-w-lg hero-subtitle">Prediction markets for any form of media.<br />Pick words. Trade against friends. Win.</p>
         <div className="mt-8 md:mt-10 flex items-center gap-3 hero-cta">
@@ -923,34 +923,6 @@ export default function Home() {
         </div>
       </div>
 
-      <style jsx>{`
-        .hero-title { animation: fadeSlideUp 0.8s ease-out 0.15s both; }
-        .hero-subtitle { animation: fadeSlideUp 0.8s ease-out 0.35s both; }
-        .hero-cta { animation: fadeSlideUp 0.8s ease-out 0.55s both; }
-        @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-        .scroll-bounce { animation: bounce 2s ease-in-out infinite; }
-        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(8px); } }
-        @keyframes blink { 50% { opacity: 0; } }
-        @keyframes shimmerSlide { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .reveal { opacity: 0; transition: opacity 0.7s ease-out, transform 0.7s ease-out; }
-        .reveal.reveal-up { transform: translateY(50px); }
-        .reveal.reveal-left { transform: translateX(-50px); }
-        .reveal.reveal-right { transform: translateX(50px); }
-        .reveal.reveal-scale { transform: scale(0.9); }
-        .reveal.revealed { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
-        .stagger-1 { transition-delay: 0.12s; }
-        .stagger-2 { transition-delay: 0.24s; }
-        .stagger-3 { transition-delay: 0.36s; }
-        @keyframes bg-scroll-up {
-          from { transform: translate3d(0, 0, 0); }
-          to { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
-        }
-        @keyframes bg-scroll-down {
-          from { transform: translate3d(0, calc(var(--scroll-dist) * -1), 0); }
-          to { transform: translate3d(0, 0, 0); }
-        }
-      `}</style>
     </div>
   )
 }
