@@ -277,6 +277,18 @@ html {
   to   { transform: translate3d(0, 0, 0); }
 }
 
+/* Homepage background grid fade-in (to 0.5 so it matches the opacity we had before) */
+@keyframes heroBgIn {
+  from { opacity: 0; }
+  to   { opacity: 0.5; }
+}
+
+/* Generic full-page fade-in used for homepage wrapper */
+@keyframes pageFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* Respect user's reduced-motion preference — stop the decorative scrolling bg entirely */
 @media (prefers-reduced-motion: reduce) {
   .bg-col-anim {
