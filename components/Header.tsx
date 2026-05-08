@@ -147,9 +147,15 @@ export default function Header() {
               )}
             </div>
           )}
-          {!walletReady || connecting || (connected && profileLoading) ? (
-            <div className="h-8 md:h-9 px-3 md:px-4 glass rounded-lg flex items-center">
-              <span className="text-neutral-500 text-sm tracking-widest">···</span>
+          {connecting || (connected && profileLoading) ? (
+            <div className="h-8 md:h-9 px-4 glass rounded-lg flex items-center gap-[5px]">
+              {([0, 0.15, 0.3] as const).map((delay) => (
+                <span
+                  key={delay}
+                  className="w-[5px] h-[5px] rounded-full bg-neutral-400 inline-block"
+                  style={{ animation: `dot-bounce 1.2s ease-in-out ${delay}s infinite` }}
+                />
+              ))}
             </div>
           ) : connected ? (
             <div className="relative hidden md:block" ref={dropdownRef}>
