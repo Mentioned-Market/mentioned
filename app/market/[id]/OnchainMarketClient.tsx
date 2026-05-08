@@ -44,6 +44,19 @@ interface UserTokens {
   no: bigint
 }
 
+interface OnchainTrade {
+  signature: string
+  wordIndex: number
+  direction: 'YES' | 'NO'
+  isBuy: boolean
+  quantity: number
+  cost: number
+  impliedPrice: number
+  trader: string
+  username: string | null
+  blockTime: string
+}
+
 // ── Helpers ──────────────────────────────────────────────
 
 function formatTokens(baseUnits: bigint): string {
@@ -163,6 +176,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
   // ── Stream ────────────────────────────────────────────────
   const [streamHidden, setStreamHidden] = useState(false)
 
+  // ── Recent trades ─────────────────────────────────────────
+  const [trades, setTrades] = useState<OnchainTrade[]>([])
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Data fetching ─────────────────────────────────────────
@@ -221,6 +237,16 @@ export default function OnchainMarketClient({ marketId }: Props) {
     }
   }, [marketId])
 
+  const fetchTrades = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/paid-markets/trades?id=${marketId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setTrades(data.trades || [])
+      }
+    } catch { /* ignore */ }
+  }, [marketId])
+
   useEffect(() => {
     loadMarket()
     pollRef.current = setInterval(loadMarket, POLL_INTERVAL)
@@ -228,6 +254,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
   }, [loadMarket])
 
   useEffect(() => { loadChart() }, [loadChart])
+  useEffect(() => { fetchTrades() }, [fetchTrades])
 
   useEffect(() => {
     if (market) loadUserData(market)
@@ -364,14 +391,14 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
       setTradeStatus({ msg: `Bought ${formatTokens(shares)} ${side} tokens for "${word.label}"`, error: false })
       setAmount('')
-      setTimeout(() => { loadMarket(); loadUserData(market) }, 2000)
+      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades() }, 2000)
     } catch (e: unknown) {
       setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData])
+  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades])
 
   const handleSell = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey || !word || sellShares <= 0n) return
@@ -386,14 +413,14 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
       setTradeStatus({ msg: `Sold ${formatTokens(sellShares)} ${side} tokens`, error: false })
       setAmount('')
-      setTimeout(() => { loadMarket(); loadUserData(market) }, 2000)
+      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades() }, 2000)
     } catch (e: unknown) {
       setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, word, side, sellShares, id, selectedWordIdx, loadMarket, loadUserData])
+  }, [market, signer, signOnly, publicKey, word, side, sellShares, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades])
 
   const handleRedeem = useCallback(async (wordIndex: number, dir: 'YES' | 'NO') => {
     if (!market || !signer || !signOnly || !publicKey) return
@@ -990,6 +1017,40 @@ export default function OnchainMarketClient({ marketId }: Props) {
                     </div>
                   )}
 
+                  {/* Recent trades */}
+                  {trades.length > 0 && (
+                    <div className="mb-6">
+                      <h2 className="text-base font-semibold text-white mb-3">Recent Trades</h2>
+                      <div className="glass rounded-2xl p-4">
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                          {trades.map(t => {
+                            const wordLabel = market?.words[t.wordIndex]?.label ?? `Word ${t.wordIndex}`
+                            const displayName = t.username || `${t.trader.slice(0, 4)}...${t.trader.slice(-4)}`
+                            return (
+                              <div key={t.signature} className="flex items-center justify-between text-xs py-1">
+                                <div className="flex items-center gap-1.5 text-neutral-400 min-w-0 flex-1">
+                                  <Link
+                                    href={`/profile/${t.username || t.trader}`}
+                                    className="text-neutral-300 font-medium hover:text-apple-blue transition-colors flex-shrink-0"
+                                  >
+                                    {displayName}
+                                  </Link>
+                                  <span className="flex-shrink-0">{t.isBuy ? 'bought' : 'sold'}</span>
+                                  <span className={`flex-shrink-0 font-medium ${t.direction === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+                                    {t.quantity.toFixed(0)} {t.direction}
+                                  </span>
+                                  <span className="flex-shrink-0">for</span>
+                                  <span className="flex-shrink-0 text-neutral-300">${formatUsdc(BigInt(Math.round(t.cost)))}</span>
+                                  <span className="truncate">on {wordLabel}</span>
+                                </div>
+                                <span className="text-neutral-600 flex-shrink-0 ml-3 pr-1">{Math.round(t.impliedPrice * 100)}¢</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Spacer for mobile bottom bar */}
                   <div className="h-20 lg:hidden" />

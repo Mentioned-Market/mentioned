@@ -14,7 +14,8 @@
     "db:leaderboard-test:seed": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-leaderboard-test.ts dotenv_config_path=.env.local",
     "db:leaderboard-test:clean": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-leaderboard-test-clean.ts dotenv_config_path=.env.local",
     "db:seed-staging": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/seed-staging.ts",
-    "market:image": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/generate-market-image.ts"
+    "market:image": "npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/generate-market-image.ts",
+    "market:simulate": "npx ts-node --project tsconfig.scripts.json scripts/simulate-trades.ts"
   },
   "dependencies": {
     "@2toad/profanity": "^3.3.0",
