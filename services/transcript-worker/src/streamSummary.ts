@@ -13,6 +13,52 @@ export function appBaseUrl(): string {
   return APP_BASE_URL
 }
 
+interface FirstMentionPingInput {
+  streamId: number
+  eventId: string
+  word: string
+  matchedText: string
+  snippet: string
+  streamOffsetMs: number
+  confidence: number | null
+}
+
+/**
+ * Post a one-line Discord ping for the first non-superseded mention of a
+ * word whose threshold is 1. Fire-and-forget — the surrounding insert is the
+ * source of truth.
+ */
+export async function postFirstMentionPing(input: FirstMentionPingInput): Promise<void> {
+  if (!isWebhookConfigured()) {
+    log.debug('first-mention ping skipped: discord not configured', {
+      streamId: input.streamId,
+      eventId: input.eventId,
+    })
+    return
+  }
+  const time = formatHms(input.streamOffsetMs)
+  const conf = input.confidence != null ? ` · conf ${input.confidence.toFixed(2)}` : ''
+  const content =
+    `🔔 **First mention** — "${input.word}" (${input.eventId})\n` +
+    `${time}${conf}: ${quoteSnippet(input.snippet)}\n` +
+    `Threshold is 1 — admin can resolve YES on this word now.\n` +
+    `Resolve: ${APP_BASE_URL}/customadmin`
+  await postWebhook(content)
+}
+
+function formatHms(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${pad(h)}:${pad(m)}:${pad(s)}`
+}
+
+function quoteSnippet(s: string): string {
+  return `> ${s.replace(/\n/g, ' ')}`
+}
+
 interface SummaryInput {
   streamId: number
   eventId: string

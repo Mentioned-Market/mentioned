@@ -21,7 +21,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { pool } from './db'
 import { log } from './log'
 import { DeepgramConnection, type FinalizedTranscript } from './deepgram'
-import { postStreamEndSummary } from './streamSummary'
+import { postFirstMentionPing, postStreamEndSummary } from './streamSummary'
 import {
   buildPipeline,
   type DirectPipeline,
@@ -89,12 +89,18 @@ export class StreamWorker {
   private startedAtMs: number
   private shutdownPromise: Promise<void> | null = null
 
+  /** Per-word threshold lookup, populated from cfg.words at construction. */
+  private readonly thresholdByWordIndex: Map<number, number>
+  /** Words for which we've already fired a first-mention Discord ping this run. */
+  private readonly pingedWordIndices = new Set<number>()
+
   constructor(
     private readonly cfg: StreamWorkerConfig,
     private readonly cb: StreamWorkerCallbacks,
   ) {
     this.startedAtMs = cfg.startedAt.getTime()
     this.matcher = new WordMatcher(cfg.words)
+    this.thresholdByWordIndex = new Map(cfg.words.map((w) => [w.index, w.threshold]))
   }
 
   async start(): Promise<void> {
@@ -369,6 +375,60 @@ export class StreamWorker {
       mentionId,
     })
     await client.query('SELECT pg_notify($1, $2)', ['word_mention', payload])
+
+    // For threshold=1 words: ping Discord on the FIRST non-superseded mention
+    // so admins can resolve immediately without waiting for the end-of-stream
+    // summary. Fire-and-forget; failures must not break the insert path.
+    void this.maybeFirstMentionPing(client, hit, segmentStartMs, mentionId, confidence)
+  }
+
+  private async maybeFirstMentionPing(
+    client: { query: (text: string, params: unknown[]) => Promise<{ rows: { id: string; n?: string }[]; rowCount: number | null }> },
+    hit: MatchHit,
+    segmentStartMs: number,
+    mentionId: number,
+    confidence: number | null,
+  ): Promise<void> {
+    const threshold = this.thresholdByWordIndex.get(hit.wordIndex) ?? 1
+    if (threshold !== 1) return
+    if (this.pingedWordIndices.has(hit.wordIndex)) return
+    // Mark optimistically so concurrent matches in the same finalized segment
+    // don't race into multiple pings.
+    this.pingedWordIndices.add(hit.wordIndex)
+
+    try {
+      // Confirm this is actually the first non-superseded mention. Worker
+      // restarts mid-stream would otherwise re-ping for an already-known word.
+      const priorRes = await client.query(
+        `SELECT COUNT(*)::TEXT AS n
+           FROM word_mentions
+          WHERE stream_id = $1 AND word_index = $2 AND id < $3 AND superseded = FALSE`,
+        [this.cfg.streamId, hit.wordIndex, mentionId],
+      )
+      const priorCount = Number(priorRes.rows[0]?.n ?? '0')
+      if (priorCount > 0) return
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn('first-mention prior-count check failed', {
+        streamId: this.cfg.streamId,
+        wordIndex: hit.wordIndex,
+        err: msg,
+      })
+      return
+    }
+
+    void postFirstMentionPing({
+      streamId: this.cfg.streamId,
+      eventId: this.cfg.eventId,
+      word: hit.word,
+      matchedText: hit.matchedText,
+      snippet: hit.snippet,
+      streamOffsetMs: segmentStartMs,
+      confidence,
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn('first-mention ping failed', { streamId: this.cfg.streamId, err: msg })
+    })
   }
 
   // ---------------------------------------------------------------------------

@@ -35,29 +35,31 @@ See `specs/live_transcription_spec.md` for the full phasing.
 
 ## Local development
 
-The worker reads `DATABASE_URL` from the environment. To share the same Postgres as the Next.js app in dev:
+The worker auto-loads a `.env` file in this directory via `dotenv` on
+startup, so you only need to set env vars in the shell if you don't want to
+use a file.
 
 ```bash
-# from repo root
-npm run db:start                       # starts local Postgres + runs migrations
 cd services/transcript-worker
+cp .env.example .env
+# edit .env — fill in DATABASE_URL, DEEPGRAM_API_KEY, etc.
 npm install
-
-# Pick up DATABASE_URL from project root .env.local:
-export $(grep -v '^#' ../../.env.local | xargs)
 npm run dev
 ```
 
-Then in another terminal:
+`.env` is gitignored. `.env.example` is the documented template — every var
+has a comment explaining what it does and when to set it.
+
+For the laptop (Windows) capture mode, set `WORKER_POOL=local` plus
+`LOCAL_AUDIO_FORMAT` / `LOCAL_AUDIO_DEVICE` in `.env`. See the example file
+for OS-specific values.
+
+Health check + smoke test:
 
 ```bash
 curl http://localhost:3001/health
 # => {"ok":true,"ready":true,"uptimeSeconds":12,"activeStreams":0}
-```
 
-To verify LISTEN is wired up:
-
-```bash
 psql "$DATABASE_URL" -c "NOTIFY stream_added, '{\"streamId\":1}'"
 # Worker logs: notification {"channel":"stream_added","payload":"{\"streamId\":1}"}
 ```
