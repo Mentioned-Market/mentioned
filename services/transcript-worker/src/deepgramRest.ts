@@ -41,11 +41,25 @@ export interface PrerecordedResult {
   utterances: DeepgramUtterance[]
 }
 
+interface CommonOptions {
+  keyterms: string[]
+  language?: string
+  model?: string
+  signal?: AbortSignal
+}
+
+export interface PrerecordedBytesRequest extends CommonOptions {
+  /** Audio bytes — any format Deepgram supports (mp3, m4a, ts, etc.). */
+  audio: Buffer
+  /** Optional MIME hint. Defaults to audio/* if not specified. */
+  contentType?: string
+}
+
 /**
- * POST to /v1/listen with the URL form. Throws on any non-2xx, on network
- * error, or on abort. Times out after 15 minutes by default — long enough
- * for ~10-12hr files, short enough that a hung request doesn't pin the
- * worker forever.
+ * POST to /v1/listen with the URL form. Deepgram fetches the URL itself.
+ * Works for publicly-fetchable URLs (Twitch HLS m3u8) but NOT for URLs
+ * bound to the requesting client (YouTube audio URLs return 403 to anyone
+ * but yt-dlp's request). For YouTube, use transcribePrerecordedBytes.
  */
 export async function transcribePrerecorded(
   apiKey: string,
@@ -53,34 +67,79 @@ export async function transcribePrerecorded(
   opts: { timeoutMs?: number } = {},
 ): Promise<PrerecordedResult> {
   if (!apiKey) throw new Error('DEEPGRAM_API_KEY is required')
-  const timeoutMs = opts.timeoutMs ?? 15 * 60_000
 
+  log.info('deepgram pre-recorded: submitting (URL form)', {
+    audioUrl: maskUrl(req.audioUrl),
+    keyterms: req.keyterms.length,
+  })
+
+  return submit(apiKey, {
+    body: JSON.stringify({ url: req.audioUrl }),
+    contentType: 'application/json',
+    common: req,
+    timeoutMs: opts.timeoutMs ?? 15 * 60_000,
+  })
+}
+
+/**
+ * POST to /v1/listen with raw audio bytes. Use this when the audio source
+ * isn't directly fetchable by Deepgram (e.g., YouTube). The caller is
+ * responsible for downloading the audio first — typically via yt-dlp's
+ * `-o -` to stdout, collected into a Buffer.
+ */
+export async function transcribePrerecordedBytes(
+  apiKey: string,
+  req: PrerecordedBytesRequest,
+  opts: { timeoutMs?: number } = {},
+): Promise<PrerecordedResult> {
+  if (!apiKey) throw new Error('DEEPGRAM_API_KEY is required')
+
+  log.info('deepgram pre-recorded: submitting (bytes form)', {
+    bytes: req.audio.length,
+    keyterms: req.keyterms.length,
+  })
+
+  return submit(apiKey, {
+    // Cast to Uint8Array to satisfy fetch BodyInit typing without a copy.
+    body: new Uint8Array(req.audio.buffer, req.audio.byteOffset, req.audio.byteLength),
+    contentType: req.contentType ?? 'audio/*',
+    common: req,
+    timeoutMs: opts.timeoutMs ?? 15 * 60_000,
+  })
+}
+
+interface SubmitArgs {
+  body: string | Uint8Array
+  contentType: string
+  common: CommonOptions
+  timeoutMs: number
+}
+
+async function submit(apiKey: string, args: SubmitArgs): Promise<PrerecordedResult> {
   const params = new URLSearchParams()
-  params.set('model', req.model ?? 'nova-3')
-  params.set('language', req.language ?? 'en')
+  params.set('model', args.common.model ?? 'nova-3')
+  params.set('language', args.common.language ?? 'en')
   params.set('smart_format', 'true')
   params.set('punctuate', 'true')
   params.set('utterances', 'true') // critical — gives us natural segments
-  for (const kt of req.keyterms) {
+  for (const kt of args.common.keyterms) {
     if (kt) params.append('keyterm', kt)
   }
 
   const url = `${API_BASE}?${params.toString()}`
   const localAbort = new AbortController()
-  const timeoutHandle = setTimeout(() => localAbort.abort(new Error('deepgram pre-recorded timeout')), timeoutMs)
+  const timeoutHandle = setTimeout(
+    () => localAbort.abort(new Error('deepgram pre-recorded timeout')),
+    args.timeoutMs,
+  )
 
   // Combine the caller's abort signal with our timeout signal.
-  const externalAbort = req.signal
+  const externalAbort = args.common.signal
   const onExternalAbort = () => localAbort.abort(externalAbort?.reason ?? new Error('aborted'))
   if (externalAbort) {
     if (externalAbort.aborted) localAbort.abort(externalAbort.reason)
     else externalAbort.addEventListener('abort', onExternalAbort, { once: true })
   }
-
-  log.info('deepgram pre-recorded: submitting', {
-    audioUrl: maskUrl(req.audioUrl),
-    keyterms: req.keyterms.length,
-  })
 
   let res: Response
   try {
@@ -88,9 +147,9 @@ export async function transcribePrerecorded(
       method: 'POST',
       headers: {
         'Authorization': `Token ${apiKey}`,
-        'Content-Type': 'application/json',
+        'Content-Type': args.contentType,
       },
-      body: JSON.stringify({ url: req.audioUrl }),
+      body: args.body,
       signal: localAbort.signal,
     })
   } finally {
@@ -100,9 +159,7 @@ export async function transcribePrerecorded(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '<no body>')
-    throw new Error(
-      `deepgram pre-recorded HTTP ${res.status}: ${text.slice(0, 500)}`,
-    )
+    throw new Error(`deepgram pre-recorded HTTP ${res.status}: ${text.slice(0, 500)}`)
   }
 
   const json = (await res.json()) as DeepgramPrerecordedResponse
