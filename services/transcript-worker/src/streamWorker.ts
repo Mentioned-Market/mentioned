@@ -21,6 +21,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { pool } from './db'
 import { log } from './log'
 import { DeepgramConnection, type FinalizedTranscript } from './deepgram'
+import { postStreamEndSummary } from './streamSummary'
 import {
   buildPipeline,
   type DirectPipeline,
@@ -463,9 +464,28 @@ export class StreamWorker {
 
     const minutes = Math.max(0, (Date.now() - this.startedAtMs) / 60_000)
     const costCents = Math.round(minutes * COST_CENTS_PER_MINUTE)
-    const status = reason === 'manual_cancel' || reason === 'shutdown' ? 'ended'
-      : reason === 'silence_watchdog' || reason === 'hard_cap' ? 'ended'
-      : 'error'
+
+    // SIGTERM / Railway redeploy: tear down the local pipeline but leave the
+    // row in 'live' state so boot recovery picks it up on the next process.
+    // No DB transition, no NOTIFY, no Discord summary.
+    if (reason === 'shutdown') {
+      log.info('stream worker stopped (shutdown — row stays live for boot recovery)', {
+        streamId: this.cfg.streamId,
+        minutes,
+      })
+      try {
+        this.cb.onEnded(reason, errorMessage)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.warn('onEnded callback threw', { streamId: this.cfg.streamId, err: msg })
+      }
+      return
+    }
+
+    const status =
+      reason === 'manual_cancel' || reason === 'silence_watchdog' || reason === 'hard_cap'
+        ? 'ended'
+        : 'error'
 
     try {
       await pool.query(
@@ -490,6 +510,20 @@ export class StreamWorker {
         err: msg,
       })
     }
+
+    // Fire-and-forget Discord summary. A failure here must not block the
+    // shutdown path — the DB transition is the source of truth.
+    void postStreamEndSummary({
+      streamId: this.cfg.streamId,
+      eventId: this.cfg.eventId,
+      reason,
+      errorMessage: errorMessage ?? null,
+      minutes,
+      costCents,
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn('discord summary post failed', { streamId: this.cfg.streamId, err: msg })
+    })
 
     log.info('stream worker stopped', {
       streamId: this.cfg.streamId,

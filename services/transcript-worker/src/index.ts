@@ -6,6 +6,8 @@ import { StreamListener, type ChannelName } from './listener'
 import { StreamWorker, type EndReason, type StreamWorkerConfig } from './streamWorker'
 import { detectSource, type LocalAudioConfig, type StreamSource } from './streamUrl'
 import type { MatchableWord } from './wordMatcher'
+import { CostGuard } from './costGuard'
+import { appBaseUrl } from './streamSummary'
 
 const startedAt = Date.now()
 let ready = false
@@ -18,8 +20,15 @@ const env = {
   maxSilentMinutes: numberFromEnv('MAX_SILENT_MINUTES', 20),
   deepgramRotateMinutes: numberFromEnv('DEEPGRAM_ROTATE_MINUTES', 90),
   ffmpegRecycleMinutes: numberFromEnv('FFMPEG_RECYCLE_MINUTES', 240),
+  dailyCostCentsAlert: numberFromEnv('DAILY_COST_CENTS_ALERT', 2000),
+  dailyCostCentsHalt: numberFromEnv('DAILY_COST_CENTS_HALT', 5000),
   localAudio: resolveLocalAudio(),
 }
+
+const costGuard = new CostGuard({
+  alertCents: env.dailyCostCentsAlert,
+  haltCents: env.dailyCostCentsHalt,
+})
 
 function resolveLocalAudio(): LocalAudioConfig | null {
   const format = process.env.LOCAL_AUDIO_FORMAT
@@ -38,11 +47,16 @@ async function main(): Promise<void> {
   log.info('transcript-worker booting', {
     nodeVersion: process.version,
     env: process.env.NODE_ENV ?? 'development',
+    environment: process.env.ENVIRONMENT ?? 'production',
+    appBaseUrl: appBaseUrl(),
     workerPool: env.workerPool,
     maxConcurrent: env.maxConcurrent,
     maxHours: env.maxHours,
     maxSilentMinutes: env.maxSilentMinutes,
     deepgramConfigured: env.deepgramApiKey.length > 0,
+    discordConfigured: !!process.env.DISCORD_WEBHOOK_URL,
+    dailyCostCentsAlert: env.dailyCostCentsAlert,
+    dailyCostCentsHalt: env.dailyCostCentsHalt,
     localAudioConfigured: env.localAudio !== null,
   })
 
@@ -67,6 +81,10 @@ async function main(): Promise<void> {
     ['stream_added', 'stream_canceled'],
     handleNotification,
   )
+
+  // Start the cost watchdog before recovery so a worker booting into an
+  // already-over-budget day immediately knows to refuse new spawns.
+  costGuard.start()
 
   await recoverInflightStreams()
 
@@ -123,6 +141,13 @@ async function onStreamAdded(streamId: number): Promise<void> {
       streamId,
       activeStreams: activeStreams.size,
       cap: env.maxConcurrent,
+    })
+    return
+  }
+  if (costGuard.isHalted()) {
+    log.warn('cost guard halted: refusing new spawn', {
+      streamId,
+      dailyCents: costGuard.dailyCents(),
     })
     return
   }
@@ -369,6 +394,8 @@ function setupSignalHandlers(listener: StreamListener): void {
     shuttingDown = true
     log.info('shutdown initiated', { signal, activeStreams: activeStreams.size })
     ready = false
+
+    costGuard.stop()
 
     // Stop workers in parallel; each call is idempotent.
     const workers = Array.from(activeStreams.values())
