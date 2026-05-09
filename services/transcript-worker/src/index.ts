@@ -352,8 +352,14 @@ async function loadWordsForEvent(eventId: string): Promise<MatchableWord[]> {
   if (!Number.isFinite(marketId)) {
     throw new Error(`malformed event_id: ${eventId}`)
   }
-  const result = await pool.query<{ id: number; word: string; match_variants: string[] | null }>(
-    `SELECT id, word, COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants
+  const result = await pool.query<{
+    id: number
+    word: string
+    match_variants: string[] | null
+    mention_threshold: number
+  }>(
+    `SELECT id, word, mention_threshold,
+            COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants
        FROM custom_market_words
       WHERE market_id = $1
       ORDER BY id`,
@@ -363,6 +369,7 @@ async function loadWordsForEvent(eventId: string): Promise<MatchableWord[]> {
     index: r.id,
     word: r.word,
     variants: r.match_variants ?? [],
+    threshold: r.mention_threshold ?? 1,
   }))
 }
 

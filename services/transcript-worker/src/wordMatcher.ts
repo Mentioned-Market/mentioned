@@ -22,6 +22,12 @@ export interface MatchableWord {
   word: string
   /** Admin-provided morphological / phonetic variants. */
   variants: string[]
+  /**
+   * Mentions needed to resolve YES. Default 1 (any-mention semantics).
+   * The matcher itself ignores this; downstream consumers (StreamWorker's
+   * first-mention Discord ping, the admin UI) read it.
+   */
+  threshold: number
 }
 
 export interface MatchHit {
