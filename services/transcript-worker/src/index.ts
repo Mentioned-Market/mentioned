@@ -4,10 +4,19 @@ import { log } from './log'
 import { startHealthServer } from './health'
 import { StreamListener, type ChannelName } from './listener'
 import { StreamWorker, type EndReason, type StreamWorkerConfig } from './streamWorker'
+import { VodJob } from './vodJob'
 import { detectSource, type LocalAudioConfig, type StreamSource } from './streamUrl'
 import type { MatchableWord } from './wordMatcher'
 import { CostGuard } from './costGuard'
 import { appBaseUrl } from './streamSummary'
+
+/**
+ * Common surface for things that occupy a slot in `activeStreams`. Both
+ * StreamWorker (live) and VodJob (vod) implement this.
+ */
+interface ActiveJob {
+  stop(reason: EndReason, errorMessage?: string): Promise<void>
+}
 
 const startedAt = Date.now()
 let ready = false
@@ -41,7 +50,7 @@ function resolveLocalAudio(): LocalAudioConfig | null {
   return { format, device }
 }
 
-const activeStreams = new Map<number, StreamWorker>()
+const activeStreams = new Map<number, ActiveJob>()
 
 async function main(): Promise<void> {
   log.info('transcript-worker booting', {
@@ -155,19 +164,13 @@ async function onStreamAdded(streamId: number): Promise<void> {
   // CAS spawn gate. Only the caller that flips pending→live owns the worker.
   // Filter on worker_pool so cloud and laptop workers don't race for each
   // other's rows.
-  const claim = await pool.query<{
-    id: number
-    event_id: string
-    stream_url: string
-    source: string | null
-    started_at: Date
-  }>(
+  const claim = await pool.query<MonitoredStreamRow>(
     `UPDATE monitored_streams
         SET status = 'live',
             started_at = COALESCE(started_at, NOW()),
             updated_at = NOW()
       WHERE id = $1 AND status = 'pending' AND worker_pool = $2
-      RETURNING id, event_id, stream_url, source, started_at`,
+      RETURNING id, event_id, stream_url, source, started_at, kind`,
     [streamId, env.workerPool],
   )
   if (claim.rowCount === 0) {
@@ -200,13 +203,14 @@ interface MonitoredStreamRow {
   stream_url: string
   source: string | null
   started_at: Date | null
+  kind: 'live' | 'vod'
 }
 
 async function recoverInflightStreams(): Promise<void> {
   let rows: MonitoredStreamRow[]
   try {
     const result = await pool.query<MonitoredStreamRow>(
-      `SELECT id, event_id, stream_url, source, started_at
+      `SELECT id, event_id, stream_url, source, started_at, kind
          FROM monitored_streams
         WHERE status IN ('pending', 'live') AND worker_pool = $1
         ORDER BY created_at`,
@@ -255,7 +259,7 @@ async function resumeOrClaim(row: MonitoredStreamRow): Promise<void> {
             started_at = COALESCE(started_at, NOW()),
             updated_at = NOW()
       WHERE id = $1 AND status IN ('pending', 'live') AND worker_pool = $2
-      RETURNING id, event_id, stream_url, source, started_at`,
+      RETURNING id, event_id, stream_url, source, started_at, kind`,
     [row.id, env.workerPool],
   )
   if (claim.rowCount === 0) {
@@ -275,6 +279,25 @@ async function spawnWorker(row: MonitoredStreamRow): Promise<void> {
     return
   }
 
+  let words: MatchableWord[]
+  try {
+    words = await loadWordsForEvent(row.event_id)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log.error('failed to load words', { streamId: row.id, eventId: row.event_id, err: msg })
+    await markStreamError(row.id, `failed to load words: ${msg}`)
+    return
+  }
+
+  if (row.kind === 'vod') {
+    await spawnVodJob(row, words)
+    return
+  }
+
+  await spawnStreamWorker(row, words)
+}
+
+async function spawnStreamWorker(row: MonitoredStreamRow, words: MatchableWord[]): Promise<void> {
   const source = (row.source as StreamSource | null) ?? detectSource(row.stream_url)
   if (!source) {
     await markStreamError(row.id, `unsupported stream URL: ${row.stream_url}`)
@@ -297,16 +320,6 @@ async function spawnWorker(row: MonitoredStreamRow): Promise<void> {
         source,
       ])
       .catch(() => {})
-  }
-
-  let words: MatchableWord[]
-  try {
-    words = await loadWordsForEvent(row.event_id)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    log.error('failed to load words', { streamId: row.id, eventId: row.event_id, err: msg })
-    await markStreamError(row.id, `failed to load words: ${msg}`)
-    return
   }
 
   const cfg: StreamWorkerConfig = {
@@ -339,6 +352,30 @@ async function spawnWorker(row: MonitoredStreamRow): Promise<void> {
     activeStreams.delete(row.id)
     await markStreamError(row.id, `start failed: ${msg}`)
   }
+}
+
+async function spawnVodJob(row: MonitoredStreamRow, words: MatchableWord[]): Promise<void> {
+  const job = new VodJob(
+    {
+      streamId: row.id,
+      eventId: row.event_id,
+      streamUrl: row.stream_url,
+      startedAt: row.started_at ?? new Date(),
+      deepgramApiKey: env.deepgramApiKey,
+      words,
+    },
+    {
+      onEnded: (reason: EndReason) => {
+        activeStreams.delete(row.id)
+        log.info('vod job reaped', { streamId: row.id, reason })
+      },
+    },
+  )
+  activeStreams.set(row.id, job)
+  // VodJob.start runs the entire batch pipeline; it never throws on its own
+  // — internal failures route through job.stop('pipeline_error', ...) — so
+  // we don't need to wrap this in try/catch the way StreamWorker does.
+  void job.start()
 }
 
 async function loadWordsForEvent(eventId: string): Promise<MatchableWord[]> {
