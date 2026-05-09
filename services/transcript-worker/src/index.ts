@@ -4,7 +4,7 @@ import { log } from './log'
 import { startHealthServer } from './health'
 import { StreamListener, type ChannelName } from './listener'
 import { StreamWorker, type EndReason, type StreamWorkerConfig } from './streamWorker'
-import { detectSource, type StreamSource } from './streamUrl'
+import { detectSource, type LocalAudioConfig, type StreamSource } from './streamUrl'
 import type { MatchableWord } from './wordMatcher'
 
 const startedAt = Date.now()
@@ -12,11 +12,24 @@ let ready = false
 
 const env = {
   deepgramApiKey: process.env.DEEPGRAM_API_KEY ?? '',
+  workerPool: process.env.WORKER_POOL || 'cloud',
   maxConcurrent: numberFromEnv('MAX_CONCURRENT_STREAMS', 20),
   maxHours: numberFromEnv('MAX_HOURS_PER_STREAM', 12),
   maxSilentMinutes: numberFromEnv('MAX_SILENT_MINUTES', 20),
   deepgramRotateMinutes: numberFromEnv('DEEPGRAM_ROTATE_MINUTES', 90),
   ffmpegRecycleMinutes: numberFromEnv('FFMPEG_RECYCLE_MINUTES', 240),
+  localAudio: resolveLocalAudio(),
+}
+
+function resolveLocalAudio(): LocalAudioConfig | null {
+  const format = process.env.LOCAL_AUDIO_FORMAT
+  const device = process.env.LOCAL_AUDIO_DEVICE
+  if (!format && !device) return null
+  if (!format || !device) {
+    log.warn('LOCAL_AUDIO_FORMAT and LOCAL_AUDIO_DEVICE must both be set; ignoring partial config')
+    return null
+  }
+  return { format, device }
 }
 
 const activeStreams = new Map<number, StreamWorker>()
@@ -25,10 +38,12 @@ async function main(): Promise<void> {
   log.info('transcript-worker booting', {
     nodeVersion: process.version,
     env: process.env.NODE_ENV ?? 'development',
+    workerPool: env.workerPool,
     maxConcurrent: env.maxConcurrent,
     maxHours: env.maxHours,
     maxSilentMinutes: env.maxSilentMinutes,
     deepgramConfigured: env.deepgramApiKey.length > 0,
+    localAudioConfigured: env.localAudio !== null,
   })
 
   if (!process.env.DATABASE_URL) {
@@ -113,6 +128,8 @@ async function onStreamAdded(streamId: number): Promise<void> {
   }
 
   // CAS spawn gate. Only the caller that flips pending→live owns the worker.
+  // Filter on worker_pool so cloud and laptop workers don't race for each
+  // other's rows.
   const claim = await pool.query<{
     id: number
     event_id: string
@@ -123,14 +140,16 @@ async function onStreamAdded(streamId: number): Promise<void> {
     `UPDATE monitored_streams
         SET status = 'live',
             started_at = COALESCE(started_at, NOW()),
-            source = COALESCE(source, $2),
             updated_at = NOW()
-      WHERE id = $1 AND status = 'pending'
+      WHERE id = $1 AND status = 'pending' AND worker_pool = $2
       RETURNING id, event_id, stream_url, source, started_at`,
-    [streamId, null], // source is filled in below if we know it
+    [streamId, env.workerPool],
   )
   if (claim.rowCount === 0) {
-    log.info('stream_added: another worker already claimed it', { streamId })
+    log.info('stream_added: not in this pool or already claimed', {
+      streamId,
+      pool: env.workerPool,
+    })
     return
   }
   const row = claim.rows[0]
@@ -164,8 +183,9 @@ async function recoverInflightStreams(): Promise<void> {
     const result = await pool.query<MonitoredStreamRow>(
       `SELECT id, event_id, stream_url, source, started_at
          FROM monitored_streams
-        WHERE status IN ('pending', 'live')
+        WHERE status IN ('pending', 'live') AND worker_pool = $1
         ORDER BY created_at`,
+      [env.workerPool],
     )
     rows = result.rows
   } catch (err) {
@@ -209,9 +229,9 @@ async function resumeOrClaim(row: MonitoredStreamRow): Promise<void> {
         SET status = 'live',
             started_at = COALESCE(started_at, NOW()),
             updated_at = NOW()
-      WHERE id = $1 AND status IN ('pending', 'live')
+      WHERE id = $1 AND status IN ('pending', 'live') AND worker_pool = $2
       RETURNING id, event_id, stream_url, source, started_at`,
-    [row.id],
+    [row.id, env.workerPool],
   )
   if (claim.rowCount === 0) {
     log.info('boot recovery: row no longer claimable', { streamId: row.id })
@@ -233,6 +253,13 @@ async function spawnWorker(row: MonitoredStreamRow): Promise<void> {
   const source = (row.source as StreamSource | null) ?? detectSource(row.stream_url)
   if (!source) {
     await markStreamError(row.id, `unsupported stream URL: ${row.stream_url}`)
+    return
+  }
+  if (source === 'local-audio' && !env.localAudio) {
+    await markStreamError(
+      row.id,
+      'local-audio stream but worker has no LOCAL_AUDIO_FORMAT/LOCAL_AUDIO_DEVICE configured',
+    )
     return
   }
 
@@ -269,6 +296,7 @@ async function spawnWorker(row: MonitoredStreamRow): Promise<void> {
     maxSilentMinutes: env.maxSilentMinutes,
     deepgramRotateMinutes: env.deepgramRotateMinutes,
     ffmpegRecycleMinutes: env.ffmpegRecycleMinutes,
+    localAudio: env.localAudio ?? undefined,
   }
   const worker = new StreamWorker(cfg, {
     onEnded: (reason: EndReason) => {

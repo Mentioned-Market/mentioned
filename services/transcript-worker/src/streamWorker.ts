@@ -1,11 +1,17 @@
 // Per-stream lifecycle. One instance per row in `monitored_streams` with
 // status='live'. Owns:
 //
-//   fetcher (streamlink|yt-dlp) ──pipe──▶ ffmpeg ──pcm──▶ DeepgramConnection
-//                                                 │
-//                                                 ▼
-//                                       finalized segments → DB writes →
-//                                       NOTIFY word_mention → admin SSE
+//   audio source ──▶ ffmpeg ──pcm──▶ DeepgramConnection
+//                                            │
+//                                            ▼
+//                                  finalized segments → DB writes →
+//                                  NOTIFY word_mention → admin SSE
+//
+// The "audio source" is one of:
+//   - piped: streamlink|yt-dlp child writing TS to stdout, ffmpeg consuming
+//     it on stdin (cloud worker, twitch:// + youtube:// URLs).
+//   - direct: ffmpeg reading from a local audio device (laptop worker,
+//     local-audio:// URLs with WORKER_POOL=local).
 //
 // Periodic Deepgram WS rotation (every DEEPGRAM_ROTATE_MINUTES) and ffmpeg
 // recycle (every FFMPEG_RECYCLE_MINUTES) keep long streams healthy. Silence
@@ -15,7 +21,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { pool } from './db'
 import { log } from './log'
 import { DeepgramConnection, type FinalizedTranscript } from './deepgram'
-import { buildFetcher, ffmpegArgs, type StreamSource } from './streamUrl'
+import {
+  buildPipeline,
+  type DirectPipeline,
+  type LocalAudioConfig,
+  type Pipeline,
+  type PipedPipeline,
+  type StreamSource,
+} from './streamUrl'
 import { WordMatcher, type MatchableWord, type MatchHit } from './wordMatcher'
 
 // Cost rate: Nova-3 monolingual streaming is $0.0048/min → 0.48 cents/min.
@@ -45,6 +58,12 @@ export interface StreamWorkerConfig {
   maxSilentMinutes: number
   deepgramRotateMinutes: number
   ffmpegRecycleMinutes: number
+  /**
+   * Required for `source === 'local-audio'`. Resolved from env (LOCAL_AUDIO_*)
+   * by the manager so a single laptop can be retargeted between streams
+   * without changing DB rows.
+   */
+  localAudio?: LocalAudioConfig
 }
 
 export interface StreamWorkerCallbacks {
@@ -113,10 +132,12 @@ export class StreamWorker {
   // ---------------------------------------------------------------------------
 
   private async spawnPipe(): Promise<AudioPipe> {
-    const pipe = new AudioPipe(this.cfg.streamUrl, {
+    // Re-build the pipeline spec on every (re)spawn so URL re-resolution and
+    // local-device re-acquisition happen fresh.
+    const factory = () => buildPipeline(this.cfg.streamUrl, this.cfg.localAudio)
+    const pipe = new AudioPipe(factory, {
       onPcm: (chunk) => this.dispatchAudio(chunk),
       onUnrecoverable: (err) => {
-        // The pipe gave up after exhausting restart attempts. End the worker.
         log.error('audio pipe unrecoverable', {
           streamId: this.cfg.streamId,
           err: err.message,
@@ -499,7 +520,7 @@ export class StreamWorker {
 }
 
 // =============================================================================
-// AudioPipe — fetcher + ffmpeg pair with restart-on-exit
+// AudioPipe — runs the audio source pipeline, restarted on unexpected exit
 // =============================================================================
 
 interface AudioPipeHandlers {
@@ -508,22 +529,31 @@ interface AudioPipeHandlers {
   onUnrecoverable: (err: Error) => void
 }
 
+const STDERR_TAIL_BYTES = 2048
+
 /**
- * One fetcher (streamlink|yt-dlp) + ffmpeg pair, restarted on unexpected
- * exit up to a small bounded number of attempts. Long-running streams
- * frequently see the fetcher exit as a CDN endpoint rotates; treat that as
- * routine.
+ * Owns the audio source for a stream. Two shapes:
+ *
+ *   - 'piped'  → fetcher (streamlink|yt-dlp) → ffmpeg via stdin pipe.
+ *   - 'direct' → ffmpeg alone, reading from a local audio device.
+ *
+ * Restarts on unexpected exit up to a bounded number of attempts. For piped
+ * streams, fetcher exits are routine (CDN rotation) on long streams; for
+ * direct (local-audio), exits usually mean the device went away or ffmpeg
+ * misconfigured — restart is mostly a no-op but harmless.
  */
 class AudioPipe {
   private fetcher: ChildProcessWithoutNullStreams | null = null
   private ff: ChildProcessWithoutNullStreams | null = null
+  private fetcherStderr = ''
+  private ffStderr = ''
   private restartCount = 0
   private restartTimer: NodeJS.Timeout | null = null
   private stopped = false
   private starting = false
 
   constructor(
-    private readonly url: string,
+    private readonly pipelineFactory: () => Pipeline,
     private readonly handlers: AudioPipeHandlers,
   ) {}
 
@@ -550,26 +580,37 @@ class AudioPipe {
 
   private async spawnOnce(): Promise<void> {
     if (this.stopped) return
-    const spec = buildFetcher(this.url)
-    log.info('audio pipe spawning', { source: spec.source, attempt: this.restartCount })
-
-    // Use full pipe stdio for both children so we get ChildProcessWithoutNullStreams.
-    // We don't write to fetcher.stdin (it's `ignore` semantically) but leaving it
-    // open is harmless and lets us avoid type gymnastics.
-    const fetcher = spawn(spec.cmd, spec.args, { stdio: ['pipe', 'pipe', 'pipe'] })
-    const ff = spawn('ffmpeg', ffmpegArgs(), { stdio: ['pipe', 'pipe', 'pipe'] })
-
-    fetcher.stderr.on('data', (d) => {
-      const text = d.toString().trim()
-      if (text) log.debug('fetcher stderr', { source: spec.source, msg: text })
-    })
-    ff.stderr.on('data', (d) => {
-      const text = d.toString().trim()
-      if (text) log.debug('ffmpeg stderr', { msg: text })
+    const pipeline = this.pipelineFactory()
+    log.info('audio pipe spawning', {
+      kind: pipeline.kind,
+      source: pipeline.source,
+      attempt: this.restartCount,
     })
 
-    // Forward fetcher stdout into ffmpeg stdin. Ignore EPIPE — that's just
-    // ffmpeg exiting before we close the pipe, which is fine.
+    if (pipeline.kind === 'piped') {
+      this.spawnPiped(pipeline)
+    } else {
+      this.spawnDirect(pipeline)
+    }
+  }
+
+  private spawnPiped(pipeline: PipedPipeline): void {
+    const fetcher = spawn(pipeline.fetcherCmd, pipeline.fetcherArgs, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const ff = spawn('ffmpeg', pipeline.ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
+
+    this.fetcherStderr = ''
+    this.ffStderr = ''
+    fetcher.stderr.on('data', (d: Buffer) => {
+      this.fetcherStderr = appendTail(this.fetcherStderr, d.toString())
+      log.debug('fetcher stderr', { source: pipeline.source, msg: d.toString().trim() })
+    })
+    ff.stderr.on('data', (d: Buffer) => {
+      this.ffStderr = appendTail(this.ffStderr, d.toString())
+      log.debug('ffmpeg stderr', { msg: d.toString().trim() })
+    })
+
     fetcher.stdout.pipe(ff.stdin).on('error', () => {})
     fetcher.stdout.on('error', () => {})
 
@@ -579,24 +620,66 @@ class AudioPipe {
     })
 
     fetcher.on('exit', (code, signal) => {
-      log.info('fetcher exited', { source: spec.source, code, signal })
-      this.handleChildExit('fetcher')
+      const fields: Record<string, unknown> = {
+        source: pipeline.source,
+        code,
+        signal,
+      }
+      if (code !== 0 && code !== null && this.fetcherStderr) {
+        fields.stderr = this.fetcherStderr.trim()
+      }
+      if (code !== 0 && code !== null) log.warn('fetcher exited non-zero', fields)
+      else log.info('fetcher exited', fields)
+      this.handleChildExit()
     })
     ff.on('exit', (code, signal) => {
-      log.info('ffmpeg exited', { code, signal })
-      this.handleChildExit('ffmpeg')
+      const fields: Record<string, unknown> = { code, signal }
+      if (code !== 0 && code !== null && this.ffStderr) {
+        fields.stderr = this.ffStderr.trim()
+      }
+      if (code !== 0 && code !== null) log.warn('ffmpeg exited non-zero', fields)
+      else log.info('ffmpeg exited', fields)
+      this.handleChildExit()
     })
 
     this.fetcher = fetcher
     this.ff = ff
-    // Resolve as soon as both are spawned. We don't wait for actual audio
-    // because some streams have a pre-roll before audio frames arrive.
   }
 
-  private handleChildExit(_which: 'fetcher' | 'ffmpeg'): void {
+  private spawnDirect(pipeline: DirectPipeline): void {
+    // Leave stdin as a pipe (unused) so the type lines up with the piped
+    // case. ffmpeg ignores it because its `-i` is the audio device, not pipe:0.
+    const ff = spawn('ffmpeg', pipeline.ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
+
+    this.ffStderr = ''
+    ff.stderr.on('data', (d: Buffer) => {
+      this.ffStderr = appendTail(this.ffStderr, d.toString())
+      log.debug('ffmpeg stderr', { msg: d.toString().trim() })
+    })
+
+    ff.stdout.on('data', (chunk: Buffer) => {
+      if (this.stopped) return
+      this.handlers.onPcm(chunk)
+    })
+
+    ff.on('exit', (code, signal) => {
+      const fields: Record<string, unknown> = { code, signal }
+      if (code !== 0 && code !== null && this.ffStderr) {
+        fields.stderr = this.ffStderr.trim()
+      }
+      if (code !== 0 && code !== null) log.warn('ffmpeg exited non-zero', fields)
+      else log.info('ffmpeg exited', fields)
+      this.handleChildExit()
+    })
+
+    this.fetcher = null
+    this.ff = ff
+  }
+
+  private handleChildExit(): void {
     if (this.stopped) return
-    // Either exit takes the whole pipe down. Kill the surviving sibling so
-    // we don't end up with a zombie ffmpeg consuming a dead pipe.
+    // Whichever child exited takes the whole pipe down. Kill the survivor so
+    // we don't end up with a zombie process consuming a dead pipe.
     this.killChildren()
     this.scheduleRestart()
   }
@@ -643,6 +726,12 @@ class AudioPipe {
     }, delay)
     this.restartTimer.unref()
   }
+}
+
+function appendTail(prev: string, next: string): string {
+  const combined = prev + next
+  if (combined.length <= STDERR_TAIL_BYTES) return combined
+  return combined.slice(combined.length - STDERR_TAIL_BYTES)
 }
 
 // =============================================================================
