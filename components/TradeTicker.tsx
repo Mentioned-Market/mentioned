@@ -147,16 +147,16 @@ export default function TradeTicker() {
 
   return (
     <div
-      className="relative w-full overflow-hidden border-b border-white/10 bg-neutral-950"
-      style={{ height: '40px', zIndex: 51 }}
+      className="relative w-full overflow-hidden border-b border-white/10"
+      style={{ height: '40px', zIndex: 51, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       aria-label="Recent trades"
     >
       {/* Left fade */}
-      <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-16 z-10 bg-gradient-to-r from-neutral-950 to-transparent" />
+      <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-16 z-10" style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.82), transparent)' }} />
       {/* Right fade */}
-      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-16 z-10 bg-gradient-to-l from-neutral-950 to-transparent" />
+      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-16 z-10" style={{ background: 'linear-gradient(to left, rgba(0,0,0,0.82), transparent)' }} />
 
       {doubled.length > 0 ? (
         <div
