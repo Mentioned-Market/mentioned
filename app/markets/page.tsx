@@ -466,7 +466,6 @@ function TeamCompBanner() {
             </>
           )}
           {' '}Top 3 Arena teams share the <span className="text-[#F2B71F] font-semibold">$750 prize pool</span>.
-          {' '}<span className="text-neutral-600 tabular-nums" suppressHydrationWarning>{countdown}</span>
         </p>
       </div>
     </div>
@@ -857,7 +856,7 @@ function AnimatedBackground() {
         #mkt-blob2 { animation: mkt-blob2 25s ease-in-out infinite; }
         #mkt-blob3 { animation: mkt-blob3 18s ease-in-out infinite; }
       `}} />
-      <div aria-hidden="true" style={{ position: 'fixed', top: 40, left: 0, right: 0, bottom: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+      <div aria-hidden="true" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
         <div id="mkt-blob1" style={{ position: 'absolute', top: '-10%', left: '-10%', width: '45%', height: '50%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,183,31,0.20) 0%, rgba(242,183,31,0.06) 60%, transparent 100%)', filter: 'blur(40px)' }} />
         <div id="mkt-blob2" style={{ position: 'absolute', top: '20%', right: '-10%', width: '40%', height: '45%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,183,31,0.18) 0%, rgba(242,183,31,0.05) 60%, transparent 100%)', filter: 'blur(40px)' }} />
         <div id="mkt-blob3" style={{ position: 'absolute', bottom: '5%', left: '-5%', width: '30%', height: '35%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,183,31,0.12) 0%, rgba(242,183,31,0.03) 60%, transparent 100%)', filter: 'blur(35px)' }} />
@@ -1005,25 +1004,15 @@ export default function MarketsPage() {
                   <TeamCompBanner />
                   <FeedbackBanner />
 
-                  {customLoading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <MarketCardSkeleton key={i} index={i} />
-                      ))}
-                    </div>
-                  ) : (
+                  {!customLoading && (
                     <div className="animate-fade-up">
                       {featuredMarket && (
-                        <div style={{ background: '#000', borderRadius: '1rem' }}>
-                          <FeaturedMarket market={featuredMarket} />
-                        </div>
+                        <FeaturedMarket market={featuredMarket} />
                       )}
                       {remainingMarkets.length > 0 && (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                           {remainingMarkets.map(market => (
-                            <div key={`custom-${market.id}`} style={{ background: '#000', borderRadius: '1rem' }}>
-                              <CustomEventCard market={market} />
-                            </div>
+                            <CustomEventCard key={`custom-${market.id}`} market={market} />
                           ))}
                         </div>
                       )}
