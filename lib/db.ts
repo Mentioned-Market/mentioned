@@ -815,6 +815,7 @@ export interface MonitoredStreamRow {
   error_message: string | null
   created_by: string
   worker_pool: string
+  kind: 'live' | 'vod'
   created_at: string
   updated_at: string
 }
@@ -847,6 +848,7 @@ export async function createMonitoredStream(input: {
   eventId: string
   streamUrl: string
   workerPool: string
+  kind: 'live' | 'vod'
   createdBy: string
 }): Promise<MonitoredStreamRow> {
   const client = await pool.connect()
@@ -865,10 +867,10 @@ export async function createMonitoredStream(input: {
 
     const insertRes = await client.query<MonitoredStreamRow>(
       `INSERT INTO monitored_streams
-         (event_id, stream_url, status, worker_pool, created_by)
-       VALUES ($1, $2, 'pending', $3, $4)
+         (event_id, stream_url, status, worker_pool, kind, created_by)
+       VALUES ($1, $2, 'pending', $3, $4, $5)
        RETURNING *`,
-      [input.eventId, input.streamUrl, input.workerPool, input.createdBy],
+      [input.eventId, input.streamUrl, input.workerPool, input.kind, input.createdBy],
     )
     const row = insertRes.rows[0]
 

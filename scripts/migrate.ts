@@ -513,6 +513,12 @@ ALTER TABLE monitored_streams
   ADD COLUMN IF NOT EXISTS worker_pool TEXT NOT NULL DEFAULT 'cloud';
 CREATE INDEX IF NOT EXISTS idx_monitored_streams_pool
   ON monitored_streams(worker_pool, status) WHERE status IN ('pending', 'live');
+
+-- Job kind: 'live' (default) routes to the streaming pipeline (streamlink/
+-- yt-dlp → ffmpeg → Deepgram WS). 'vod' routes to the pre-recorded pipeline
+-- (yt-dlp -g → Deepgram REST). Same DB shape; different code path.
+ALTER TABLE monitored_streams
+  ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'live';
 `
 
 async function main() {

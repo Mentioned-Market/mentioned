@@ -9,6 +9,29 @@
 
 export type StreamSource = 'twitch' | 'youtube' | 'local-audio'
 
+/**
+ * True if `url` looks like a VOD (Twitch /videos/<id>, any YouTube watch URL).
+ * VODs go through the pre-recorded pipeline, not the streaming one.
+ */
+export function isVodUrl(url: string): boolean {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  if (/(^|\.)twitch\.tv$/i.test(u.hostname)) {
+    return /^\/videos\/\d+/.test(u.pathname)
+  }
+  if (/(^|\.)(youtube\.com|youtu\.be)$/i.test(u.hostname)) {
+    // Any youtube.com/watch?v=... or youtu.be/<id>. Live YouTube URLs use
+    // the same shape, but for the VOD code path we treat them all as VOD —
+    // the caller is what's authoritative (they set kind='vod').
+    return true
+  }
+  return false
+}
+
 export interface PipedPipeline {
   kind: 'piped'
   source: 'twitch' | 'youtube'

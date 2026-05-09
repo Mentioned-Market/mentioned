@@ -40,6 +40,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     eventId?: string
     streamUrl?: string
     workerPool?: string
+    kind?: string
   }
   try {
     body = await req.json()
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const eventId = (body.eventId ?? '').trim()
   const streamUrl = (body.streamUrl ?? '').trim()
   const workerPool = (body.workerPool ?? 'cloud').trim() || 'cloud'
+  const kindRaw = (body.kind ?? 'live').trim()
+  const kind: 'live' | 'vod' = kindRaw === 'vod' ? 'vod' : 'live'
 
   if (!eventId) {
     return NextResponse.json({ error: 'eventId is required' }, { status: 400 })
@@ -58,14 +61,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'streamUrl is required' }, { status: 400 })
   }
 
-  // Light URL sanity check. Cloud workers handle twitch/youtube; local
-  // workers handle local-audio:// URLs. Anything else is rejected up-front
-  // rather than letting the worker fail later.
-  if (!isSupportedUrl(streamUrl, workerPool)) {
+  // VOD jobs only run on the cloud worker — Deepgram fetches the file
+  // itself, no local audio device involved.
+  if (kind === 'vod' && workerPool !== 'cloud') {
     return NextResponse.json(
-      {
-        error: explainUnsupportedUrl(streamUrl, workerPool),
-      },
+      { error: "VOD jobs must use workerPool='cloud'" },
+      { status: 400 },
+    )
+  }
+
+  // URL validation differs per (kind, workerPool):
+  //  - live + cloud  → twitch.tv/<channel> or youtube.com (no /videos/<id>)
+  //  - live + local  → local-audio://...
+  //  - vod  + cloud  → twitch.tv/videos/<id> or youtube.com/watch?v=<id>
+  if (!isSupportedUrl(streamUrl, workerPool, kind)) {
+    return NextResponse.json(
+      { error: explainUnsupportedUrl(streamUrl, workerPool, kind) },
       { status: 400 },
     )
   }
@@ -85,7 +96,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   let row: MonitoredStreamRow
   try {
-    row = await createMonitoredStream({ eventId, streamUrl, workerPool, createdBy: wallet })
+    row = await createMonitoredStream({ eventId, streamUrl, workerPool, kind, createdBy: wallet })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: `Failed to create monitored stream: ${msg}` }, { status: 500 })
@@ -94,39 +105,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   return NextResponse.json({ stream: row })
 }
 
-function explainUnsupportedUrl(url: string, workerPool: string): string {
+function explainUnsupportedUrl(url: string, workerPool: string, kind: 'live' | 'vod'): string {
   if (workerPool !== 'cloud') {
     return 'streamUrl must start with local-audio:// for local workers'
   }
   try {
     const u = new URL(url)
-    if (/(^|\.)twitch\.tv$/i.test(u.hostname) && /^\/videos(\/|$)/i.test(u.pathname)) {
-      return 'Twitch VODs (twitch.tv/videos/...) cannot be monitored as live streams — use a live channel URL like twitch.tv/<channel>.'
+    if (kind === 'live') {
+      if (/(^|\.)twitch\.tv$/i.test(u.hostname) && /^\/videos(\/|$)/i.test(u.pathname)) {
+        return 'Twitch VODs (twitch.tv/videos/...) cannot be monitored as live streams — switch the kind to "VOD" or use a live channel URL like twitch.tv/<channel>.'
+      }
+      return 'streamUrl must be a live twitch.tv/<channel> or youtube.com URL'
     }
+    // kind === 'vod'
+    return 'streamUrl must be a Twitch VOD (twitch.tv/videos/<id>) or YouTube watch URL'
   } catch {
-    // fall through
+    return 'streamUrl is not a valid URL'
   }
-  return 'streamUrl must be a live twitch.tv/<channel> or youtube.com URL'
 }
 
-function isSupportedUrl(url: string, workerPool: string): boolean {
-  if (workerPool === 'cloud') {
-    try {
-      const u = new URL(url)
-      if (!SUPPORTED_HOSTS.test(u.hostname)) return false
-      // Reject Twitch VODs (twitch.tv/videos/<id>) — the streaming pipeline
-      // assumes real-time audio. VODs are downloaded at max rate by
-      // streamlink, which floods Deepgram and gets the WS dropped.
-      // Use Deepgram's pre-recorded API for VOD transcription.
-      if (/(^|\.)twitch\.tv$/i.test(u.hostname)) {
-        if (/^\/videos(\/|$)/i.test(u.pathname)) return false
-      }
-      return true
-    } catch {
+function isSupportedUrl(url: string, workerPool: string, kind: 'live' | 'vod'): boolean {
+  if (workerPool !== 'cloud') {
+    return url.startsWith('local-audio://')
+  }
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  if (!SUPPORTED_HOSTS.test(u.hostname)) return false
+
+  if (kind === 'live') {
+    // Reject Twitch VODs from the live path — the streaming pipeline
+    // assumes real-time audio.
+    if (/(^|\.)twitch\.tv$/i.test(u.hostname) && /^\/videos(\/|$)/i.test(u.pathname)) {
       return false
     }
+    return true
   }
-  // Local workers consume local-audio:// — opaque identifier validated
-  // worker-side against env config.
-  return url.startsWith('local-audio://')
+  // kind === 'vod': accept Twitch VOD paths and any YouTube watch URL.
+  if (/(^|\.)twitch\.tv$/i.test(u.hostname)) {
+    return /^\/videos\/\d+/.test(u.pathname)
+  }
+  if (/(^|\.)(youtube\.com|youtu\.be)$/i.test(u.hostname)) {
+    // youtube.com/watch?v=... or youtu.be/<id>
+    return true
+  }
+  return false
 }

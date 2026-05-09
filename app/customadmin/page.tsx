@@ -24,6 +24,7 @@ interface MonitoredStreamRow {
   cost_cents: number
   error_message: string | null
   worker_pool: string
+  kind: 'live' | 'vod'
 }
 
 function transcriptionStatusBadge(status: MonitoredStreamRow['status']): string {
@@ -94,6 +95,7 @@ export default function CustomAdminPage() {
   const [transcription, setTranscription] = useState<MonitoredStreamRow | null>(null)
   const [transcriptionUrl, setTranscriptionUrl] = useState('')
   const [transcriptionPool, setTranscriptionPool] = useState<'cloud' | 'local'>('cloud')
+  const [transcriptionKind, setTranscriptionKind] = useState<'live' | 'vod'>('live')
   const [transcriptionBusy, setTranscriptionBusy] = useState(false)
 
   const show = (text: string, type: 'success' | 'error' = 'success') => {
@@ -155,6 +157,7 @@ export default function CustomAdminPage() {
     setTranscription(null)
     setTranscriptionUrl(market.stream_url || '')
     setTranscriptionPool('cloud')
+    setTranscriptionKind('live')
   }
 
   const fetchTranscription = useCallback(async (marketId: number) => {
@@ -193,6 +196,7 @@ export default function CustomAdminPage() {
           eventId: `custom_${expandedId}`,
           streamUrl: url,
           workerPool: transcriptionPool,
+          kind: transcriptionKind,
         }),
       })
       const json = await res.json()
@@ -895,8 +899,9 @@ export default function CustomAdminPage() {
                                 {transcription.status.toUpperCase()}
                               </span>
                               <span className="text-neutral-400">
-                                {transcription.source ? `${transcription.source} · ` : ''}
-                                {transcription.worker_pool} pool
+                                {transcription.kind === 'vod' ? 'vod' : 'live'} ·
+                                {transcription.source ? ` ${transcription.source} ·` : ''}
+                                {' '}{transcription.worker_pool} pool
                               </span>
                               {transcription.started_at && (
                                 <span className="text-neutral-500">
@@ -918,7 +923,7 @@ export default function CustomAdminPage() {
                             <div className="space-y-2 mb-2">
                               {transcription && (
                                 <div className="text-xs text-neutral-500">
-                                  Last run: <span className={transcriptionStatusText(transcription.status)}>{transcription.status}</span>
+                                  Last run ({transcription.kind}): <span className={transcriptionStatusText(transcription.status)}>{transcription.status}</span>
                                   {transcription.minutes_used && Number(transcription.minutes_used) > 0 && (
                                     <> · {Number(transcription.minutes_used).toFixed(1)} min · ${(transcription.cost_cents / 100).toFixed(2)}</>
                                   )}
@@ -927,18 +932,40 @@ export default function CustomAdminPage() {
                                   )}
                                 </div>
                               )}
+                              <div className="flex flex-wrap items-center gap-3">
+                                <div className="inline-flex rounded-lg border border-white/10 overflow-hidden text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => { setTranscriptionKind('live') }}
+                                    className={`px-3 py-1.5 transition-colors ${transcriptionKind === 'live' ? 'bg-white/10 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+                                  >
+                                    Live
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setTranscriptionKind('vod'); setTranscriptionPool('cloud') }}
+                                    className={`px-3 py-1.5 transition-colors ${transcriptionKind === 'vod' ? 'bg-white/10 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+                                  >
+                                    VOD
+                                  </button>
+                                </div>
+                              </div>
                               <div className="flex flex-wrap items-center gap-2">
                                 <input
                                   type="text"
                                   value={transcriptionUrl}
                                   onChange={(e) => setTranscriptionUrl(e.target.value)}
-                                  placeholder="https://twitch.tv/<channel>  or  local-audio://laptop"
+                                  placeholder={transcriptionKind === 'vod'
+                                    ? 'https://twitch.tv/videos/<id>  or  https://youtube.com/watch?v=<id>'
+                                    : 'https://twitch.tv/<channel>  or  local-audio://laptop'}
                                   className="flex-1 min-w-[260px] px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200 placeholder:text-neutral-600"
                                 />
                                 <select
                                   value={transcriptionPool}
                                   onChange={(e) => setTranscriptionPool(e.target.value as 'cloud' | 'local')}
-                                  className="px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200"
+                                  disabled={transcriptionKind === 'vod'}
+                                  title={transcriptionKind === 'vod' ? 'VOD jobs run on the cloud worker only' : ''}
+                                  className="px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200 disabled:opacity-50"
                                 >
                                   <option value="cloud">cloud</option>
                                   <option value="local">local</option>
@@ -948,7 +975,7 @@ export default function CustomAdminPage() {
                                   disabled={transcriptionBusy || !transcriptionUrl.trim()}
                                   className="px-4 py-1.5 bg-apple-green/20 text-apple-green text-xs font-semibold rounded-lg hover:bg-apple-green/30 transition-colors disabled:opacity-50"
                                 >
-                                  Start transcription
+                                  {transcriptionKind === 'vod' ? 'Start VOD transcription' : 'Start transcription'}
                                 </button>
                               </div>
                             </div>
