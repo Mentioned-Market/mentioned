@@ -800,6 +800,105 @@ export async function getEventStream(eventId: string): Promise<string | null> {
   return result.rows[0]?.stream_url ?? null
 }
 
+// ── Monitored streams (transcript-worker) ───────────────────
+
+export interface MonitoredStreamRow {
+  id: number
+  event_id: string
+  stream_url: string
+  status: 'pending' | 'live' | 'ended' | 'error'
+  source: 'twitch' | 'youtube' | 'local-audio' | null
+  started_at: string | null
+  ended_at: string | null
+  minutes_used: string
+  cost_cents: number
+  error_message: string | null
+  created_by: string
+  worker_pool: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Look up the current monitored_streams row for an event_id, or null. The
+ * UNIQUE (event_id) constraint guarantees at most one row.
+ */
+export async function getMonitoredStreamByEvent(
+  eventId: string,
+): Promise<MonitoredStreamRow | null> {
+  const res = await pool.query<MonitoredStreamRow>(
+    `SELECT * FROM monitored_streams WHERE event_id = $1`,
+    [eventId],
+  )
+  return res.rows[0] ?? null
+}
+
+/**
+ * Insert a new monitored_streams row in 'pending' state and emit
+ * NOTIFY stream_added so the right worker can claim it. If a previous row
+ * exists for the same event_id, it must already be in a terminal state
+ * (ended/error) — caller is responsible for that pre-check or for handling
+ * the unique-violation that follows.
+ *
+ * Returns the new row's id. The worker performs CAS pending→live and starts
+ * the pipeline.
+ */
+export async function createMonitoredStream(input: {
+  eventId: string
+  streamUrl: string
+  workerPool: string
+  createdBy: string
+}): Promise<MonitoredStreamRow> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Clean up any prior terminal row for this event so the UNIQUE
+    // (event_id) constraint doesn't block a re-monitor. Active rows
+    // ('pending'/'live') keep their slot — caller should force-end them
+    // first via cancelMonitoredStream.
+    await client.query(
+      `DELETE FROM monitored_streams
+        WHERE event_id = $1 AND status IN ('ended', 'error')`,
+      [input.eventId],
+    )
+
+    const insertRes = await client.query<MonitoredStreamRow>(
+      `INSERT INTO monitored_streams
+         (event_id, stream_url, status, worker_pool, created_by)
+       VALUES ($1, $2, 'pending', $3, $4)
+       RETURNING *`,
+      [input.eventId, input.streamUrl, input.workerPool, input.createdBy],
+    )
+    const row = insertRes.rows[0]
+
+    await client.query('SELECT pg_notify($1, $2)', [
+      'stream_added',
+      JSON.stringify({ streamId: row.id }),
+    ])
+
+    await client.query('COMMIT')
+    return row
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Tell the worker to end this stream. Emits NOTIFY stream_canceled. The
+ * worker performs the actual teardown + status transition; we don't UPDATE
+ * status here so the worker stays the source of truth for terminal state.
+ */
+export async function cancelMonitoredStream(streamId: number): Promise<void> {
+  await pool.query('SELECT pg_notify($1, $2)', [
+    'stream_canceled',
+    JSON.stringify({ streamId }),
+  ])
+}
+
 export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl: string; updatedAt: string }[]> {
   const result = await pool.query(
     `SELECT event_id, stream_url, updated_at FROM event_streams ORDER BY updated_at DESC`,
