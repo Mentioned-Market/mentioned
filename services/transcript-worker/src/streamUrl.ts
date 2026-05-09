@@ -97,6 +97,11 @@ export function buildPipeline(
 function pipedFfmpegArgs(): string[] {
   return [
     '-loglevel', 'error',
+    // -re paces input reads at the source's native frame rate. No-op for
+    // actual live streams (already real-time). Critical safety net if a VOD
+    // URL slips through — without it, streamlink's max-rate VOD download
+    // would push audio at ~75× real-time and Deepgram drops the WS.
+    '-re',
     '-i', 'pipe:0',
     '-vn',
     '-af', 'highpass=f=80,lowpass=f=8000,afftdn=nf=-25',
