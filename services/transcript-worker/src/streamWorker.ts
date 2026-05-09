@@ -37,6 +37,15 @@ const COST_CENTS_PER_MINUTE = 0.48
 
 const FETCHER_RESTART_DELAYS_MS = [5_000, 15_000, 45_000] as const
 
+// Backoff for unscheduled Deepgram WS drops. Spec calls for 1/3/9s, abandon
+// after 3 fast-consecutive failures.
+const DEEPGRAM_REPLACE_DELAYS_MS = [1_000, 3_000, 9_000] as const
+
+// If the last connection lasted at least this long, treat it as "stable" and
+// reset the rapid-fail counter. Otherwise the close event is part of a
+// burst and we count toward the abandon threshold.
+const DEEPGRAM_STABLE_MS = 2 * 60_000
+
 export type EndReason =
   | 'manual_cancel'
   | 'silence_watchdog'
@@ -93,6 +102,11 @@ export class StreamWorker {
   private readonly thresholdByWordIndex: Map<number, number>
   /** Words for which we've already fired a first-mention Discord ping this run. */
   private readonly pingedWordIndices = new Set<number>()
+
+  // Deepgram replacement backoff state.
+  private deepgramReplaceAttempts = 0
+  private deepgramReplaceTimer: NodeJS.Timeout | null = null
+  private lastDeepgramOpenedAtMs = 0
 
   constructor(
     private readonly cfg: StreamWorkerConfig,
@@ -189,21 +203,72 @@ export class StreamWorker {
             wasActive: dg === this.activeDg,
           })
           // If the active conn closes unexpectedly (not during rotation/stop),
-          // open a replacement so audio doesn't get dropped on the floor.
+          // schedule a replacement with backoff. scheduleDeepgramReplace also
+          // enforces an abandon threshold against rapid disconnect storms.
           if (dg === this.activeDg && !this.shutdownPromise) {
-            void this.replaceActiveDeepgram().catch((err) => {
-              const msg = err instanceof Error ? err.message : String(err)
-              log.error('deepgram replace failed', { streamId: this.cfg.streamId, err: msg })
-              void this.stop('pipeline_error', msg)
-            })
+            this.scheduleDeepgramReplace()
           }
         },
       },
     )
-    return dg.open().then(() => dg)
+    return dg.open().then(() => {
+      this.lastDeepgramOpenedAtMs = Date.now()
+      return dg
+    })
+  }
+
+  /**
+   * Replace the active Deepgram connection after an unexpected close.
+   * Implements 1/3/9s backoff. If three replacements in a row each die
+   * within DEEPGRAM_STABLE_MS, abandon the worker — the upstream is
+   * misbehaving and we'd otherwise burn cost reconnecting forever.
+   */
+  private scheduleDeepgramReplace(): void {
+    if (this.shutdownPromise) return
+    if (this.deepgramReplaceTimer) return
+
+    // If the last connection lasted long enough, we treat this as a fresh
+    // failure and reset the backoff counter.
+    const lastConnAgeMs = Date.now() - this.lastDeepgramOpenedAtMs
+    if (lastConnAgeMs >= DEEPGRAM_STABLE_MS) {
+      this.deepgramReplaceAttempts = 0
+    }
+
+    if (this.deepgramReplaceAttempts >= DEEPGRAM_REPLACE_DELAYS_MS.length) {
+      log.error('deepgram: exhausted replacement attempts, abandoning stream', {
+        streamId: this.cfg.streamId,
+        attempts: this.deepgramReplaceAttempts,
+      })
+      void this.stop('pipeline_error', 'deepgram: too many rapid disconnects')
+      return
+    }
+
+    const delay = DEEPGRAM_REPLACE_DELAYS_MS[this.deepgramReplaceAttempts]
+    this.deepgramReplaceAttempts++
+    log.warn('deepgram: scheduling replacement', {
+      streamId: this.cfg.streamId,
+      attempt: this.deepgramReplaceAttempts,
+      delayMs: delay,
+      lastConnAgeSec: (lastConnAgeMs / 1000).toFixed(1),
+    })
+
+    this.deepgramReplaceTimer = setTimeout(() => {
+      this.deepgramReplaceTimer = null
+      void this.replaceActiveDeepgram().catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.warn('deepgram: replacement open failed', {
+          streamId: this.cfg.streamId,
+          err: msg,
+        })
+        // Schedule another attempt on the same backoff curve.
+        this.scheduleDeepgramReplace()
+      })
+    }, delay)
+    this.deepgramReplaceTimer.unref()
   }
 
   private async replaceActiveDeepgram(): Promise<void> {
+    if (this.shutdownPromise) return
     const next = await this.openDeepgram()
     if (this.shutdownPromise) {
       // Race: shutdown started while we were opening the replacement.
@@ -295,9 +360,13 @@ export class StreamWorker {
   }
 
   private async persistFinalized(t: FinalizedTranscript): Promise<void> {
-    const startMs = Math.max(0, Math.round((t.startSec ?? 0) * 1000))
+    // start_ms/end_ms are *capture-relative* wall-clock offsets (ms since the
+    // worker started recording this stream). Deepgram's `start` field is
+    // connection-relative and resets to 0 on every reconnect, so we can't
+    // use it directly without producing wrong jump-to-time links.
     const durationMs = Math.max(0, Math.round((t.durationSec ?? 0) * 1000))
-    const endMs = startMs + durationMs
+    const endMs = Math.max(0, Date.now() - this.startedAtMs)
+    const startMs = Math.max(0, endMs - durationMs)
 
     // Run hits in the same connection as the segment INSERT so segment_id
     // points at the right row even under concurrent writes.
@@ -505,6 +574,10 @@ export class StreamWorker {
     })
 
     this.clearTimers()
+    if (this.deepgramReplaceTimer) {
+      clearTimeout(this.deepgramReplaceTimer)
+      this.deepgramReplaceTimer = null
+    }
 
     if (this.pipe) {
       this.pipe.stop()
