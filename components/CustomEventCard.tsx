@@ -111,7 +111,7 @@ function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; mark
             <Link
               key={w.word_id}
               href={marketUrl}
-              className="flex items-center gap-2 h-[30px] px-2 rounded-lg glass hover:bg-white/10 transition-colors"
+              className="flex items-center gap-2 h-[30px] px-2 rounded-lg bg-white/[0.06] hover:bg-white/10 transition-colors"
             >
               <span className="text-white text-xs font-medium truncate flex-1">{w.word}</span>
               {isResolved && (
@@ -144,7 +144,7 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
   )
 
   return (
-    <div className="group relative block overflow-hidden rounded-2xl glass transition-all duration-300 hover-lift">
+    <div className="group relative block overflow-hidden rounded-2xl transition-all duration-300 hover-lift" style={{ background: 'rgba(10,10,10,0.75)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
       {/* Image */}
       <Link href={url} className="block w-full relative overflow-hidden bg-neutral-800" style={{ height: '140px' }}>
         {/* Placeholder shown until image loads or on error */}

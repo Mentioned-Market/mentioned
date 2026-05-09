@@ -83,7 +83,7 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] bg-black border-b border-white/10">
+      <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] border-b border-white/10" style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
         <div className="px-4 md:px-10 lg:px-20">
          <div className="max-w-7xl mx-auto flex items-center justify-between py-3 md:py-5">
         <div className="flex items-center gap-4 md:gap-6">
