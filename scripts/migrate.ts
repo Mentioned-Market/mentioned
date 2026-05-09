@@ -503,6 +503,16 @@ ALTER TABLE custom_market_words
   ADD COLUMN IF NOT EXISTS mention_threshold INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE custom_market_words
   ADD COLUMN IF NOT EXISTS match_variants TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+
+-- Worker pool: which transcript-worker instance is responsible for this row.
+-- 'cloud' = the Railway-hosted worker (handles twitch://, youtube:// URLs).
+-- 'local' (or 'local-<machine>') = a laptop running with WORKER_POOL=local
+-- and reading audio from a virtual cable / loopback device. Workers only
+-- claim rows whose worker_pool matches their own.
+ALTER TABLE monitored_streams
+  ADD COLUMN IF NOT EXISTS worker_pool TEXT NOT NULL DEFAULT 'cloud';
+CREATE INDEX IF NOT EXISTS idx_monitored_streams_pool
+  ON monitored_streams(worker_pool, status) WHERE status IN ('pending', 'live');
 `
 
 async function main() {
