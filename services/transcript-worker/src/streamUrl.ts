@@ -93,11 +93,14 @@ export function buildPipeline(
     }
   }
   if (source === 'youtube') {
+    // --js-runtimes node uses the container's existing Node binary as
+    // yt-dlp's JS runtime — required since yt-dlp 2025 for YouTube URL
+    // signing. https://github.com/yt-dlp/yt-dlp/wiki/EJS
     return {
       kind: 'piped',
       source,
       fetcherCmd: 'yt-dlp',
-      fetcherArgs: ['-q', '-o', '-', '-f', 'bestaudio/best', url],
+      fetcherArgs: ['-q', '--js-runtimes', 'node', '-o', '-', '-f', 'bestaudio/best', url],
       ffmpegArgs: pipedFfmpegArgs(),
     }
   }

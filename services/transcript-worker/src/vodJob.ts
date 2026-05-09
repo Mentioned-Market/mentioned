@@ -142,7 +142,10 @@ export class VodJob {
       // -g prints the resolved direct URL. We pick bestaudio/best so we get
       // an audio-only stream when the platform exposes one, falling back to
       // the muxed stream Deepgram will demux server-side either way.
-      const yt = spawn('yt-dlp', ['-g', '-f', 'bestaudio/best', url], {
+      // --js-runtimes node uses the container's existing Node binary as
+      // yt-dlp's JS runtime — required since yt-dlp 2025 for YouTube URL
+      // signing. See https://github.com/yt-dlp/yt-dlp/wiki/EJS
+      const yt = spawn('yt-dlp', ['-g', '--js-runtimes', 'node', '-f', 'bestaudio/best', url], {
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       let stdout = ''
