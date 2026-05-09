@@ -22,6 +22,7 @@ import { pool } from './db'
 import { log } from './log'
 import {
   transcribePrerecorded,
+  transcribePrerecordedBytes,
   type DeepgramUtterance,
   type PrerecordedResult,
 } from './deepgramRest'
@@ -30,7 +31,28 @@ import { postStreamEndSummary } from './streamSummary'
 import type { EndReason } from './streamWorker'
 
 const COST_CENTS_PER_MINUTE = 0.48
-const YTDLP_TIMEOUT_MS = 60_000
+const YTDLP_RESOLVE_TIMEOUT_MS = 60_000
+const YTDLP_DOWNLOAD_TIMEOUT_MS = 30 * 60_000
+const MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024 // 1 GB hard cap on download size
+
+/**
+ * True when yt-dlp's resolved URL is directly fetchable by an arbitrary
+ * client (Twitch HLS m3u8). False when the URL is bound to the requesting
+ * client and a third party fetching it gets 403 (YouTube). Determines
+ * whether we hand Deepgram the URL or the bytes.
+ */
+function canDeepgramFetchDirectly(streamUrl: string): boolean {
+  let host: string
+  try {
+    host = new URL(streamUrl).hostname
+  } catch {
+    return false
+  }
+  // Twitch VOD HLS playlists are publicly fetchable until they expire.
+  if (/(^|\.)twitch\.tv$/i.test(host)) return true
+  // YouTube — and anything we don't explicitly trust — gets the bytes path.
+  return false
+}
 
 export interface VodJobConfig {
   streamId: number
@@ -73,34 +95,44 @@ export class VodJob {
       words: this.cfg.words.length,
     })
 
-    let mediaUrl: string
-    try {
-      mediaUrl = await this.resolveMediaUrl(this.cfg.streamUrl)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      await this.stop('fetcher_failed', `yt-dlp -g failed: ${msg}`)
-      return
-    }
+    const keyterms = this.cfg.words.flatMap((w) => [w.word, ...w.variants]).filter(Boolean)
 
-    if (this.shutdownPromise) return // canceled before submit
-
+    // YouTube audio URLs are bound to the requesting client (User-Agent +
+    // headers + IP) — handing the URL to Deepgram results in 403 from
+    // YouTube's CDN. Twitch HLS m3u8s are publicly fetchable and work fine
+    // via the URL form, which is faster (no Railway egress) and supports
+    // larger files. Pick per-host.
+    const useUrlForm = canDeepgramFetchDirectly(this.cfg.streamUrl)
     let result: PrerecordedResult
+
     try {
-      result = await transcribePrerecorded(
-        this.cfg.deepgramApiKey,
-        {
-          audioUrl: mediaUrl,
-          keyterms: this.cfg.words.flatMap((w) => [w.word, ...w.variants]).filter(Boolean),
-          signal: this.abort.signal,
-        },
-      )
+      if (useUrlForm) {
+        const mediaUrl = await this.resolveMediaUrl(this.cfg.streamUrl)
+        if (this.shutdownPromise) return
+        result = await transcribePrerecorded(
+          this.cfg.deepgramApiKey,
+          { audioUrl: mediaUrl, keyterms, signal: this.abort.signal },
+        )
+      } else {
+        const audio = await this.downloadAudio(this.cfg.streamUrl)
+        if (this.shutdownPromise) return
+        log.info('vod job: download complete, submitting to deepgram', {
+          streamId: this.cfg.streamId,
+          bytes: audio.length,
+        })
+        result = await transcribePrerecordedBytes(
+          this.cfg.deepgramApiKey,
+          { audio, keyterms, signal: this.abort.signal },
+        )
+      }
     } catch (err) {
       if (this.abort.signal.aborted) {
         // Caller canceled — stop() has already started; let it finish.
         return
       }
       const msg = err instanceof Error ? err.message : String(err)
-      await this.stop('pipeline_error', `deepgram pre-recorded failed: ${msg}`)
+      const reason: EndReason = msg.startsWith('yt-dlp ') ? 'fetcher_failed' : 'pipeline_error'
+      await this.stop(reason, msg)
       return
     }
 
@@ -152,8 +184,8 @@ export class VodJob {
       let stderr = ''
       const timeout = setTimeout(() => {
         try { yt.kill('SIGTERM') } catch {}
-        reject(new Error(`yt-dlp timed out after ${YTDLP_TIMEOUT_MS}ms`))
-      }, YTDLP_TIMEOUT_MS)
+        reject(new Error(`yt-dlp -g timed out after ${YTDLP_RESOLVE_TIMEOUT_MS}ms`))
+      }, YTDLP_RESOLVE_TIMEOUT_MS)
       timeout.unref()
 
       const onAbort = () => {
@@ -171,7 +203,7 @@ export class VodJob {
         clearTimeout(timeout)
         this.abort.signal.removeEventListener('abort', onAbort)
         if (code !== 0) {
-          reject(new Error(`yt-dlp exited code ${code}: ${stderr.trim().slice(-500)}`))
+          reject(new Error(`yt-dlp -g failed: exited code ${code}: ${stderr.trim().slice(-500)}`))
           return
         }
         // yt-dlp -g may print multiple lines (video + audio for some sites);
@@ -183,6 +215,84 @@ export class VodJob {
           return
         }
         resolve(lines[lines.length - 1])
+      })
+    })
+  }
+
+  /**
+   * Download the audio stream to a Buffer via yt-dlp's stdout. Used for
+   * sources whose URLs Deepgram can't fetch directly (YouTube). Hard cap
+   * at MAX_DOWNLOAD_BYTES to prevent a runaway from exhausting container
+   * memory.
+   */
+  private async downloadAudio(url: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      log.info('vod job: downloading audio via yt-dlp', { streamId: this.cfg.streamId })
+      const yt = spawn(
+        'yt-dlp',
+        ['-q', '--js-runtimes', 'node', '-o', '-', '-f', 'bestaudio/best', url],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+      const chunks: Buffer[] = []
+      let totalBytes = 0
+      let stderr = ''
+      let aborted = false
+
+      const timeout = setTimeout(() => {
+        aborted = true
+        try { yt.kill('SIGTERM') } catch {}
+        reject(new Error(`yt-dlp download timed out after ${YTDLP_DOWNLOAD_TIMEOUT_MS / 1000}s`))
+      }, YTDLP_DOWNLOAD_TIMEOUT_MS)
+      timeout.unref()
+
+      const onAbort = () => {
+        aborted = true
+        try { yt.kill('SIGTERM') } catch {}
+      }
+      this.abort.signal.addEventListener('abort', onAbort, { once: true })
+
+      // Periodic progress log so the admin doesn't think it's hung.
+      const progressTimer = setInterval(() => {
+        log.info('vod job: download progress', {
+          streamId: this.cfg.streamId,
+          megabytes: (totalBytes / 1_048_576).toFixed(1),
+        })
+      }, 30_000)
+      progressTimer.unref()
+
+      yt.stdout.on('data', (chunk: Buffer) => {
+        if (aborted) return
+        totalBytes += chunk.length
+        if (totalBytes > MAX_DOWNLOAD_BYTES) {
+          aborted = true
+          try { yt.kill('SIGTERM') } catch {}
+          reject(new Error(
+            `yt-dlp download exceeded ${MAX_DOWNLOAD_BYTES / 1_048_576}MB cap — refusing to buffer further`,
+          ))
+          return
+        }
+        chunks.push(chunk)
+      })
+      yt.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+      yt.on('error', (err) => {
+        clearTimeout(timeout)
+        clearInterval(progressTimer)
+        reject(err)
+      })
+      yt.on('exit', (code) => {
+        clearTimeout(timeout)
+        clearInterval(progressTimer)
+        this.abort.signal.removeEventListener('abort', onAbort)
+        if (aborted) return // already rejected
+        if (code !== 0) {
+          reject(new Error(`yt-dlp download failed: exited code ${code}: ${stderr.trim().slice(-500)}`))
+          return
+        }
+        if (totalBytes === 0) {
+          reject(new Error('yt-dlp download produced no audio bytes'))
+          return
+        }
+        resolve(Buffer.concat(chunks, totalBytes))
       })
     })
   }
