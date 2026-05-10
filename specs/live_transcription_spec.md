@@ -6,6 +6,31 @@ Scope: detection of stream end, real-time transcript generation, word matching, 
 
 ---
 
+## Build Status — 2026-05-10
+
+**Branch:** `automated-stream-text-analysis` (deployed to staging via Railway).
+
+**What's shipped and working:**
+
+- Worker service at `services/transcript-worker/` (Railway service, separate from Next.js).
+- **Live streaming** transcription for Twitch (cloud worker, fully working) and YouTube (cloud worker hits cloud-IP bot challenges; recommended path is the laptop).
+- **VOD** standalone transcription for Twitch (URL handoff to Deepgram) and YouTube (yt-dlp downloads → bytes uploaded to Deepgram).
+- **Local-audio (laptop) path** for any stream the cloud can't reach (sub-only, geo-locked, browser-auth-required content). Operator runs the same worker locally with `WORKER_POOL=local` and a virtual audio cable.
+- **Admin UI bridge** in `/customadmin` — Live/VOD toggle, worker-pool selector, Start / Force end buttons, status pill polled every 5s.
+- **Discord summaries** at end of every run.
+- **First-mention Discord ping** for `mention_threshold=1` words.
+- **Daily cost guard** with alert + halt thresholds.
+
+**Phases complete:** 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 🟡 (minimum bridge only — full UI pending) · 6 ✅ (standalone VOD; post-pass on live runs pending) · 7 partial (some hardening done; load test, dashboards, runbook still open).
+
+**The biggest things still open:** the full Phase 5 admin UI (live counter / SSE / false-positive flow / threshold + variants editors); VOD post-pass on already-monitored live streams; partial unique index on `monitored_streams` so re-runs don't cascade-delete history; VOD boot-recovery resilience (currently re-bills Deepgram). See the **Open Items / Next Session** section near the bottom of this doc for the prioritized list.
+
+If you're picking this up cold: read the **Build State / Operational Reference** section near the bottom for file structure, env vars, schema as-built, and recent gotchas.
+
+---
+
+---
+
 ## Goal
 
 Mention markets resolve based on whether specific words are said during a live event. Today, an admin watches the stream and resolves manually. Two problems:
@@ -948,47 +973,308 @@ v1 deliberately does **not** require Twitch or YouTube API credentials. End-of-s
 
 Estimated effort: ~4 working days from zero to v1 in production.
 
-### Phase 1 — Skeleton (1 day) ✅
-- Create `services/transcript-worker/` with Dockerfile, package.json, tsconfig.
+### Phase 1 — Skeleton ✅
+- `services/transcript-worker/` directory with its own Dockerfile, package.json, tsconfig.
 - Boot, health server, DB ping, LISTEN connection, heartbeat, graceful shutdown.
 
-### Phase 2 — Schema + persistence (½ day) ✅
+### Phase 2 — Schema + persistence ✅
 - Migrations: `monitored_streams`, `live_transcript_segments`, `word_mentions`.
-- `mention_threshold` and `match_variants` columns on `custom_market_words`.
+- `mention_threshold` and `match_variants` columns added to `custom_market_words`.
+- Two columns added later in the build (not in the original Phase 2 plan): `monitored_streams.worker_pool` (cloud / local routing) and `monitored_streams.kind` ('live' / 'vod').
 
-### Phase 3 — Worker manager + Deepgram pipeline (1.5 days)
-- Pool of stream workers, spawn/teardown lifecycle.
-- `streamlink|yt-dlp → ffmpeg → Deepgram` pipeline.
-- Word matcher with sliding-window phrase support.
+### Phase 3 — Worker manager + Deepgram streaming pipeline ✅
+- Per-stream `StreamWorker` lifecycle: `streamlink|yt-dlp → ffmpeg → Deepgram WS`.
+- `WordMatcher` with sliding-window phrase support and offset-based dedupe.
 - Periodic Deepgram WS rotation (90 min) and ffmpeg recycle (4 h).
 - Fetcher restart-on-exit, silence watchdog, hard-cap cost protection.
 - LISTEN/NOTIFY for `stream_added` / `stream_canceled`.
-- CAS spawn gate + boot recovery (no API re-verification — see Phase 4 note).
+- CAS spawn gate + boot recovery (no platform-API re-verification per Phase 4 note).
+- **Bonus added during build:** non-zero-exit stderr surfacing for fetcher and ffmpeg, Deepgram replacement backoff (1/3/9s) + abandon after 3 rapid disconnects, per-connection observability counters (bytesSent / finalizedCount logged every 60s), unconditional 5s keepalive.
 
-### Phase 4 — Discord summary on end (½ day)
-- Stream-end detection (fetcher exit + silence watchdog).
-- Discord webhook with mention summary including count/threshold.
-- Cost cap watchdog (`DAILY_COST_CENTS_*`).
-- *Excludes* Twitch/YouTube API polling — deferred to "Future enhancements".
+### Phase 4 — Discord summary + cost guard ✅
+- End-of-stream Discord summary with per-word counts, thresholds, verdict pills, avg confidence.
+- `CostGuard` ticks every 5 min; alert at `DAILY_COST_CENTS_ALERT`, refuse new spawns at `DAILY_COST_CENTS_HALT`. In-flight streams continue.
+- Discord webhook URL derived per-environment: `APP_BASE_URL` overrides everything; otherwise `ENVIRONMENT=staging` → staging hostname, else prod.
+- **Bonus added during build:** first-mention Discord ping for `mention_threshold=1` words. On the first non-superseded mention, a one-line Discord message posts with snippet + HH:MM:SS jump time + confidence + resolve link. Idempotent across worker restarts via a DB prior-count check.
 
-### Phase 5 — Admin UI (1 day)
-- `GET /api/admin/mentions?eventId=...` for initial load.
-- `GET /api/admin/mentions/stream?eventId=...` SSE following `chatStream.ts` pattern.
-- Mention counter (count/threshold + would-resolve pill) + evidence panel + jump-to-time + dismiss-as-FP buttons in `/customadmin`.
-- "Force end stream" button writing `status='ended'` and emitting `stream_canceled`.
-- Per-word `mention_threshold` and `match_variants` editors.
+### Phase 5 — Admin UI 🟡 (minimum bridge shipped; full UI pending)
 
-### Phase 6 — VOD post-pass (½ day, optional v1)
-- After stream ends, fetch VOD URL.
-- Deepgram pre-recorded API call.
-- Insert second-pass mentions tagged `source='vod_pass'`.
-- Admin UI shows both passes side-by-side.
+**Shipped (Phase 5 minimum bridge):**
+- `POST /api/admin/streams` — create + emit `stream_added`. Validates URL by `(kind, workerPool)`. 409 if a pending/live row already exists for the event.
+- `GET /api/admin/streams?eventId=...` — fetch current monitoring row.
+- `POST /api/admin/streams/[id]/cancel` — emit `stream_canceled`.
+- Transcription panel in `/customadmin` per market: Live/VOD toggle, URL input (defaults to market's `stream_url`), worker-pool selector (locked to cloud for VOD), Start button, status pill polled every 5s, Force-end button when active.
 
-### Phase 7 — Hardening (½ day, ongoing)
-- Reconnect logic on every external connection.
-- Cost dashboard endpoint.
-- Operational alerts.
-- Load test with 10 concurrent fake streams (file replays via ffmpeg).
+**Pending (Phase 5 full):**
+- `GET /api/admin/mentions?eventId=...` — initial load.
+- `GET /api/admin/mentions/stream?eventId=...` — SSE off `NOTIFY word_mention`, mirrors `chatStream.ts` singleton pattern (introduce `lib/mentionStream.ts`).
+- Live mention counter UI: per word, render `count / threshold` with verdict pills (✅ YES likely / ⚠️ Below threshold / ❌ NO likely), avg confidence indicator, last 5 snippet rows with jump-to-time links.
+- "Mark false positive" button per mention (`POST /api/admin/mentions/[id]/dismiss` → `superseded=TRUE`). Live counter auto-decrements via SSE.
+- Per-word `mention_threshold` and `match_variants` editors in the existing word form. Columns exist in DB; admin can't currently set them.
+
+### Phase 6 — VOD transcription 🟡 (standalone shipped; live-stream post-pass pending)
+
+**Shipped (Phase 6 standalone VOD):**
+- `VodJob` lifecycle module sister to `StreamWorker`. Same `start()`/`stop()` interface so `index.ts` routes by `kind`.
+- Twitch VODs: yt-dlp resolves direct URL → Deepgram fetches via URL form (faster, no Railway egress).
+- YouTube VODs (and any non-Twitch): yt-dlp downloads audio to a `Buffer` (1 GB hard cap, 30 min download timeout, 30s progress logging) → Deepgram receives via bytes form. Required because YouTube binds audio URLs to the requesting client's User-Agent + IP — Deepgram fetching the URL itself returns 403.
+- `yt-dlp --js-runtimes node` flag on every YouTube call (yt-dlp 2025 deprecated YouTube extraction without an external JS runtime).
+- Per-utterance `live_transcript_segments` (Deepgram `utterances=true` gives natural segment-shaped chunks).
+- All segments + mentions inserted in a single transaction, then status flips to `ended` and Discord summary fires. Per-mention pings deliberately skipped for VOD (would be batch spam).
+- `monitored_streams.kind` column branches the worker (`live` → StreamWorker, `vod` → VodJob).
+- Admin UI Live/VOD toggle in the transcription panel.
+
+**Pending (Phase 6 step 2 — post-pass on live runs):**
+- Auto-trigger a VOD pass after a live stream ends (Twitch auto-creates a VOD; YouTube live becomes a VOD).
+- Insert second-pass mentions tagged `source='vod_pass'` (column doesn't exist yet — schema addition needed).
+- Admin UI shows both passes side-by-side; admin chooses which to trust.
+- Spec calls this "essentially required for threshold markets" because pre-recorded model accuracy is 5–10 percentage points higher than streaming.
+
+### Phase 7 — Hardening (ongoing)
+
+**Done:** Deepgram WS rotation + replacement backoff/abandon, fetcher restart-on-exit, silence + hard-cap watchdogs, ffmpeg recycle, daily cost guard, stderr surfacing, observability counters.
+
+**Open:**
+- Cost dashboard endpoint (today: read `monitored_streams.cost_cents` directly).
+- Operational alerts (heartbeat-gap detection, listener-disconnect alarms beyond worker logs).
+- Load test with 10 concurrent fake streams via file replays.
+- Per-job duration cap on VOD submit (`yt-dlp --print duration <url>` before submitting; refuse if > `MAX_VOD_HOURS`). Daily cost guard catches runaways but there's no per-job ceiling.
+- VOD boot-recovery resilience: currently if the worker crashes mid-VOD, on restart we re-submit and pay Deepgram twice. Persist `deepgram_request_id` and check status before re-submitting.
+
+---
+
+## Build State / Operational Reference
+
+Concrete details about what was built, how it's deployed, and what to know to keep operating it. This section reflects reality as of 2026-05-10 — it diverges from the design content above where the build forced a different shape.
+
+### File structure
+
+```
+services/transcript-worker/
+├── Dockerfile                          # Node 20 base + ffmpeg + streamlink + yt-dlp
+├── package.json                        # @deepgram/sdk, dotenv, pg
+├── tsconfig.json
+├── .env.example                        # all env vars documented inline
+├── README.md                           # status + dev setup
+└── src/
+    ├── index.ts                        # boot, listener, CAS spawn gate, branch on kind
+    ├── db.ts                           # pg pool + ping
+    ├── log.ts                          # structured JSON-line logger
+    ├── health.ts                       # /health + / endpoints
+    ├── listener.ts                     # LISTEN connection with reconnect loop
+    ├── streamUrl.ts                    # source detection, pipeline (piped vs direct) factory
+    ├── streamWorker.ts                 # live pipeline + AudioPipe (fetcher+ffmpeg)
+    ├── deepgram.ts                     # Deepgram streaming WS wrapper
+    ├── deepgramRest.ts                 # Deepgram pre-recorded REST client (URL + bytes forms)
+    ├── vodJob.ts                       # VOD batch lifecycle (sister to StreamWorker)
+    ├── wordMatcher.ts                  # sliding-window matcher with offset dedupe
+    ├── streamSummary.ts                # builds + posts the Discord end-of-stream summary
+    ├── discord.ts                      # webhook poster
+    └── costGuard.ts                    # daily cost watchdog + halt logic
+```
+
+Next.js side:
+
+```
+app/
+├── api/admin/streams/
+│   ├── route.ts                        # GET (fetch row) + POST (create + NOTIFY)
+│   └── [id]/cancel/route.ts            # POST (NOTIFY stream_canceled)
+└── customadmin/page.tsx                # transcription panel inside expanded market view
+
+lib/db.ts                               # MonitoredStreamRow type + helpers
+                                        #   getMonitoredStreamByEvent
+                                        #   createMonitoredStream  (transactional)
+                                        #   cancelMonitoredStream
+
+scripts/migrate.ts                      # all schema additions, idempotent
+```
+
+Migration runner (`npm run db:migrate`) is **not** automatic on Railway deploys yet — see "Operational gotchas" below.
+
+### Schema as-built
+
+```sql
+CREATE TABLE monitored_streams (
+  id              SERIAL PRIMARY KEY,
+  event_id        TEXT NOT NULL UNIQUE,         -- 'custom_<id>' for free markets
+  stream_url      TEXT NOT NULL,                -- twitch/youtube URL, or 'local-audio://<label>'
+  status          TEXT NOT NULL DEFAULT 'pending',   -- pending | live | ended | error
+  source          TEXT,                         -- 'twitch' | 'youtube' | 'local-audio' (cached)
+  started_at      TIMESTAMPTZ,
+  ended_at        TIMESTAMPTZ,
+  minutes_used    NUMERIC NOT NULL DEFAULT 0,
+  cost_cents      INTEGER NOT NULL DEFAULT 0,
+  error_message   TEXT,
+  created_by      TEXT NOT NULL,
+  worker_pool     TEXT NOT NULL DEFAULT 'cloud', -- added during build: cloud | local | local-<machine>
+  kind            TEXT NOT NULL DEFAULT 'live',  -- added during build: live | vod
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_monitored_streams_status ON monitored_streams(status) WHERE status IN ('pending','live');
+CREATE INDEX idx_monitored_streams_pool   ON monitored_streams(worker_pool, status) WHERE status IN ('pending','live');
+```
+
+`live_transcript_segments` and `word_mentions` are exactly as specified earlier — no divergence — but note **`stream_offset_ms` semantics differ by kind**:
+
+- **live:** wall-clock offset from worker start (`Date.now() - startedAtMs`). Stable across Deepgram WS reconnects. Originally we used Deepgram's connection-relative `start` field, which reset to 0 on every reconnect and produced wrong jump-to-time links — fixed during Phase 3 hardening.
+- **vod:** absolute offset from t=0 of the audio file (Deepgram's `utterance.start * 1000`). Cleaner anchor — jump-to-time links land exactly on the right moment.
+
+### Worker pool model
+
+A single worker process claims rows whose `worker_pool` column matches its `WORKER_POOL` env var. Two pools today:
+
+| Pool | Where it runs | Handles | Audio source |
+|---|---|---|---|
+| `cloud` | Railway service `transcript-worker` | live: twitch/youtube; vod: any | streamlink/yt-dlp → ffmpeg, or yt-dlp download for VOD bytes form |
+| `local` | Operator's laptop, `npm run dev` | live: anything via browser | virtual audio cable → ffmpeg (no fetcher) |
+
+The CAS update in `onStreamAdded` and `resumeOrClaim` filters by pool, so cloud and laptop workers can coexist against the same database without racing for each other's rows. Multiple laptops can run in parallel by setting different pool values (`local-laptop-1`, `local-laptop-2`, etc.).
+
+The admin UI's worker-pool selector just writes the chosen value into `monitored_streams.worker_pool`. VOD jobs are forced to `cloud` because they don't use a local audio source.
+
+### Local-audio (laptop) capture path
+
+Built to handle streams the cloud worker can't reach: sub-only Twitch, YouTube live (cloud-IP bot challenge), geo-locked content, embedded players, anything that requires a real browser session. Was not in the original spec.
+
+**Operator setup** (Windows reference; macOS uses BlackHole, Linux uses PipeWire):
+
+1. Install VB-Audio Cable (`vb-audio.com/Cable/`), reboot.
+2. In Windows Sound settings, set the streaming browser's output to `CABLE Input` (per-app, not system-wide, so notifications don't bleed in).
+3. Optional: enable "Listen to this device" on `CABLE Output` to also hear it on speakers.
+4. `cd services\transcript-worker; copy .env.example .env; notepad .env` — fill in `WORKER_POOL=local`, `LOCAL_AUDIO_FORMAT=dshow`, `LOCAL_AUDIO_DEVICE="CABLE Output (VB-Audio Virtual Cable)"` (exact byte match — verify with `ffmpeg -list_devices true -f dshow -i dummy`).
+5. `npm install; npm run dev`.
+
+The worker code path: `streamUrl.ts:buildPipeline` returns a `DirectPipeline` (no fetcher) when source is `local-audio`. `streamWorker.ts:AudioPipe.spawnDirect` spawns ffmpeg only with `-f dshow -i audio="<device>"` (or `-f avfoundation` / `-f pulse`). Everything downstream of ffmpeg is identical to the cloud path.
+
+**Admin flow:** create the market normally, expand in `/customadmin`, paste a placeholder URL like `local-audio://liverpool-match`, select pool=local, hit Start. Operator hits Play in browser when the stream actually starts. Status pill flips to LIVE within 5s once the laptop worker claims the row.
+
+**Limit:** one stream per laptop in the current design, because `LOCAL_AUDIO_DEVICE` is a process-global env var. Scaling out is "more laptops" rather than "more streams per laptop." A small change (~30 min) would move device config from env to per-row to allow multi-stream-per-laptop, but no concrete need yet.
+
+### VOD path
+
+Two distinct sub-paths based on whether the source's audio URL can be fetched by an arbitrary client:
+
+**Twitch VOD (URL form, faster, no Railway egress):**
+- yt-dlp `-g` resolves the HLS m3u8 URL.
+- `transcribePrerecorded` POSTs `{ "url": "..." }` to Deepgram. Deepgram fetches the playlist + segments directly.
+
+**YouTube VOD (bytes form, mandatory):**
+- yt-dlp `-o -` downloads audio to stdout, collected into a `Buffer` (1 GB hard cap, 30 min timeout, periodic progress log).
+- `transcribePrerecordedBytes` POSTs the audio buffer with `Content-Type: audio/*`.
+- Bytes form is required because YouTube's audio URLs are bound to the requesting client's User-Agent + headers + IP — Deepgram fetching the URL itself returns 403.
+- Branch is in `vodJob.ts:canDeepgramFetchDirectly(url)` keyed on the host.
+
+Both paths use `--js-runtimes node` on every yt-dlp invocation. Required since yt-dlp 2025 deprecated YouTube extraction without an external JS runtime; we use the Node binary the worker container already runs on.
+
+### Operational gotchas
+
+These are bites we took during the build. Worth knowing in advance:
+
+| Gotcha | Symptom | Fix |
+|---|---|---|
+| Migrations don't auto-run | Worker queries fail with `column "kind" does not exist` (or similar) after a fresh column is added | Run `DATABASE_URL=... PGSSL=require npm run db:migrate` once. Better: change the Next.js Railway service's Deploy Command to `npm run db:migrate && npm start` so future schema additions are automatic. |
+| Twitch VOD URL into the live path | Streamlink downloads at ~75× real-time, Deepgram WS dies every 30–60s with code 1006, 80%+ of audio lost | API now rejects `twitch.tv/videos/<id>` URLs from the live path. `ffmpeg -re` is also added on piped pipelines as a safety net. |
+| YouTube live from cloud IP | yt-dlp exits with "Sign in to confirm you're not a bot" or 403 | Recommended path: use the laptop. Alternative untried fixes: `--extractor-args "youtube:player_client=tv_embedded"`, cookies file, residential proxy. |
+| YouTube geo-block | yt-dlp exits with "uploader has not made this video available in your country" | Move worker to a Railway region in the right country, or use the laptop if the operator is in the right region. Don't bypass — likely indicates rights-restricted content. |
+| yt-dlp 2025 JS-runtime requirement | yt-dlp errors with "Add `--js-runtimes RUNTIME[:PATH]`" on YouTube | We pass `--js-runtimes node` on every YouTube invocation; the Node binary is already on the container. |
+| `discordConfigured: false` in worker boot log | All Discord features silently no-op (summaries, first-mention pings, cost alerts) | Set `DISCORD_WEBHOOK_URL` on the Railway transcript-worker service (separate from Next.js — each service has its own env scope). |
+| Windows `.env` not loading | Worker boots saying `DATABASE_URL is required` even though `.env` has it | Encoding (UTF-16 BOM from PowerShell `>` or older Notepad) or wrong cwd. Quick test: `node -e "require('dotenv').config({debug:true})"`. Long-term: switch the npm scripts to `node --env-file=.env`. |
+| Pirate streams / unauthorized broadcasts | Engineer may unknowingly point the worker at e.g. `1ball.pk` | Reject. Same legal posture as before; Mentioned should be on creator-owned audio. Sports markets resolve on official data APIs or on reaction-streamer audio, not pirated broadcasts. |
+
+### Env vars (worker)
+
+Every variable also documented inline in `services/transcript-worker/.env.example`.
+
+| Variable | Required? | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Same Postgres as Next.js |
+| `PGSSL` | hosted DB | `require` for Railway/Supabase |
+| `DEEPGRAM_API_KEY` | yes | PAYG account, Nova-3 streaming + pre-recorded |
+| `DISCORD_WEBHOOK_URL` | recommended | Without it, all Discord features silently no-op |
+| `WORKER_POOL` | optional | `cloud` (default) or `local` |
+| `LOCAL_AUDIO_FORMAT` | local only | `dshow` (Windows), `avfoundation` (macOS), `pulse` (Linux) |
+| `LOCAL_AUDIO_DEVICE` | local only | Exact device name from `ffmpeg -list_devices true -f dshow -i dummy` |
+| `APP_BASE_URL` | optional | Override for Discord resolve-link; otherwise derived from `ENVIRONMENT` |
+| `ENVIRONMENT` | recommended | `staging` switches default `APP_BASE_URL` to staging hostname |
+| `MAX_CONCURRENT_STREAMS` | optional | default 20 |
+| `MAX_HOURS_PER_STREAM` | optional | default 12 |
+| `MAX_SILENT_MINUTES` | optional | default 20 |
+| `DEEPGRAM_ROTATE_MINUTES` | optional | default 90 |
+| `FFMPEG_RECYCLE_MINUTES` | optional | default 240 |
+| `DAILY_COST_CENTS_ALERT` | optional | default 2000 ($20) |
+| `DAILY_COST_CENTS_HALT` | optional | default 5000 ($50) |
+| `LOG_LEVEL` | optional | `info` (default), `debug` for fetcher/ffmpeg stderr line-by-line |
+| `PORT` | Railway sets it | Health endpoint |
+
+### Recent commits worth knowing
+
+- `521bad7` Phase 1+2 foundation
+- `870a344` Phase 3 stream pipeline
+- `0cb265b` Local-audio worker pool
+- `078adf7` Phase 4 Discord summary + cost guard
+- `18ae3ae` First-mention Discord ping + .env.example
+- `5cd58db` Phase 5 minimum bridge (admin Start/Stop UI)
+- `894d232` Exclude `services/` from Next.js typecheck (build fix)
+- `e9148a3` Deepgram diagnostics (lifetime stats, replacement backoff, wall-clock stream_offset_ms)
+- `dfb6b10` Reject Twitch VODs in live path + `ffmpeg -re` safety net
+- `bd79cef` Phase 6 standalone VOD
+- `ace49a9` `yt-dlp --js-runtimes node` for YouTube
+- `0622e57` VOD download-and-upload for YouTube (URL form was 403'ing)
+
+---
+
+## Open Items / Next Session
+
+Prioritized list of work outstanding as of 2026-05-10. The **What's shipped and working** summary at the top of this doc covers everything that's done; this section is what's left.
+
+### High priority (gaps you'd hit running real markets)
+
+1. **Re-running transcription wipes prior history.** `monitored_streams.event_id` has `UNIQUE`, and `live_transcript_segments` + `word_mentions` cascade on delete. `createMonitoredStream` cleans up prior terminal rows before inserting, which means starting a second run for a market deletes the first run's evidence — including the segments the prior Discord summary referenced. **Fix:** drop `UNIQUE (event_id)`, replace with partial unique index `WHERE status IN ('pending', 'live')`. Skip the DELETE in `createMonitoredStream`. ~15 min, surgical change. The conversation that surfaced this is preserved in the chat history — search "partial unique index".
+
+2. **VOD boot recovery re-bills Deepgram.** If the worker crashes mid-VOD, on restart we re-submit and pay twice. Persist `monitored_streams.deepgram_request_id` (column to add) and check status via Deepgram's `GET /v1/projects/{id}/requests/{request_id}` before re-submitting. ~30 min plus a migration.
+
+3. **Switch `npm run dev` / `npm run start` to Node's `--env-file=.env`.** Avoids the dotenv / Windows encoding rabbit hole the next operator will inevitably hit. ~30 seconds: edit `services/transcript-worker/package.json` scripts.
+
+### Medium priority (Phase 5 full — biggest user-visible gap)
+
+4. **Live mention counter UI** in `/customadmin`'s transcription panel. `GET /api/admin/mentions?eventId=...` for initial load; `GET /api/admin/mentions/stream?eventId=...` SSE off `NOTIFY word_mention`, mirroring the singleton pattern in `lib/chatStream.ts`. Add `lib/mentionStream.ts`. Render `count / threshold` per word with verdict pills, last 5 snippets with jump-to-time links, avg confidence indicator. ~half day.
+
+5. **"Mark false positive" button.** `POST /api/admin/mentions/[id]/dismiss` flips `superseded=TRUE`. Counter auto-decrements via SSE. ~30 min once (4) is in.
+
+6. **Per-word `mention_threshold` and `match_variants` editors** in the existing word-creation/edit form. Columns exist in DB; admin can't currently set them, every word silently defaults to threshold=1, no variants. ~30 min.
+
+### Phase 6 step 2 (post-pass on live runs)
+
+7. **Auto-trigger VOD pass after a live stream ends.** Add `live_transcript_segments.source` and `word_mentions.source` columns ('live' / 'vod_pass', default 'live'). When a live stream ends with a VOD URL available (Twitch auto-creates one; YouTube live becomes one), enqueue a VOD pass against the same market. Admin UI shows both passes side-by-side; admin chooses which to trust. ~half day.
+
+### Phase 7 hardening
+
+8. **VOD duration cap before submit.** `yt-dlp --print duration <url>` to probe; refuse if `> MAX_VOD_HOURS` (env-controlled, default 8). Prevents a $5 typo on a 12-hour DOTA tournament URL. Daily cost guard is the only backstop today. ~10 min.
+
+9. **Cost dashboard endpoint.** `GET /api/admin/transcription/costs` returning daily/weekly/monthly totals from `monitored_streams.cost_cents`. ~1 hr.
+
+10. **Heartbeat-gap operational alerts.** Detect listener disconnects and worker heartbeat gaps > 90s; post to Discord. ~1 hr.
+
+11. **Load test** with 10 concurrent fake streams via ffmpeg file replays into local-audio devices, or by replaying a TS file directly against the streaming pipeline. ~half day.
+
+### Documentation
+
+12. **Update `CLAUDE.md`** with the new transcript-worker service, `monitored_streams` / `live_transcript_segments` / `word_mentions` tables (and the `worker_pool`, `kind` columns), `/api/admin/streams*` routes, new env vars, and once it ships, `lib/mentionStream.ts`. The original spec listed this as a build deliverable but it was deferred. ~15 min.
+
+### Lower priority / future enhancements (kept from original spec)
+
+- **Twitch Helix + YouTube Data API end-detection** — currently end-of-stream is reactive (fetcher exit + silence watchdog). Could add an authoritative API tick if the lag becomes a UX problem. ½ day.
+- **Per-mention Discord ping for high-confidence rare-word hits** beyond `mention_threshold=1` — already implemented for threshold=1 words; could extend to a confidence-floored variant if specific markets need it.
+- **Public transcript archive UI** — schema supports it; UI and redaction policy don't exist.
+- **Multilingual streams** — pass `language='multi'` or per-stream language column for Nova-3 multilingual.
+
+### Handoff prompt for a fresh Claude session
+
+If picking this up cold, paste this:
+
+> I'm continuing work on Mentioned's live transcription system. Branch `automated-stream-text-analysis`. Read `specs/live_transcription_spec.md` end-to-end — the "Build Status" callout at the top + "Build State / Operational Reference" + "Open Items / Next Session" sections describe current state. Phases 1–6 + a Phase 5 minimum bridge are deployed to staging. The spec lists prioritized open items; tell me which one I asked you to work on and confirm before starting.
 
 ---
 
