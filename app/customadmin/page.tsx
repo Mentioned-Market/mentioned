@@ -7,6 +7,8 @@ import Footer from '@/components/Footer'
 import { getStatusColor, getStatusLabel, isValidStatusTransition } from '@/lib/customMarketUtils'
 import type { CustomMarketRow, CustomMarketWordRow } from '@/lib/db'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import MentionsPanel from './MentionsPanel'
+import WordEditorRow from './WordEditorRow'
 
 interface MarketWithWords extends CustomMarketRow {
   words: CustomMarketWordRow[]
@@ -352,6 +354,31 @@ export default function CustomAdminPage() {
       fetchMarkets()
     } catch (err: any) {
       show(err.message, 'error')
+    }
+  }
+
+  async function handleUpdateWord(
+    marketId: number,
+    wordId: number,
+    patch: { mentionThreshold?: number; matchVariants?: string[] },
+  ) {
+    try {
+      const res = await fetch(`/api/custom/${marketId}/words/${wordId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update word')
+      // Update the cached market list with the updated word so the row's
+      // saved/dirty state recomputes correctly without a full refetch.
+      setMarkets(prev => prev.map(m => {
+        if (m.id !== marketId) return m
+        return { ...m, words: m.words.map(w => w.id === wordId ? json.word : w) }
+      }))
+      show('Word updated')
+    } catch (err: any) {
+      show(err.message ?? 'Failed to update word', 'error')
     }
   }
 
@@ -783,28 +810,20 @@ export default function CustomAdminPage() {
 
                         {/* Words management */}
                         <div className="pt-1 border-t border-white/5">
-                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Words ({market.words.length})</h3>
-                          <div className="flex flex-wrap gap-2 mb-4">
+                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">Words ({market.words.length})</h3>
+                          <p className="text-[10px] text-neutral-600 mb-3">
+                            Threshold = mentions needed to resolve YES (default 1). Variants = extra
+                            spellings/forms the transcriber should also count (e.g. plurals).
+                          </p>
+                          <div className="mb-4">
                             {market.words.map(w => (
-                              <span
+                              <WordEditorRow
                                 key={w.id}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 text-sm"
-                              >
-                                {w.word}
-                                {w.resolved_outcome !== null && (
-                                  <span className={`text-xs font-semibold ${w.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}`}>
-                                    {w.resolved_outcome ? 'YES' : 'NO'}
-                                  </span>
-                                )}
-                                {market.status === 'draft' && (
-                                  <button
-                                    onClick={() => handleRemoveWord(market.id, w.id)}
-                                    className="text-neutral-500 hover:text-apple-red ml-1"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </span>
+                                word={w}
+                                canRemove={market.status === 'draft'}
+                                onRemove={() => handleRemoveWord(market.id, w.id)}
+                                onSave={(patch) => handleUpdateWord(market.id, w.id, patch)}
+                              />
                             ))}
                           </div>
                           {market.status === 'draft' && (
@@ -978,6 +997,20 @@ export default function CustomAdminPage() {
                                   {transcriptionKind === 'vod' ? 'Start VOD transcription' : 'Start transcription'}
                                 </button>
                               </div>
+                            </div>
+                          )}
+                          {transcription && (
+                            <div className="mt-4 pt-3 border-t border-white/5">
+                              <h4 className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                Mentions {transcription.status === 'live' || transcription.status === 'pending' ? '(live)' : '(last run)'}
+                              </h4>
+                              <MentionsPanel
+                                streamId={transcription.id}
+                                isActive={transcription.status === 'live' || transcription.status === 'pending'}
+                                streamUrl={transcription.stream_url}
+                                kind={transcription.kind}
+                                onError={(msg) => show(msg, 'error')}
+                              />
                             </div>
                           )}
                         </div>

@@ -441,10 +441,12 @@ CREATE TABLE IF NOT EXISTS feedback_submissions (
 -- Owned by the transcript-worker service (services/transcript-worker).
 -- v1: free markets only. event_id format follows event_chat_messages: 'custom_<id>'.
 
--- Per-market monitoring intent. One active row per market.
+-- Per-market monitoring intent. Multiple terminal rows per event_id are
+-- allowed (one per historical run); only one row per event_id may be active
+-- at a time, enforced by the partial unique index below.
 CREATE TABLE IF NOT EXISTS monitored_streams (
   id              SERIAL PRIMARY KEY,
-  event_id        TEXT NOT NULL UNIQUE,             -- 'custom_<id>' for free markets
+  event_id        TEXT NOT NULL,                    -- 'custom_<id>' for free markets
   stream_url      TEXT NOT NULL,                    -- twitch.tv/foo, youtube.com/watch?v=...
   status          TEXT NOT NULL DEFAULT 'pending',  -- pending | live | ended | error
   source          TEXT,                             -- 'twitch' | 'youtube'
@@ -459,6 +461,13 @@ CREATE TABLE IF NOT EXISTS monitored_streams (
 );
 CREATE INDEX IF NOT EXISTS idx_monitored_streams_status
   ON monitored_streams(status) WHERE status IN ('pending', 'live');
+-- Drop the original column-level UNIQUE constraint on existing DBs so
+-- terminal rows accumulate (each historical run keeps its segments +
+-- mentions). The partial unique index below still blocks a second active
+-- row for the same event_id.
+ALTER TABLE monitored_streams DROP CONSTRAINT IF EXISTS monitored_streams_event_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_monitored_streams_event_active
+  ON monitored_streams(event_id) WHERE status IN ('pending', 'live');
 
 -- Finalized transcript segments. One row per Deepgram is_final=true.
 CREATE TABLE IF NOT EXISTS live_transcript_segments (
