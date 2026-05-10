@@ -437,11 +437,21 @@ export class StreamWorker {
     )
     if ((insertRes.rowCount ?? 0) === 0) return
     const mentionId = Number(insertRes.rows[0].id)
+    // Fat NOTIFY: include every field the admin SSE consumer needs so
+    // lib/mentionStream.ts can pure-pass-through without an extra SELECT.
+    // Postgres NOTIFY payload limit is 8 KB; this stays well under 1 KB.
     const payload = JSON.stringify({
+      type: 'mention',
       eventId: this.cfg.eventId,
       streamId: this.cfg.streamId,
-      wordIndex: hit.wordIndex,
       mentionId,
+      wordIndex: hit.wordIndex,
+      word: hit.word,
+      matchedText: hit.matchedText,
+      streamOffsetMs: segmentStartMs,
+      snippet: hit.snippet,
+      confidence,
+      createdAt: new Date().toISOString(),
     })
     await client.query('SELECT pg_notify($1, $2)', ['word_mention', payload])
 
