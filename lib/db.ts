@@ -1036,13 +1036,15 @@ export async function unlockAchievement(
 /**
  * Get achievements unlocked this week for a wallet (for PFP unlock validation).
  */
+// Pinned for The Arena (May 4–18 2026) — restore getWeekStart() after the arena.
+const ARENA_WEEK_START = '2026-05-04'
+
 export async function getUnlockedAchievements(
   wallet: string,
 ): Promise<{ achievement_id: string; unlocked_at: string }[]> {
-  const weekStart = getWeekStart()
   const result = await pool.query(
     `SELECT achievement_id, unlocked_at FROM user_achievements WHERE wallet = $1 AND week_start = $2`,
-    [wallet, weekStart],
+    [wallet, ARENA_WEEK_START],
   )
   return result.rows
 }
@@ -1052,7 +1054,6 @@ export async function getUnlockedAchievements(
  * Safe to call after linkDiscord — insertPointEvent deduplicates via ON CONFLICT.
  */
 export async function backfillAchievementPoints(wallet: string): Promise<void> {
-  const weekStart = getWeekStart()
   const result = await pool.query(
     `SELECT ua.achievement_id, ua.points_awarded
      FROM user_achievements ua
@@ -1065,10 +1066,10 @@ export async function backfillAchievementPoints(wallet: string): Promise<void> {
            AND pe.action = 'achievement'
            AND pe.ref_id = 'ach:' || ua.achievement_id || ':' || $2
        )`,
-    [wallet, weekStart],
+    [wallet, ARENA_WEEK_START],
   )
   for (const row of result.rows) {
-    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}:${weekStart}`)
+    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}:${ARENA_WEEK_START}`)
   }
 }
 
