@@ -1019,20 +1019,18 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               </div>
 
               {/* Event Header */}
-              <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
-                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
+              <div className="flex items-center gap-4 md:gap-5 mb-4 md:mb-5">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl overflow-hidden flex-shrink-0 bg-neutral-800">
                   {market.cover_image_url ? (
                     <img src={market.cover_image_url} alt={market.title} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
+                    <div className="w-full h-full flex items-center justify-center text-3xl">🎯</div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-start gap-2">
-                    <h1 className="text-lg md:text-xl font-semibold text-white leading-tight flex-1 min-w-0">
-                      {market.title}
-                    </h1>
-                  </div>
+                  <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white leading-tight">
+                    {market.title}
+                  </h1>
                 </div>
               </div>
 
