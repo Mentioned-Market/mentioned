@@ -1,4 +1,8 @@
-import { unlockAchievement, insertPointEvent, getWeekStart } from './db'
+import { unlockAchievement, insertPointEvent } from './db'
+
+// Pinned to arena start — achievements do not rotate weekly during The Arena (May 4–18 2026).
+// After the arena, remove this constant and restore `getWeekStart(at)` in tryUnlockAchievement.
+const ARENA_WEEK_START = '2026-05-04'
 
 // ── Achievement Definitions ─────────────────────────────
 
@@ -85,7 +89,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     id: 'daily_login_7',
     emoji: '🔥',
     title: 'Every Day',
-    description: 'Visit Mentioned every day this week',
+    description: 'Visit Mentioned every day of a week during The Arena',
     points: 100,
   },
 ]
@@ -113,7 +117,7 @@ export async function tryUnlockAchievement(
   const def = ACHIEVEMENT_MAP[achievementId]
   if (!def) return null
 
-  const week = getWeekStart(at)
+  const week = ARENA_WEEK_START
   const unlocked = await unlockAchievement(wallet, achievementId, def.points, week)
   if (!unlocked) return null
 
