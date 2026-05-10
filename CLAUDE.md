@@ -133,7 +133,7 @@ services/                 # Sibling Node services (own package.json, own Railway
 | Table | Purpose |
 |-------|---------|
 | `custom_markets` | Market config (title, status, b_parameter, play_tokens, lock_time) |
-| `custom_market_words` | Words per market (word, resolved_outcome, **mention_threshold**, **match_variants**) |
+| `custom_market_words` | Words per market (word, resolved_outcome, **mention_threshold**, **match_variants**, **pending_resolution**) |
 | `custom_market_word_pools` | LMSR pool state per word (yes_qty, no_qty) |
 | `custom_market_positions` | User share holdings per word (yes_shares, no_shares, tokens_spent/received) |
 | `custom_market_balances` | User play token balance per market |
@@ -285,6 +285,7 @@ Sibling Node service in `services/transcript-worker/` (own `package.json`, own R
 - One `monitored_streams` row per worker run. Multiple terminal rows per `event_id` are allowed (each historical re-run preserves its own segments + mentions). Partial unique index on `(event_id) WHERE status IN ('pending','live')` blocks two simultaneously-active runs. `getMonitoredStreamByEvent` returns the active row when one exists, else the most recent terminal row.
 - Mentions API + UI scope by `stream_id` (the latest run), not `event_id` — aggregating across runs would pollute the live counter. No historical-run picker yet.
 - VOD jobs deliberately skip per-mention NOTIFY (would batch-spam SSE); Discord summary at completion is the signal.
+- **Pending resolution.** A word can be flagged `pending_resolution=true` (admin acts after seeing a Discord ping). Trading on that word is fully frozen by `POST /api/custom/[id]/trade` until either resolved or unmarked. Reversible until a final outcome is set; resolution is terminal. Admin toggles live in `MentionsPanel` (per word card) and `WordEditorRow` (full word list).
 
 ## Maintaining This File
 

@@ -21,6 +21,8 @@ interface WordSummary {
   word: string
   mention_threshold: number
   match_variants: string[]
+  pending_resolution: boolean
+  resolved_outcome: boolean | null
   count: number
   avg_confidence: number | null
   recent: MentionRow[]
@@ -72,16 +74,21 @@ function verdictPill(count: number, threshold: number): { label: string; cls: st
 
 interface Props {
   streamId: number
+  marketId: number
   isActive: boolean
   streamUrl: string
   kind: 'live' | 'vod'
   onError?: (msg: string) => void
+  /** Notify parent when a word's pending state changes so the cached
+   *  market list (powering WordEditorRow) stays in sync without a full refetch. */
+  onWordPatched?: (wordId: number, patch: { pendingResolution?: boolean }) => void
 }
 
-export default function MentionsPanel({ streamId, isActive, streamUrl, kind, onError }: Props) {
+export default function MentionsPanel({ streamId, marketId, isActive, streamUrl, kind, onError, onWordPatched }: Props) {
   const [words, setWords] = useState<WordSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [dismissingId, setDismissingId] = useState<number | null>(null)
+  const [pendingBusy, setPendingBusy] = useState<number | null>(null)
   const sseRef = useRef<EventSource | null>(null)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
@@ -215,6 +222,28 @@ export default function MentionsPanel({ streamId, isActive, streamUrl, kind, onE
     }
   }
 
+  async function handleTogglePending(wordIndex: number, next: boolean) {
+    setPendingBusy(wordIndex)
+    try {
+      const res = await fetch(`/api/custom/${marketId}/words/${wordIndex}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingResolution: next }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update pending state')
+      // Optimistic local update — periodic refetch will reconcile if anything drifts.
+      setWords((prev) => prev.map((w) =>
+        w.word_index === wordIndex ? { ...w, pending_resolution: next } : w,
+      ))
+      onWordPatched?.(wordIndex, { pendingResolution: next })
+    } catch (err) {
+      onErrorRef.current?.(err instanceof Error ? err.message : 'Failed to update pending state')
+    } finally {
+      setPendingBusy(null)
+    }
+  }
+
   function jumpUrl(offsetMs: number): string | null {
     if (!streamUrl) return null
     const seconds = Math.max(0, Math.floor(offsetMs / 1000))
@@ -251,8 +280,12 @@ export default function MentionsPanel({ streamId, isActive, streamUrl, kind, onE
     <div className="space-y-3">
       {words.map((w) => {
         const pill = verdictPill(w.count, w.mention_threshold)
+        const isResolved = w.resolved_outcome !== null
+        const cardCls = w.pending_resolution
+          ? 'rounded-lg border border-yellow-500/30 bg-yellow-500/[0.04] p-3'
+          : 'rounded-lg border border-white/5 bg-black/20 p-3'
         return (
-          <div key={w.word_index} className="rounded-lg border border-white/5 bg-black/20 p-3">
+          <div key={w.word_index} className={cardCls}>
             <div className="flex items-center gap-3 mb-2">
               <span className="text-sm font-semibold text-neutral-100 truncate" title={w.word}>{w.word}</span>
               <span className="text-lg font-mono tabular-nums text-neutral-200">
@@ -262,8 +295,31 @@ export default function MentionsPanel({ streamId, isActive, streamUrl, kind, onE
               <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${pill.cls}`}>
                 {pill.label}
               </span>
+              {w.pending_resolution && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-yellow-500/20 text-yellow-300">
+                  Pending
+                </span>
+              )}
+              {!isResolved && (
+                <button
+                  onClick={() => handleTogglePending(w.word_index, !w.pending_resolution)}
+                  disabled={pendingBusy === w.word_index}
+                  className={`ml-auto px-2.5 py-1 text-[11px] font-semibold rounded disabled:opacity-50 transition-colors ${
+                    w.pending_resolution
+                      ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
+                      : 'bg-white/5 text-neutral-300 hover:bg-white/10'
+                  }`}
+                  title={w.pending_resolution
+                    ? 'Reverse: word becomes tradeable again'
+                    : 'Pause trading on this word until you verify the outcome'}
+                >
+                  {pendingBusy === w.word_index
+                    ? '…'
+                    : w.pending_resolution ? 'Unmark Pending' : 'Mark Pending'}
+                </button>
+              )}
               {w.avg_confidence != null && (
-                <span className={`ml-auto text-xs ${confidenceColor(w.avg_confidence)}`}>
+                <span className={`${isResolved ? 'ml-auto' : ''} text-xs ${confidenceColor(w.avg_confidence)}`}>
                   avg conf {(w.avg_confidence * 100).toFixed(0)}%
                 </span>
               )}

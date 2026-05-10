@@ -919,6 +919,8 @@ export interface MentionWordSummary {
   word: string
   mention_threshold: number
   match_variants: string[]
+  pending_resolution: boolean
+  resolved_outcome: boolean | null
   count: number
   avg_confidence: number | null
   recent: WordMentionRow[]
@@ -958,9 +960,12 @@ export async function getMentionsForStream(streamId: number): Promise<MentionWor
       word: string
       mention_threshold: number
       match_variants: string[]
+      pending_resolution: boolean
+      resolved_outcome: boolean | null
     }>(
       `SELECT id, word, mention_threshold,
-              COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants
+              COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants,
+              pending_resolution, resolved_outcome
          FROM custom_market_words
         WHERE market_id = $1
         ORDER BY id`,
@@ -1021,6 +1026,8 @@ export async function getMentionsForStream(streamId: number): Promise<MentionWor
       word: w.word,
       mention_threshold: w.mention_threshold,
       match_variants: w.match_variants,
+      pending_resolution: w.pending_resolution,
+      resolved_outcome: w.resolved_outcome,
       count: agg?.count ?? 0,
       avg_confidence: agg?.avg_confidence ?? null,
       recent: recentByWordIndex.get(w.id) ?? [],
@@ -1477,6 +1484,7 @@ export interface CustomMarketWordRow {
   resolved_outcome: boolean | null
   mention_threshold: number
   match_variants: string[]
+  pending_resolution: boolean
 }
 
 export interface CustomMarketPoolRow {
@@ -1852,20 +1860,40 @@ export async function removeCustomMarketWord(marketId: number, wordId: number): 
 }
 
 /**
- * Update mention_threshold and/or match_variants on a custom_market_words
- * row. Returns the updated row, or null if no row matched. Either field
- * may be omitted; only provided fields are updated.
+ * Update mention_threshold, match_variants, and/or pending_resolution on
+ * a custom_market_words row. Returns the updated row, or null if no row
+ * matched. Only provided fields are updated.
  *
  * Allowed regardless of market status — admin may need to tune thresholds
- * mid-event.
+ * mid-event or flag a word as pending after a Discord ping.
+ *
+ * Throws 'WORD_ALREADY_RESOLVED' if the caller tries to set
+ * pendingResolution=true on a word that already has a non-null
+ * resolved_outcome. Resolution is terminal; you can't unflip it back into
+ * a pending state.
  */
 export async function updateCustomMarketWord(
   marketId: number,
   wordId: number,
-  patch: { mentionThreshold?: number; matchVariants?: string[] },
+  patch: { mentionThreshold?: number; matchVariants?: string[]; pendingResolution?: boolean },
 ): Promise<CustomMarketWordRow | null> {
+  // Validate pending transition against current resolved state. Done as a
+  // pre-read rather than a CAS-on-update because we want to surface a
+  // distinct error to the caller, not silently no-op.
+  if (patch.pendingResolution === true) {
+    const cur = await pool.query<{ resolved_outcome: boolean | null }>(
+      `SELECT resolved_outcome FROM custom_market_words WHERE id = $1 AND market_id = $2`,
+      [wordId, marketId],
+    )
+    const row = cur.rows[0]
+    if (!row) return null
+    if (row.resolved_outcome !== null) {
+      throw new Error('WORD_ALREADY_RESOLVED')
+    }
+  }
+
   const sets: string[] = []
-  const values: (number | string[])[] = []
+  const values: (number | string[] | boolean)[] = []
   let i = 1
   if (patch.mentionThreshold !== undefined) {
     sets.push(`mention_threshold = $${i++}`)
@@ -1874,6 +1902,10 @@ export async function updateCustomMarketWord(
   if (patch.matchVariants !== undefined) {
     sets.push(`match_variants = $${i++}`)
     values.push(patch.matchVariants)
+  }
+  if (patch.pendingResolution !== undefined) {
+    sets.push(`pending_resolution = $${i++}`)
+    values.push(patch.pendingResolution)
   }
   if (sets.length === 0) {
     const cur = await pool.query<CustomMarketWordRow>(
@@ -1977,8 +2009,14 @@ export async function resolveMarketAtomic(
       values.push(...ids)
       const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
 
+      // Clear pending_resolution alongside the resolution write — once a
+      // word has a final outcome, the "pending admin verification" state
+      // loses meaning and would just be stale data.
       await client.query(
-        `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders}) AND resolved_outcome IS NULL`,
+        `UPDATE custom_market_words
+            SET resolved_outcome = CASE ${cases.join(' ')} END,
+                pending_resolution = FALSE
+          WHERE market_id = $1 AND id IN (${idPlaceholders}) AND resolved_outcome IS NULL`,
         values,
       )
 
