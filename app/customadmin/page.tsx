@@ -1006,10 +1006,24 @@ export default function CustomAdminPage() {
                               </h4>
                               <MentionsPanel
                                 streamId={transcription.id}
+                                marketId={market.id}
                                 isActive={transcription.status === 'live' || transcription.status === 'pending'}
                                 streamUrl={transcription.stream_url}
                                 kind={transcription.kind}
                                 onError={(msg) => show(msg, 'error')}
+                                onWordPatched={(wordId, patch) => {
+                                  setMarkets(prev => prev.map(m => {
+                                    if (m.id !== market.id) return m
+                                    return {
+                                      ...m,
+                                      words: m.words.map(w =>
+                                        w.id === wordId
+                                          ? { ...w, ...(patch.pendingResolution !== undefined ? { pending_resolution: patch.pendingResolution } : {}) }
+                                          : w,
+                                      ),
+                                    }
+                                  }))
+                                }}
                               />
                             </div>
                           )}

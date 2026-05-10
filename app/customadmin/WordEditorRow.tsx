@@ -7,7 +7,7 @@ interface Props {
   word: CustomMarketWordRow
   canRemove: boolean
   onRemove: () => void
-  onSave: (patch: { mentionThreshold?: number; matchVariants?: string[] }) => Promise<void> | void
+  onSave: (patch: { mentionThreshold?: number; matchVariants?: string[]; pendingResolution?: boolean }) => Promise<void> | void
 }
 
 function variantsToString(arr: string[] | null | undefined): string {
@@ -62,6 +62,11 @@ export default function WordEditorRow({ word, canRemove, onRemove, onSave }: Pro
             {word.resolved_outcome ? 'YES' : 'NO'}
           </span>
         )}
+        {word.pending_resolution && word.resolved_outcome === null && (
+          <span className="px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300 text-[10px] font-bold uppercase tracking-wide">
+            Pending
+          </span>
+        )}
       </div>
       <label className="flex items-center gap-1.5 text-[11px] text-neutral-500">
         threshold
@@ -92,6 +97,19 @@ export default function WordEditorRow({ word, canRemove, onRemove, onSave }: Pro
       >
         {saving ? 'Saving…' : 'Save'}
       </button>
+      {word.resolved_outcome === null && (
+        <button
+          onClick={() => onSave({ pendingResolution: !word.pending_resolution })}
+          className={`px-3 py-1 text-[11px] font-semibold rounded transition-colors ${
+            word.pending_resolution
+              ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
+              : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+          }`}
+          title={word.pending_resolution ? 'Reverse: word becomes tradeable again' : 'Pause trading on this word until you verify the outcome'}
+        >
+          {word.pending_resolution ? 'Unmark Pending' : 'Mark Pending'}
+        </button>
+      )}
       {canRemove && (
         <button
           onClick={onRemove}

@@ -513,6 +513,13 @@ ALTER TABLE custom_market_words
 ALTER TABLE custom_market_words
   ADD COLUMN IF NOT EXISTS match_variants TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
+-- Admin marks a word "pending resolution" after seeing a Discord mention
+-- ping but before manually verifying the outcome. While pending, trading
+-- on that word is fully frozen (mirrors how 'locked' markets behave).
+-- Reversible until the word is actually resolved (resolved_outcome IS NOT NULL).
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS pending_resolution BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Worker pool: which transcript-worker instance is responsible for this row.
 -- 'cloud' = the Railway-hosted worker (handles twitch://, youtube:// URLs).
 -- 'local' (or 'local-<machine>') = a laptop running with WORKER_POOL=local

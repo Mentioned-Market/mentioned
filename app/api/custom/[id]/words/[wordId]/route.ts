@@ -25,14 +25,14 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
 
-  let body: { mentionThreshold?: unknown; matchVariants?: unknown }
+  let body: { mentionThreshold?: unknown; matchVariants?: unknown; pendingResolution?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const patch: { mentionThreshold?: number; matchVariants?: string[] } = {}
+  const patch: { mentionThreshold?: number; matchVariants?: string[]; pendingResolution?: boolean } = {}
 
   if (body.mentionThreshold !== undefined) {
     const t = Number(body.mentionThreshold)
@@ -73,14 +73,36 @@ export async function PATCH(
     patch.matchVariants = cleaned
   }
 
-  if (patch.mentionThreshold === undefined && patch.matchVariants === undefined) {
+  if (body.pendingResolution !== undefined) {
+    if (typeof body.pendingResolution !== 'boolean') {
+      return NextResponse.json({ error: 'pendingResolution must be a boolean' }, { status: 400 })
+    }
+    patch.pendingResolution = body.pendingResolution
+  }
+
+  if (
+    patch.mentionThreshold === undefined &&
+    patch.matchVariants === undefined &&
+    patch.pendingResolution === undefined
+  ) {
     return NextResponse.json(
       { error: 'No editable fields provided' },
       { status: 400 },
     )
   }
 
-  const row = await updateCustomMarketWord(marketId, wordIdNum, patch)
+  let row
+  try {
+    row = await updateCustomMarketWord(marketId, wordIdNum, patch)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'WORD_ALREADY_RESOLVED') {
+      return NextResponse.json(
+        { error: "Can't mark a resolved word as pending — resolution is final." },
+        { status: 409 },
+      )
+    }
+    throw err
+  }
   if (!row) {
     return NextResponse.json({ error: 'Word not found' }, { status: 404 })
   }

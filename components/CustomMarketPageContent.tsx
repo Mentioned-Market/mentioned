@@ -44,6 +44,7 @@ interface MarketWord {
   market_id: number
   word: string
   resolved_outcome: boolean | null
+  pending_resolution: boolean
   yes_price: number
   no_price: number
   yes_qty: number
@@ -372,8 +373,8 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       setWords(data.words)
       setTraderCount(data.traderCount)
       if (data.words.length > 0 && selectedWordId === null) {
-        const firstUnresolved = data.words.find((w: MarketWord) => w.resolved_outcome === null)
-        setSelectedWordId(firstUnresolved ? firstUnresolved.id : data.words[0].id)
+        const firstTradeable = data.words.find((w: MarketWord) => w.resolved_outcome === null && !w.pending_resolution)
+        setSelectedWordId(firstTradeable ? firstTradeable.id : data.words[0].id)
       }
     } catch (err: any) {
       setError(err.message)
@@ -408,6 +409,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
             yes_qty: updated.yes_qty,
             no_qty: updated.no_qty,
             ...(updated.resolved_outcome !== undefined ? { resolved_outcome: updated.resolved_outcome } : {}),
+            ...(updated.pending_resolution !== undefined ? { pending_resolution: updated.pending_resolution } : {}),
           }
         }))
       }
@@ -457,12 +459,13 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
     return () => clearInterval(interval)
   }, [market?.status, fetchPrices, fetchPositions, fetchTrades])
 
-  // If selected word gets resolved, auto-select first unresolved word
+  // If selected word becomes untradeable (resolved or pending), auto-select
+  // first tradeable word so the user isn't stuck staring at a frozen panel.
   useEffect(() => {
     const sel = words.find(w => w.id === selectedWordId)
-    if (sel && sel.resolved_outcome !== null) {
-      const firstUnresolved = words.find(w => w.resolved_outcome === null)
-      if (firstUnresolved) setSelectedWordId(firstUnresolved.id)
+    if (sel && (sel.resolved_outcome !== null || sel.pending_resolution)) {
+      const firstTradeable = words.find(w => w.resolved_outcome === null && !w.pending_resolution)
+      if (firstTradeable) setSelectedWordId(firstTradeable.id)
     }
   }, [words, selectedWordId])
 
@@ -587,9 +590,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   // ── Handlers ────────────────────────────────────────
 
   const handleWordClick = (wordId: number) => {
-    // Don't select resolved words for trading
+    // Don't select untradeable words (resolved or pending admin verification).
     const word = words.find(w => w.id === wordId)
-    if (word?.resolved_outcome !== null) return
+    if (!word) return
+    if (word.resolved_outcome !== null) return
+    if (word.pending_resolution) return
     setSelectedWordId(wordId)
     setAmount('')
   }
@@ -618,6 +623,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const handleTrade = async () => {
     if (!publicKey || !market || !selectedWord) return
     if (selectedWord.resolved_outcome !== null) return
+    if (selectedWord.pending_resolution) return
     if (amountNum <= 0) return
     if (tradeMode === 'buy' && amountNum < 1) return
     if (discordLinked !== true) return
@@ -1097,22 +1103,28 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     <>
                       <span className="text-neutral-700 text-xs flex-shrink-0">|</span>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {words.map(word => (
-                          <button
-                            key={word.id}
-                            onClick={() => {
-                              setSelectedWordId(word.id)
-                              wordsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                            }}
-                            className={`px-2 py-0.5 rounded-md border text-xs transition-colors ${
-                              word.resolved_outcome !== null
-                                ? 'bg-white/[0.03] border-white/5 text-neutral-600 line-through hover:text-neutral-400'
-                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-neutral-300 hover:text-white'
-                            }`}
-                          >
-                            {word.word}
-                          </button>
-                        ))}
+                        {words.map(word => {
+                          const isResolved = word.resolved_outcome !== null
+                          const isPending = !isResolved && word.pending_resolution
+                          const chipCls = isResolved
+                            ? 'bg-white/[0.03] border-white/5 text-neutral-600 line-through hover:text-neutral-400'
+                            : isPending
+                              ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/15'
+                              : 'bg-white/5 hover:bg-white/10 border-white/10 text-neutral-300 hover:text-white'
+                          return (
+                            <button
+                              key={word.id}
+                              onClick={() => {
+                                setSelectedWordId(word.id)
+                                wordsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                              }}
+                              className={`px-2 py-0.5 rounded-md border text-xs transition-colors ${chipCls}`}
+                              title={isPending ? 'Pending resolution — trading paused' : undefined}
+                            >
+                              {word.word}
+                            </button>
+                          )
+                        })}
                       </div>
                     </>
                   )}
@@ -1169,6 +1181,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
                     {words.map(word => {
                       const isResolved = word.resolved_outcome !== null
+                      const isPending = !isResolved && word.pending_resolution
                       const pct = isResolved
                         ? (word.resolved_outcome ? 100 : 0)
                         : Math.round(word.yes_price * 100)
@@ -1197,6 +1210,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                 {word.resolved_outcome ? 'YES' : 'NO'}
                               </span>
                             )}
+                            {isPending && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-yellow-500/15 text-yellow-300">
+                                Pending
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 md:gap-2 flex-1 justify-center">
@@ -1211,6 +1229,13 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                   : 'bg-apple-red/10 border-apple-red/30 text-apple-red'
                               }`}>
                                 Resolved {word.resolved_outcome ? 'Yes' : 'No'}
+                              </span>
+                            ) : isPending ? (
+                              <span
+                                className="px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border bg-yellow-500/10 border-yellow-500/30 text-yellow-300"
+                                title="An admin is verifying this outcome — trading resumes if it's a false positive."
+                              >
+                                Pending Resolution
                               </span>
                             ) : (
                               <>
