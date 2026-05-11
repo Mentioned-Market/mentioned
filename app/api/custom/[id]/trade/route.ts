@@ -135,6 +135,12 @@ export async function POST(
   if (word.resolved_outcome !== null) {
     return NextResponse.json({ error: 'This word has already been resolved' }, { status: 400 })
   }
+  if (word.pending_resolution) {
+    return NextResponse.json(
+      { error: 'This word is pending resolution — trading is paused while an admin verifies the outcome.' },
+      { status: 403 },
+    )
+  }
 
   try {
     const result = await executeVirtualTrade(

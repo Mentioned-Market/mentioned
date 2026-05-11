@@ -19,6 +19,8 @@ import {
 import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import MarketResultsLeaderboard from '@/components/MarketResultsLeaderboard'
+import SharePnLModal from '@/components/SharePnLModal'
+import type { MarketSummaryData } from '@/lib/generatePnLImage'
 // Points multiplier — matches lib/customScoring.ts constant
 const VIRTUAL_MARKET_POINTS_MULTIPLIER = 0.5
 
@@ -44,6 +46,7 @@ interface MarketWord {
   market_id: number
   word: string
   resolved_outcome: boolean | null
+  pending_resolution: boolean
   yes_price: number
   no_price: number
   yes_qty: number
@@ -251,6 +254,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [words, setWords] = useState<MarketWord[]>([])
   const [positions, setPositions] = useState<Position[]>([])
   const [balance, setBalance] = useState(1000)
+  const [shareData, setShareData] = useState<MarketSummaryData | null>(null)
   const [startingBalance, setStartingBalance] = useState(1000)
   const [traderCount, setTraderCount] = useState(0)
   const [trades, setTrades] = useState<Trade[]>([])
@@ -372,8 +376,8 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
       setWords(data.words)
       setTraderCount(data.traderCount)
       if (data.words.length > 0 && selectedWordId === null) {
-        const firstUnresolved = data.words.find((w: MarketWord) => w.resolved_outcome === null)
-        setSelectedWordId(firstUnresolved ? firstUnresolved.id : data.words[0].id)
+        const firstTradeable = data.words.find((w: MarketWord) => w.resolved_outcome === null && !w.pending_resolution)
+        setSelectedWordId(firstTradeable ? firstTradeable.id : data.words[0].id)
       }
     } catch (err: any) {
       setError(err.message)
@@ -408,6 +412,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
             yes_qty: updated.yes_qty,
             no_qty: updated.no_qty,
             ...(updated.resolved_outcome !== undefined ? { resolved_outcome: updated.resolved_outcome } : {}),
+            ...(updated.pending_resolution !== undefined ? { pending_resolution: updated.pending_resolution } : {}),
           }
         }))
       }
@@ -457,12 +462,13 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
     return () => clearInterval(interval)
   }, [market?.status, fetchPrices, fetchPositions, fetchTrades])
 
-  // If selected word gets resolved, auto-select first unresolved word
+  // If selected word becomes untradeable (resolved or pending), auto-select
+  // first tradeable word so the user isn't stuck staring at a frozen panel.
   useEffect(() => {
     const sel = words.find(w => w.id === selectedWordId)
-    if (sel && sel.resolved_outcome !== null) {
-      const firstUnresolved = words.find(w => w.resolved_outcome === null)
-      if (firstUnresolved) setSelectedWordId(firstUnresolved.id)
+    if (sel && (sel.resolved_outcome !== null || sel.pending_resolution)) {
+      const firstTradeable = words.find(w => w.resolved_outcome === null && !w.pending_resolution)
+      if (firstTradeable) setSelectedWordId(firstTradeable.id)
     }
   }, [words, selectedWordId])
 
@@ -587,9 +593,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   // ── Handlers ────────────────────────────────────────
 
   const handleWordClick = (wordId: number) => {
-    // Don't select resolved words for trading
+    // Don't select untradeable words (resolved or pending admin verification).
     const word = words.find(w => w.id === wordId)
-    if (word?.resolved_outcome !== null) return
+    if (!word) return
+    if (word.resolved_outcome !== null) return
+    if (word.pending_resolution) return
     setSelectedWordId(wordId)
     setAmount('')
   }
@@ -618,6 +626,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const handleTrade = async () => {
     if (!publicKey || !market || !selectedWord) return
     if (selectedWord.resolved_outcome !== null) return
+    if (selectedWord.pending_resolution) return
     if (amountNum <= 0) return
     if (tradeMode === 'buy' && amountNum < 1) return
     if (discordLinked !== true) return
@@ -1067,17 +1076,53 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               {/* Resolved summary */}
               {market.status === 'resolved' && positions.length > 0 && (
                 <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="text-sm text-neutral-400">Your Result</span>
-                    <div className="text-right">
-                      <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
-                        {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
-                      </div>
-                      {totalProfit > 0 && (
-                        <div className="text-xs text-neutral-500">
-                          = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                          {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
                         </div>
-                      )}
+                        {totalProfit > 0 && (
+                          <div className="text-xs text-neutral-500">
+                            = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const summaryWords = positions
+                            .filter(p => p.yes_shares > 0.01 || p.no_shares > 0.01)
+                            .map(p => {
+                              const word = words.find(w => w.id === p.word_id)
+                              if (!word || word.resolved_outcome === null) return null
+                              const side: 'YES' | 'NO' = p.yes_shares >= p.no_shares ? 'YES' : 'NO'
+                              const won = (side === 'YES' && word.resolved_outcome === true) ||
+                                          (side === 'NO' && word.resolved_outcome === false)
+                              return { label: word.word, won, side }
+                            })
+                            .filter((w): w is { label: string; won: boolean; side: 'YES' | 'NO' } => w !== null)
+                          const totalCost = positions.reduce((s, p) => s + p.tokens_spent, 0)
+                          const totalPayout = positions.reduce((s, p) => s + p.tokens_received, 0)
+                          setShareData({
+                            marketLabel: market.title,
+                            marketId: String(market.id),
+                            words: summaryWords,
+                            totalCost,
+                            totalPayout,
+                            totalPnl: totalProfit,
+                            currency: 'tokens',
+                            decimals: 1,
+                          })
+                        }}
+                        className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors"
+                        aria-label="Share result"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                        Share
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1095,22 +1140,28 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                     <>
                       <span className="text-neutral-700 text-xs flex-shrink-0">|</span>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {words.map(word => (
-                          <button
-                            key={word.id}
-                            onClick={() => {
-                              setSelectedWordId(word.id)
-                              wordsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                            }}
-                            className={`px-2 py-0.5 rounded-md border text-xs transition-colors ${
-                              word.resolved_outcome !== null
-                                ? 'bg-white/[0.03] border-white/5 text-neutral-600 line-through hover:text-neutral-400'
-                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-neutral-300 hover:text-white'
-                            }`}
-                          >
-                            {word.word}
-                          </button>
-                        ))}
+                        {words.map(word => {
+                          const isResolved = word.resolved_outcome !== null
+                          const isPending = !isResolved && word.pending_resolution
+                          const chipCls = isResolved
+                            ? 'bg-white/[0.03] border-white/5 text-neutral-600 line-through hover:text-neutral-400'
+                            : isPending
+                              ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/15'
+                              : 'bg-white/5 hover:bg-white/10 border-white/10 text-neutral-300 hover:text-white'
+                          return (
+                            <button
+                              key={word.id}
+                              onClick={() => {
+                                setSelectedWordId(word.id)
+                                wordsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                              }}
+                              className={`px-2 py-0.5 rounded-md border text-xs transition-colors ${chipCls}`}
+                              title={isPending ? 'Pending resolution — trading paused' : undefined}
+                            >
+                              {word.word}
+                            </button>
+                          )
+                        })}
                       </div>
                     </>
                   )}
@@ -1167,6 +1218,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
 
                     {words.map(word => {
                       const isResolved = word.resolved_outcome !== null
+                      const isPending = !isResolved && word.pending_resolution
                       const pct = isResolved
                         ? (word.resolved_outcome ? 100 : 0)
                         : Math.round(word.yes_price * 100)
@@ -1195,6 +1247,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                 {word.resolved_outcome ? 'YES' : 'NO'}
                               </span>
                             )}
+                            {isPending && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-yellow-500/15 text-yellow-300">
+                                Pending
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 md:gap-2 flex-1 justify-center">
@@ -1209,6 +1266,13 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                                   : 'bg-apple-red/10 border-apple-red/30 text-apple-red'
                               }`}>
                                 Resolved {word.resolved_outcome ? 'Yes' : 'No'}
+                              </span>
+                            ) : isPending ? (
+                              <span
+                                className="px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border bg-yellow-500/10 border-yellow-500/30 text-yellow-300"
+                                title="An admin is verifying this outcome — trading resumes if it's a false positive."
+                              >
+                                Pending Resolution
                               </span>
                             ) : (
                               <>
@@ -1456,6 +1520,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
           </div>
         )}
       </div>
+
+      <SharePnLModal
+        shareData={shareData ? { type: 'market', data: shareData } : null}
+        onClose={() => setShareData(null)}
+      />
 
       {/* Tutorial overlay — shown after initial data load */}
       {showTutorial && !loading && (
