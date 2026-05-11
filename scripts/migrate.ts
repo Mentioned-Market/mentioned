@@ -435,6 +435,112 @@ CREATE TABLE IF NOT EXISTS feedback_submissions (
   extra           TEXT,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ── Live transcription / word mention detection ─────────────────────────────
+-- Spec: specs/live_transcription_spec.md
+-- Owned by the transcript-worker service (services/transcript-worker).
+-- v1: free markets only. event_id format follows event_chat_messages: 'custom_<id>'.
+
+-- Per-market monitoring intent. Multiple terminal rows per event_id are
+-- allowed (one per historical run); only one row per event_id may be active
+-- at a time, enforced by the partial unique index below.
+CREATE TABLE IF NOT EXISTS monitored_streams (
+  id              SERIAL PRIMARY KEY,
+  event_id        TEXT NOT NULL,                    -- 'custom_<id>' for free markets
+  stream_url      TEXT NOT NULL,                    -- twitch.tv/foo, youtube.com/watch?v=...
+  status          TEXT NOT NULL DEFAULT 'pending',  -- pending | live | ended | error
+  source          TEXT,                             -- 'twitch' | 'youtube'
+  started_at      TIMESTAMPTZ,
+  ended_at        TIMESTAMPTZ,
+  minutes_used    NUMERIC NOT NULL DEFAULT 0,
+  cost_cents      INTEGER NOT NULL DEFAULT 0,
+  error_message   TEXT,
+  created_by      TEXT NOT NULL,                    -- admin wallet
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_monitored_streams_status
+  ON monitored_streams(status) WHERE status IN ('pending', 'live');
+-- Drop the original column-level UNIQUE constraint on existing DBs so
+-- terminal rows accumulate (each historical run keeps its segments +
+-- mentions). The partial unique index below still blocks a second active
+-- row for the same event_id.
+ALTER TABLE monitored_streams DROP CONSTRAINT IF EXISTS monitored_streams_event_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_monitored_streams_event_active
+  ON monitored_streams(event_id) WHERE status IN ('pending', 'live');
+
+-- Finalized transcript segments. One row per Deepgram is_final=true.
+CREATE TABLE IF NOT EXISTS live_transcript_segments (
+  id           BIGSERIAL PRIMARY KEY,
+  stream_id    INTEGER NOT NULL REFERENCES monitored_streams(id) ON DELETE CASCADE,
+  start_ms     INTEGER NOT NULL,
+  end_ms       INTEGER NOT NULL,
+  text         TEXT NOT NULL,
+  confidence   REAL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_lts_stream_time
+  ON live_transcript_segments(stream_id, start_ms);
+
+-- Detected word/phrase matches. Position-based dedupe via UNIQUE constraint.
+CREATE TABLE IF NOT EXISTS word_mentions (
+  id                 BIGSERIAL PRIMARY KEY,
+  stream_id          INTEGER NOT NULL REFERENCES monitored_streams(id) ON DELETE CASCADE,
+  event_id           TEXT NOT NULL,                          -- denormalized for fast filter
+  word_index         INTEGER NOT NULL,
+  word               TEXT NOT NULL,                          -- canonical from custom_market_words
+  matched_text       TEXT NOT NULL,                          -- actual variant that matched
+  segment_id         BIGINT REFERENCES live_transcript_segments(id) ON DELETE SET NULL,
+  stream_offset_ms   INTEGER NOT NULL,                       -- jump-to-time link
+  global_char_offset INTEGER NOT NULL,                       -- position-based dedupe key
+  snippet            TEXT NOT NULL,                          -- ±40 chars around the hit
+  confidence         REAL,
+  superseded         BOOLEAN NOT NULL DEFAULT FALSE,
+  superseded_by      TEXT,
+  superseded_at      TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (stream_id, word_index, global_char_offset)
+);
+CREATE INDEX IF NOT EXISTS idx_word_mentions_event_active
+  ON word_mentions(event_id, word_index) WHERE superseded = FALSE;
+CREATE INDEX IF NOT EXISTS idx_word_mentions_stream
+  ON word_mentions(stream_id, created_at);
+
+-- Word-level resolution rules. Default 1 = any-mention semantics (no behavioral
+-- change for existing markets). Higher = count-based ("said 10+ times").
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS mention_threshold INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS match_variants TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+
+-- Admin marks a word "pending resolution" after seeing a Discord mention
+-- ping but before manually verifying the outcome. While pending, trading
+-- on that word is fully frozen (mirrors how 'locked' markets behave).
+-- Reversible until the word is actually resolved (resolved_outcome IS NOT NULL).
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS pending_resolution BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Admin opt-in: when TRUE, the transcript worker auto-flips pending_resolution
+-- on the first mention with confidence > AUTO_LOCK_MIN_CONFIDENCE (0.95). Off
+-- by default — auto-lock is a per-word trust decision the admin makes.
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS auto_lock_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Worker pool: which transcript-worker instance is responsible for this row.
+-- 'cloud' = the Railway-hosted worker (handles twitch://, youtube:// URLs).
+-- 'local' (or 'local-<machine>') = a laptop running with WORKER_POOL=local
+-- and reading audio from a virtual cable / loopback device. Workers only
+-- claim rows whose worker_pool matches their own.
+ALTER TABLE monitored_streams
+  ADD COLUMN IF NOT EXISTS worker_pool TEXT NOT NULL DEFAULT 'cloud';
+CREATE INDEX IF NOT EXISTS idx_monitored_streams_pool
+  ON monitored_streams(worker_pool, status) WHERE status IN ('pending', 'live');
+
+-- Job kind: 'live' (default) routes to the streaming pipeline (streamlink/
+-- yt-dlp → ffmpeg → Deepgram WS). 'vod' routes to the pre-recorded pipeline
+-- (yt-dlp -g → Deepgram REST). Same DB shape; different code path.
+ALTER TABLE monitored_streams
+  ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'live';
 `
 
 async function main() {

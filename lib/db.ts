@@ -800,6 +800,287 @@ export async function getEventStream(eventId: string): Promise<string | null> {
   return result.rows[0]?.stream_url ?? null
 }
 
+// ── Monitored streams (transcript-worker) ───────────────────
+
+export interface MonitoredStreamRow {
+  id: number
+  event_id: string
+  stream_url: string
+  status: 'pending' | 'live' | 'ended' | 'error'
+  source: 'twitch' | 'youtube' | 'local-audio' | null
+  started_at: string | null
+  ended_at: string | null
+  minutes_used: string
+  cost_cents: number
+  error_message: string | null
+  created_by: string
+  worker_pool: string
+  kind: 'live' | 'vod'
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Look up the most relevant monitored_streams row for an event_id, or null.
+ * Multiple rows may exist (one per historical run); this returns the active
+ * row (status pending/live) when one exists, otherwise the most recent
+ * terminal row. Drives the admin status pill.
+ */
+export async function getMonitoredStreamByEvent(
+  eventId: string,
+): Promise<MonitoredStreamRow | null> {
+  const res = await pool.query<MonitoredStreamRow>(
+    `SELECT * FROM monitored_streams
+      WHERE event_id = $1
+      ORDER BY (status IN ('pending', 'live')) DESC, created_at DESC
+      LIMIT 1`,
+    [eventId],
+  )
+  return res.rows[0] ?? null
+}
+
+/**
+ * Insert a new monitored_streams row in 'pending' state and emit
+ * NOTIFY stream_added so the right worker can claim it. Terminal rows
+ * (ended/error) for the same event_id are preserved as historical runs
+ * (their segments + mentions remain accessible). The partial unique index
+ * idx_monitored_streams_event_active blocks a second active row — caller
+ * should pre-check via getMonitoredStreamByEvent or handle the resulting
+ * unique-violation.
+ *
+ * Returns the new row's id. The worker performs CAS pending→live and starts
+ * the pipeline.
+ */
+export async function createMonitoredStream(input: {
+  eventId: string
+  streamUrl: string
+  workerPool: string
+  kind: 'live' | 'vod'
+  createdBy: string
+}): Promise<MonitoredStreamRow> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    const insertRes = await client.query<MonitoredStreamRow>(
+      `INSERT INTO monitored_streams
+         (event_id, stream_url, status, worker_pool, kind, created_by)
+       VALUES ($1, $2, 'pending', $3, $4, $5)
+       RETURNING *`,
+      [input.eventId, input.streamUrl, input.workerPool, input.kind, input.createdBy],
+    )
+    const row = insertRes.rows[0]
+
+    await client.query('SELECT pg_notify($1, $2)', [
+      'stream_added',
+      JSON.stringify({ streamId: row.id }),
+    ])
+
+    await client.query('COMMIT')
+    return row
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Tell the worker to end this stream. Emits NOTIFY stream_canceled. The
+ * worker performs the actual teardown + status transition; we don't UPDATE
+ * status here so the worker stays the source of truth for terminal state.
+ */
+export async function cancelMonitoredStream(streamId: number): Promise<void> {
+  await pool.query('SELECT pg_notify($1, $2)', [
+    'stream_canceled',
+    JSON.stringify({ streamId }),
+  ])
+}
+
+// ── Word mentions (admin live counter) ────────────────────────────────
+
+export interface WordMentionRow {
+  id: number
+  stream_id: number
+  word_index: number
+  word: string
+  matched_text: string
+  segment_id: number | null
+  stream_offset_ms: number
+  snippet: string
+  confidence: number | null
+  superseded: boolean
+  created_at: string
+}
+
+export interface MentionWordSummary {
+  word_index: number
+  word: string
+  mention_threshold: number
+  match_variants: string[]
+  pending_resolution: boolean
+  auto_lock_enabled: boolean
+  resolved_outcome: boolean | null
+  count: number
+  avg_confidence: number | null
+  recent: WordMentionRow[]
+}
+
+/**
+ * Per-word mention summary for a single monitored_streams run, joined with
+ * the market's word list so words with zero mentions still appear.
+ *
+ * Scoped by stream_id (not event_id) so historical re-runs don't pollute
+ * the live counter — see specs/live_transcription_spec.md "Open Items"
+ * note about partial unique index allowing multiple terminal rows.
+ *
+ * The market's word list is pulled from custom_market_words via the
+ * stream's event_id ('custom_<marketId>').
+ */
+export async function getMentionsForStream(streamId: number): Promise<MentionWordSummary[] | null> {
+  const streamRes = await pool.query<{ event_id: string }>(
+    `SELECT event_id FROM monitored_streams WHERE id = $1`,
+    [streamId],
+  )
+  const row = streamRes.rows[0]
+  if (!row) return null
+
+  // v1 supports free markets only. event_id is 'custom_<marketId>'.
+  const marketId = row.event_id.startsWith('custom_')
+    ? parseInt(row.event_id.slice('custom_'.length), 10)
+    : NaN
+  if (Number.isNaN(marketId)) return []
+
+  // Three independent queries — words list (per market), aggregates and
+  // last-5 (per stream). Run them in parallel; they don't depend on each
+  // other and Postgres handles concurrent SELECTs trivially.
+  const [wordsRes, aggRes, recentRes] = await Promise.all([
+    pool.query<{
+      id: number
+      word: string
+      mention_threshold: number
+      match_variants: string[]
+      pending_resolution: boolean
+      auto_lock_enabled: boolean
+      resolved_outcome: boolean | null
+    }>(
+      `SELECT id, word, mention_threshold,
+              COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants,
+              pending_resolution, auto_lock_enabled, resolved_outcome
+         FROM custom_market_words
+        WHERE market_id = $1
+        ORDER BY id`,
+      [marketId],
+    ),
+    // Aggregates per word_index. word_index in word_mentions is the row id
+    // from custom_market_words (see services/transcript-worker streamWorker
+    // configures matcher with custom_market_words.id as the wordIndex).
+    pool.query<{
+      word_index: number
+      cnt: string
+      avg_conf: string | null
+    }>(
+      `SELECT word_index,
+              COUNT(*)::TEXT AS cnt,
+              AVG(confidence)::TEXT AS avg_conf
+         FROM word_mentions
+        WHERE stream_id = $1 AND superseded = FALSE
+        GROUP BY word_index`,
+      [streamId],
+    ),
+    // Last 5 active mentions per word_index in one round-trip via window fn.
+    pool.query<WordMentionRow & { rn: string }>(
+      `SELECT * FROM (
+         SELECT id, stream_id, word_index, word, matched_text, segment_id,
+                stream_offset_ms, snippet, confidence, superseded, created_at,
+                ROW_NUMBER() OVER (PARTITION BY word_index ORDER BY created_at DESC) AS rn
+           FROM word_mentions
+          WHERE stream_id = $1 AND superseded = FALSE
+       ) t
+        WHERE rn <= 5
+        ORDER BY word_index, rn`,
+      [streamId],
+    ),
+  ])
+
+  const aggByWordIndex = new Map(
+    aggRes.rows.map((r) => [
+      r.word_index,
+      {
+        count: Number(r.cnt),
+        avg_confidence: r.avg_conf == null ? null : Number(r.avg_conf),
+      },
+    ]),
+  )
+  const recentByWordIndex = new Map<number, WordMentionRow[]>()
+  for (const r of recentRes.rows) {
+    const list = recentByWordIndex.get(r.word_index) ?? []
+    const { rn: _rn, ...rest } = r
+    list.push(rest as WordMentionRow)
+    recentByWordIndex.set(r.word_index, list)
+  }
+
+  return wordsRes.rows.map((w) => {
+    const agg = aggByWordIndex.get(w.id)
+    return {
+      word_index: w.id,
+      word: w.word,
+      mention_threshold: w.mention_threshold,
+      match_variants: w.match_variants,
+      pending_resolution: w.pending_resolution,
+      auto_lock_enabled: w.auto_lock_enabled,
+      resolved_outcome: w.resolved_outcome,
+      count: agg?.count ?? 0,
+      avg_confidence: agg?.avg_confidence ?? null,
+      recent: recentByWordIndex.get(w.id) ?? [],
+    }
+  })
+}
+
+/**
+ * Mark a mention as superseded (admin's "false positive" action). Returns
+ * the updated row so the API can echo it back, plus the stream_id needed
+ * to scope the SSE notification. NOTIFY is emitted by the caller so the
+ * payload can include the type='dismiss' discriminator the SSE consumer
+ * expects.
+ */
+export async function dismissWordMention(
+  mentionId: number,
+  adminWallet: string,
+): Promise<WordMentionRow | null> {
+  const result = await pool.query<WordMentionRow>(
+    `UPDATE word_mentions
+        SET superseded = TRUE,
+            superseded_by = $2,
+            superseded_at = NOW()
+      WHERE id = $1 AND superseded = FALSE
+      RETURNING id, stream_id, word_index, word, matched_text, segment_id,
+                stream_offset_ms, snippet, confidence, superseded, created_at`,
+    [mentionId, adminWallet],
+  )
+  if (result.rows.length === 0) {
+    // Already-dismissed or doesn't exist — fetch to disambiguate.
+    const cur = await pool.query<WordMentionRow>(
+      `SELECT id, stream_id, word_index, word, matched_text, segment_id,
+              stream_offset_ms, snippet, confidence, superseded, created_at
+         FROM word_mentions WHERE id = $1`,
+      [mentionId],
+    )
+    return cur.rows[0] ?? null
+  }
+  await pool.query('SELECT pg_notify($1, $2)', [
+    'word_mention',
+    JSON.stringify({
+      type: 'dismiss',
+      streamId: result.rows[0].stream_id,
+      wordIndex: result.rows[0].word_index,
+      mentionId,
+    }),
+  ])
+  return result.rows[0]
+}
+
 export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl: string; updatedAt: string }[]> {
   const result = await pool.query(
     `SELECT event_id, stream_url, updated_at FROM event_streams ORDER BY updated_at DESC`,
@@ -1205,6 +1486,10 @@ export interface CustomMarketWordRow {
   market_id: number
   word: string
   resolved_outcome: boolean | null
+  mention_threshold: number
+  match_variants: string[]
+  pending_resolution: boolean
+  auto_lock_enabled: boolean
 }
 
 export interface CustomMarketPoolRow {
@@ -1579,6 +1864,81 @@ export async function removeCustomMarketWord(marketId: number, wordId: number): 
   return (result.rowCount ?? 0) > 0
 }
 
+/**
+ * Update mention_threshold, match_variants, and/or pending_resolution on
+ * a custom_market_words row. Returns the updated row, or null if no row
+ * matched. Only provided fields are updated.
+ *
+ * Allowed regardless of market status — admin may need to tune thresholds
+ * mid-event or flag a word as pending after a Discord ping.
+ *
+ * Throws 'WORD_ALREADY_RESOLVED' if the caller tries to set
+ * pendingResolution=true on a word that already has a non-null
+ * resolved_outcome. Resolution is terminal; you can't unflip it back into
+ * a pending state.
+ */
+export async function updateCustomMarketWord(
+  marketId: number,
+  wordId: number,
+  patch: {
+    mentionThreshold?: number
+    matchVariants?: string[]
+    pendingResolution?: boolean
+    autoLockEnabled?: boolean
+  },
+): Promise<CustomMarketWordRow | null> {
+  // Validate pending transition against current resolved state. Done as a
+  // pre-read rather than a CAS-on-update because we want to surface a
+  // distinct error to the caller, not silently no-op.
+  if (patch.pendingResolution === true) {
+    const cur = await pool.query<{ resolved_outcome: boolean | null }>(
+      `SELECT resolved_outcome FROM custom_market_words WHERE id = $1 AND market_id = $2`,
+      [wordId, marketId],
+    )
+    const row = cur.rows[0]
+    if (!row) return null
+    if (row.resolved_outcome !== null) {
+      throw new Error('WORD_ALREADY_RESOLVED')
+    }
+  }
+
+  const sets: string[] = []
+  const values: (number | string[] | boolean)[] = []
+  let i = 1
+  if (patch.mentionThreshold !== undefined) {
+    sets.push(`mention_threshold = $${i++}`)
+    values.push(patch.mentionThreshold)
+  }
+  if (patch.matchVariants !== undefined) {
+    sets.push(`match_variants = $${i++}`)
+    values.push(patch.matchVariants)
+  }
+  if (patch.pendingResolution !== undefined) {
+    sets.push(`pending_resolution = $${i++}`)
+    values.push(patch.pendingResolution)
+  }
+  if (patch.autoLockEnabled !== undefined) {
+    sets.push(`auto_lock_enabled = $${i++}`)
+    values.push(patch.autoLockEnabled)
+  }
+  if (sets.length === 0) {
+    const cur = await pool.query<CustomMarketWordRow>(
+      `SELECT * FROM custom_market_words WHERE id = $1 AND market_id = $2`,
+      [wordId, marketId],
+    )
+    return cur.rows[0] ?? null
+  }
+  values.push(wordId, marketId)
+  const result = await pool.query<CustomMarketWordRow>(
+    `UPDATE custom_market_words SET ${sets.join(', ')}
+       WHERE id = $${i++} AND market_id = $${i}
+       RETURNING *`,
+    values,
+  )
+  wordsCache.delete(String(marketId))
+  return result.rows[0] ?? null
+}
+
 export async function resolveCustomMarketWords(
   marketId: number,
   resolutions: { wordId: number; outcome: boolean }[],
@@ -1663,8 +2023,14 @@ export async function resolveMarketAtomic(
       values.push(...ids)
       const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ')
 
+      // Clear pending_resolution alongside the resolution write — once a
+      // word has a final outcome, the "pending admin verification" state
+      // loses meaning and would just be stale data.
       await client.query(
-        `UPDATE custom_market_words SET resolved_outcome = CASE ${cases.join(' ')} END WHERE market_id = $1 AND id IN (${idPlaceholders}) AND resolved_outcome IS NULL`,
+        `UPDATE custom_market_words
+            SET resolved_outcome = CASE ${cases.join(' ')} END,
+                pending_resolution = FALSE
+          WHERE market_id = $1 AND id IN (${idPlaceholders}) AND resolved_outcome IS NULL`,
         values,
       )
 

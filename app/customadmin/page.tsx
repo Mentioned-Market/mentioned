@@ -7,9 +7,51 @@ import Footer from '@/components/Footer'
 import { getStatusColor, getStatusLabel, isValidStatusTransition } from '@/lib/customMarketUtils'
 import type { CustomMarketRow, CustomMarketWordRow } from '@/lib/db'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import MentionsPanel from './MentionsPanel'
+import WordEditorRow from './WordEditorRow'
 
 interface MarketWithWords extends CustomMarketRow {
   words: CustomMarketWordRow[]
+}
+
+interface MonitoredStreamRow {
+  id: number
+  event_id: string
+  stream_url: string
+  status: 'pending' | 'live' | 'ended' | 'error'
+  source: 'twitch' | 'youtube' | 'local-audio' | null
+  started_at: string | null
+  ended_at: string | null
+  minutes_used: string
+  cost_cents: number
+  error_message: string | null
+  worker_pool: string
+  kind: 'live' | 'vod'
+}
+
+function transcriptionStatusBadge(status: MonitoredStreamRow['status']): string {
+  switch (status) {
+    case 'pending': return 'bg-yellow-500/20 text-yellow-300'
+    case 'live':    return 'bg-apple-green/20 text-apple-green'
+    case 'ended':   return 'bg-white/5 text-neutral-400'
+    case 'error':   return 'bg-apple-red/20 text-apple-red'
+  }
+}
+
+function transcriptionStatusText(status: MonitoredStreamRow['status']): string {
+  return status === 'error' ? 'text-apple-red' : 'text-neutral-400'
+}
+
+function formatRelative(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return 'just now'
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ${m % 60}m ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
 export default function CustomAdminPage() {
@@ -51,6 +93,13 @@ export default function CustomAdminPage() {
   // Resolution state
   const [resolutions, setResolutions] = useState<Record<number, boolean | null>>({})
 
+  // Transcription monitoring (per-expanded-market)
+  const [transcription, setTranscription] = useState<MonitoredStreamRow | null>(null)
+  const [transcriptionUrl, setTranscriptionUrl] = useState('')
+  const [transcriptionPool, setTranscriptionPool] = useState<'cloud' | 'local'>('cloud')
+  const [transcriptionKind, setTranscriptionKind] = useState<'live' | 'vod'>('live')
+  const [transcriptionBusy, setTranscriptionBusy] = useState(false)
+
   const show = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ type, text })
     setTimeout(() => setMessage(null), 5000)
@@ -91,6 +140,7 @@ export default function CustomAdminPage() {
   const expandMarket = (market: MarketWithWords) => {
     if (expandedId === market.id) {
       setExpandedId(null)
+      setTranscription(null)
       return
     }
     setExpandedId(market.id)
@@ -105,6 +155,79 @@ export default function CustomAdminPage() {
     const res: Record<number, boolean | null> = {}
     market.words.forEach(w => { res[w.id] = w.resolved_outcome })
     setResolutions(res)
+    // Reset transcription form; defaults seeded from the market's existing stream URL.
+    setTranscription(null)
+    setTranscriptionUrl(market.stream_url || '')
+    setTranscriptionPool('cloud')
+    setTranscriptionKind('live')
+  }
+
+  const fetchTranscription = useCallback(async (marketId: number) => {
+    try {
+      const res = await fetch(`/api/admin/streams?eventId=custom_${marketId}`)
+      if (!res.ok) return
+      const json = await res.json()
+      setTranscription(json.stream ?? null)
+    } catch {
+      // tolerate transient fetch errors; the next poll tick will retry
+    }
+  }, [])
+
+  // Initial fetch + 5s polling while a market is expanded so admins see live
+  // status changes (pending → live, live → ended, etc.) without reloading.
+  useEffect(() => {
+    if (expandedId == null) return
+    fetchTranscription(expandedId)
+    const t = setInterval(() => fetchTranscription(expandedId), 5000)
+    return () => clearInterval(t)
+  }, [expandedId, fetchTranscription])
+
+  async function handleStartTranscription() {
+    if (expandedId == null) return
+    const url = transcriptionUrl.trim()
+    if (!url) {
+      show('Stream URL is required', 'error')
+      return
+    }
+    setTranscriptionBusy(true)
+    try {
+      const res = await fetch('/api/admin/streams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: `custom_${expandedId}`,
+          streamUrl: url,
+          workerPool: transcriptionPool,
+          kind: transcriptionKind,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to start')
+      setTranscription(json.stream)
+      show('Transcription requested — worker is claiming the stream')
+    } catch (err) {
+      show(err instanceof Error ? err.message : 'Failed to start transcription', 'error')
+    } finally {
+      setTranscriptionBusy(false)
+    }
+  }
+
+  async function handleCancelTranscription() {
+    if (!transcription) return
+    if (!confirm('Force-end this transcription? The worker will tear down its pipeline.')) return
+    setTranscriptionBusy(true)
+    try {
+      const res = await fetch(`/api/admin/streams/${transcription.id}/cancel`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to cancel')
+      show('Cancel requested — worker will end shortly')
+      // Bump status optimistically; the next poll will pick up the worker's transition.
+      setTranscription({ ...transcription, status: 'ended' })
+    } catch (err) {
+      show(err instanceof Error ? err.message : 'Failed to cancel transcription', 'error')
+    } finally {
+      setTranscriptionBusy(false)
+    }
   }
 
   async function handleCreate() {
@@ -231,6 +354,36 @@ export default function CustomAdminPage() {
       fetchMarkets()
     } catch (err: any) {
       show(err.message, 'error')
+    }
+  }
+
+  async function handleUpdateWord(
+    marketId: number,
+    wordId: number,
+    patch: {
+      mentionThreshold?: number
+      matchVariants?: string[]
+      pendingResolution?: boolean
+      autoLockEnabled?: boolean
+    },
+  ) {
+    try {
+      const res = await fetch(`/api/custom/${marketId}/words/${wordId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update word')
+      // Update the cached market list with the updated word so the row's
+      // saved/dirty state recomputes correctly without a full refetch.
+      setMarkets(prev => prev.map(m => {
+        if (m.id !== marketId) return m
+        return { ...m, words: m.words.map(w => w.id === wordId ? json.word : w) }
+      }))
+      show('Word updated')
+    } catch (err: any) {
+      show(err.message ?? 'Failed to update word', 'error')
     }
   }
 
@@ -662,28 +815,20 @@ export default function CustomAdminPage() {
 
                         {/* Words management */}
                         <div className="pt-1 border-t border-white/5">
-                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Words ({market.words.length})</h3>
-                          <div className="flex flex-wrap gap-2 mb-4">
+                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">Words ({market.words.length})</h3>
+                          <p className="text-[10px] text-neutral-600 mb-3">
+                            Threshold = mentions needed to resolve YES (default 1). Variants = extra
+                            spellings/forms the transcriber should also count (e.g. plurals).
+                          </p>
+                          <div className="mb-4">
                             {market.words.map(w => (
-                              <span
+                              <WordEditorRow
                                 key={w.id}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 text-sm"
-                              >
-                                {w.word}
-                                {w.resolved_outcome !== null && (
-                                  <span className={`text-xs font-semibold ${w.resolved_outcome ? 'text-apple-green' : 'text-apple-red'}`}>
-                                    {w.resolved_outcome ? 'YES' : 'NO'}
-                                  </span>
-                                )}
-                                {market.status === 'draft' && (
-                                  <button
-                                    onClick={() => handleRemoveWord(market.id, w.id)}
-                                    className="text-neutral-500 hover:text-apple-red ml-1"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </span>
+                                word={w}
+                                canRemove={market.status === 'draft'}
+                                onRemove={() => handleRemoveWord(market.id, w.id)}
+                                onSave={(patch) => handleUpdateWord(market.id, w.id, patch)}
+                              />
                             ))}
                           </div>
                           {market.status === 'draft' && (
@@ -768,6 +913,130 @@ export default function CustomAdminPage() {
                             </div>
                           </div>
                         )}
+
+                        {/* Transcription monitoring */}
+                        <div className="pt-1 border-t border-white/5">
+                          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Transcription</h3>
+                          {transcription && (transcription.status === 'pending' || transcription.status === 'live') ? (
+                            <div className="flex flex-wrap items-center gap-3 mb-2 text-xs text-neutral-300">
+                              <span className={`px-2 py-1 rounded ${transcriptionStatusBadge(transcription.status)}`}>
+                                {transcription.status.toUpperCase()}
+                              </span>
+                              <span className="text-neutral-400">
+                                {transcription.kind === 'vod' ? 'vod' : 'live'} ·
+                                {transcription.source ? ` ${transcription.source} ·` : ''}
+                                {' '}{transcription.worker_pool} pool
+                              </span>
+                              {transcription.started_at && (
+                                <span className="text-neutral-500">
+                                  started {formatRelative(transcription.started_at)}
+                                </span>
+                              )}
+                              <span className="text-neutral-500">
+                                {Number(transcription.minutes_used).toFixed(1)} min · ${(transcription.cost_cents / 100).toFixed(2)}
+                              </span>
+                              <button
+                                onClick={handleCancelTranscription}
+                                disabled={transcriptionBusy}
+                                className="ml-auto px-3 py-1.5 bg-apple-red/20 text-apple-red text-xs font-semibold rounded-lg hover:bg-apple-red/30 transition-colors disabled:opacity-50"
+                              >
+                                Force end
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-2 mb-2">
+                              {transcription && (
+                                <div className="text-xs text-neutral-500">
+                                  Last run ({transcription.kind}): <span className={transcriptionStatusText(transcription.status)}>{transcription.status}</span>
+                                  {transcription.minutes_used && Number(transcription.minutes_used) > 0 && (
+                                    <> · {Number(transcription.minutes_used).toFixed(1)} min · ${(transcription.cost_cents / 100).toFixed(2)}</>
+                                  )}
+                                  {transcription.error_message && (
+                                    <> · <span className="text-apple-red">{transcription.error_message}</span></>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex flex-wrap items-center gap-3">
+                                <div className="inline-flex rounded-lg border border-white/10 overflow-hidden text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => { setTranscriptionKind('live') }}
+                                    className={`px-3 py-1.5 transition-colors ${transcriptionKind === 'live' ? 'bg-white/10 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+                                  >
+                                    Live
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setTranscriptionKind('vod'); setTranscriptionPool('cloud') }}
+                                    className={`px-3 py-1.5 transition-colors ${transcriptionKind === 'vod' ? 'bg-white/10 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+                                  >
+                                    VOD
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={transcriptionUrl}
+                                  onChange={(e) => setTranscriptionUrl(e.target.value)}
+                                  placeholder={transcriptionKind === 'vod'
+                                    ? 'https://twitch.tv/videos/<id>  or  https://youtube.com/watch?v=<id>'
+                                    : 'https://twitch.tv/<channel>  or  local-audio://laptop'}
+                                  className="flex-1 min-w-[260px] px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200 placeholder:text-neutral-600"
+                                />
+                                <select
+                                  value={transcriptionPool}
+                                  onChange={(e) => setTranscriptionPool(e.target.value as 'cloud' | 'local')}
+                                  disabled={transcriptionKind === 'vod'}
+                                  title={transcriptionKind === 'vod' ? 'VOD jobs run on the cloud worker only' : ''}
+                                  className="px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200 disabled:opacity-50"
+                                >
+                                  <option value="cloud">cloud</option>
+                                  <option value="local">local</option>
+                                </select>
+                                <button
+                                  onClick={handleStartTranscription}
+                                  disabled={transcriptionBusy || !transcriptionUrl.trim()}
+                                  className="px-4 py-1.5 bg-apple-green/20 text-apple-green text-xs font-semibold rounded-lg hover:bg-apple-green/30 transition-colors disabled:opacity-50"
+                                >
+                                  {transcriptionKind === 'vod' ? 'Start VOD transcription' : 'Start transcription'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {transcription && (
+                            <div className="mt-4 pt-3 border-t border-white/5">
+                              <h4 className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                Mentions {transcription.status === 'live' || transcription.status === 'pending' ? '(live)' : '(last run)'}
+                              </h4>
+                              <MentionsPanel
+                                streamId={transcription.id}
+                                marketId={market.id}
+                                isActive={transcription.status === 'live' || transcription.status === 'pending'}
+                                streamUrl={transcription.stream_url}
+                                kind={transcription.kind}
+                                onError={(msg) => show(msg, 'error')}
+                                onWordPatched={(wordId, patch) => {
+                                  setMarkets(prev => prev.map(m => {
+                                    if (m.id !== market.id) return m
+                                    return {
+                                      ...m,
+                                      words: m.words.map(w =>
+                                        w.id === wordId
+                                          ? {
+                                              ...w,
+                                              ...(patch.pendingResolution !== undefined ? { pending_resolution: patch.pendingResolution } : {}),
+                                              ...(patch.autoLockEnabled !== undefined ? { auto_lock_enabled: patch.autoLockEnabled } : {}),
+                                            }
+                                          : w,
+                                      ),
+                                    }
+                                  }))
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
 
                         {/* Status transitions */}
                         <div className="pt-1 border-t border-white/5">

@@ -30,12 +30,14 @@ app/
 │   ├── profile/          # Username + PFP management
 │   ├── achievements/     # Achievement unlock
 │   ├── bug-report/       # Discord webhook bug reports (rate-limited, sanitized)
+│   ├── admin/streams/    # Transcription monitoring intent (start/cancel a worker run)
+│   ├── admin/mentions/   # Live word-mention counter (initial load + SSE + dismiss)
 │   └── ...
 ├── polymarkets/          # Polymarket pages (event listing + event detail trading)
 ├── markets/              # Market listing (paid on-chain + free markets with filter tabs)
 ├── market/[id]/          # On-chain market detail (trading, chart, admin)
 ├── free/[slug]/          # Free market detail (virtual LMSR trading, chart, positions)
-├── customadmin/          # Free market admin (create, manage, resolve)
+├── customadmin/          # Free market admin (create, manage, resolve, live transcription panel)
 ├── positions/            # User positions/orders/history tabs
 ├── leaderboard/          # Weekly rankings + points leaderboard
 ├── profile/              # Unified profile: /profile/[username] handles owner + visitor views; /profile redirects to /profile/{wallet}
@@ -54,6 +56,7 @@ lib/
 ├── jupiterApi.ts         # Jupiter API client (API key, fetch wrapper)
 ├── tradeParser.ts        # Parse Anchor events from Helius webhook payloads
 ├── chatStream.ts         # Shared Postgres LISTEN singleton for SSE chat streaming
+├── mentionStream.ts      # Shared Postgres LISTEN singleton for SSE word-mention streaming
 ├── achievements.ts       # Achievement definitions + unlock logic
 ├── points.ts             # Point system (trades, holds, chat, achievements)
 └── ...
@@ -66,6 +69,10 @@ solana_contracts/         # Anchor programs (Rust)
 scripts/                  # DB migration, seed, backfill (ts-node)
 specs/                    # Feature specifications
 ├── custom_free_market_spec.md    # Complete free market spec (read this for free market context)
+└── live_transcription_spec.md    # Live transcription / word-detection spec (read for transcript-worker context)
+
+services/                 # Sibling Node services (own package.json, own Railway deploy)
+└── transcript-worker/    # Live + VOD transcription pipeline (Deepgram, ffmpeg, streamlink/yt-dlp)
 ```
 
 ## Key Patterns
@@ -77,7 +84,7 @@ specs/                    # Feature specifications
 - **Wallet auth only.** No sessions/JWT. Wallet public key is the identity. Admin checks via `ADMIN_WALLETS` env var.
 - **Fire-and-forget side effects.** Points, achievements, and scoring awarded in API handlers without awaiting.
 - **Transactions for free market trades.** `executeVirtualTrade` in `lib/db.ts` uses `pool.connect()` + `BEGIN/COMMIT/ROLLBACK` with `SELECT FOR UPDATE` for pool concurrency.
-- **LMSR math:** On-chain in `lib/mentionMarket.ts` (bigint fixed-point 1e9). Free markets in `lib/virtualLmsr.ts` (float). Same formulas.
+- **LMSR math:** On-chain in `lib/mentionMarketUsdc.ts` (bigint, USDC base units 1e6). Free markets in `lib/virtualLmsr.ts` (float). Same formulas. Legacy SOL-AMM client `lib/mentionMarket.ts` still on disk (only `PrivyFundsModal` uses its `sendIxs` for SOL transfers — no longer interacts with the on-chain market program).
 - **Path alias:** `@/*` maps to project root.
 
 ## Three Market Types
@@ -88,12 +95,14 @@ specs/                    # Feature specifications
 - Pages: `/polymarkets`, `/polymarkets/event/[eventId]`
 - API: `/api/polymarket/*`
 
-### 2. On-Chain Mention Markets
-- Custom LMSR AMM deployed on Solana devnet
-- Real SOL, on-chain transactions signed via Phantom
-- Pages: `/market/[id]`, `/admin`
-- API: `/api/trades/*`, `/api/webhook`
-- Contract: `2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU`
+### 2. On-Chain Mention Markets (USDC, devnet)
+- Custom LMSR AMM deployed on Solana **devnet**, settled in **devnet USDC** (6 decimals).
+- Trades signed via Phantom's `signTransaction` (raw-bytes path on `WalletContext.signOnly`) and broadcast directly to Helius devnet RPC — bypasses the mainnet simulate/send proxy.
+- Pages: `/market/[id]` (detail/trading: `OnchainMarketClient`), `/paidcustomadmin` (admin create/liquidity/resolve). No `/admin` route exists despite still being listed in `app/api/sitemap/route.ts`.
+- API: `/api/paid-markets/*` (chart, trades, metadata, user-positions), `/api/webhook` (Helius → `tradeParser.ts` → `trade_events`).
+- Legacy `/api/trades/*` routes are unmaintained — they still read `trade_events` but expect the old SOL/1e9 units; the parser now emits raw USDC base units (1e6) so any external caller will be off by ~1e6×. Only `TradeTicker` calls `/api/trades/recent`, which reads from `polymarket_trades` / `custom_market_trades` and is unaffected.
+- Off-chain metadata (title, cover image, stream URL) lives in DB table `paid_market_metadata`; on-chain state is the source of truth for everything else.
+- Contract: `9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk` (Anchor program `mention-market-usdc-amm`). Source: `solana_contracts/programs/mention-market-usdc-amm/`.
 
 ### 3. Free Markets (Virtual LMSR)
 - Same LMSR math as on-chain markets, but with virtual play tokens
@@ -124,12 +133,19 @@ specs/                    # Feature specifications
 | Table | Purpose |
 |-------|---------|
 | `custom_markets` | Market config (title, status, b_parameter, play_tokens, lock_time) |
-| `custom_market_words` | Words per market (word, resolved_outcome) |
+| `custom_market_words` | Words per market (word, resolved_outcome, **mention_threshold**, **match_variants**, **pending_resolution**) |
 | `custom_market_word_pools` | LMSR pool state per word (yes_qty, no_qty) |
 | `custom_market_positions` | User share holdings per word (yes_shares, no_shares, tokens_spent/received) |
 | `custom_market_balances` | User play token balance per market |
 | `custom_market_trades` | Individual trade log (buy/sell, shares, cost, price after) |
 | `custom_market_price_history` | Implied price per word after each trade (for chart) |
+
+### Live Transcription (transcript-worker)
+| Table | Purpose |
+|-------|---------|
+| `monitored_streams` | One row per worker run (event_id, stream_url, status, kind, worker_pool, cost). Multiple terminal rows per event_id; partial unique index blocks two simultaneously-active runs. |
+| `live_transcript_segments` | Finalized Deepgram segments (FK stream_id, start_ms/end_ms, text, confidence) |
+| `word_mentions` | Detected mentions (FK stream_id, word_index, snippet, stream_offset_ms, confidence, superseded). UNIQUE(stream_id, word_index, global_char_offset) for position-based dedupe. |
 
 Schema defined in `scripts/migrate.ts`. All tables use `IF NOT EXISTS`.
 
@@ -159,7 +175,7 @@ npm run lint          # ESLint
 
 ## Key Constants
 
-- **AMM Program ID:** `2oKQaiKx3C2qpkqFYGDdvEGTyBDJP85iuQtJ5vaPdFrU` (devnet)
+- **AMM Program ID:** `9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk` (devnet, USDC AMM — `mention-market-usdc-amm`)
 - **Jupiter API base:** `https://api.jup.ag/prediction/v1`
 - **RPC:** mainnet-beta (default), devnet for contracts
 - **Domain:** `mentioned.market`
@@ -175,6 +191,7 @@ npm run lint          # ESLint
 - Solana instructions are built in `lib/mentionMarket.ts`.
 - Free market changes reference `specs/custom_free_market_spec.md` for full context.
 - Don't import server-only modules (`lib/db.ts`, `lib/customScoring.ts`) in client components — they pull in `pg`/`fs` which break the webpack build.
+- Don't cross the Next.js / `services/transcript-worker` boundary with imports. They share Postgres only (NOTIFY channels + tables). The worker has its own `package.json` and Railway deploy.
 - Profile page is unified: ownership is derived (`profile.wallet === publicKey`), not a separate route. Owner-only UI (editing, Discord, orders tab, history tab, stat cards) is gated on `isOwnProfile`. Visitors see a read-only view. Use `isOwnerView = isOwnProfile && !viewAsPublic` to control which branch renders.
 
 ## Homepage (Scroll-Driven Slideshow)
@@ -214,7 +231,10 @@ Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` 
 ## Performance Patterns
 
 - **Profile data cached in WalletContext.** `username`, `pfpEmoji`, and `refreshProfile()` live in `contexts/WalletContext.tsx`. Fetched once on wallet connect, shared by Header, GlobalChat, EventChat. Call `refreshProfile()` after any profile edit (username, PFP) so the header updates.
-- **Chat uses SSE + Postgres LISTEN/NOTIFY.** Real-time chat is delivered via Server-Sent Events, not polling. A single shared Postgres LISTEN connection (`lib/chatStream.ts`) fans out notifications to all SSE clients in-memory. GlobalChat only opens SSE when the chat panel is expanded; when collapsed, it polls a lightweight `/api/chat/latest-id` endpoint every 30s for the unread badge. EventChat connects SSE on mount and supports backward cursor pagination (`?before=` param) for scrolling through full chat history. Both components fall back to 30s polling if SSE fails.
+- **SSE + Postgres LISTEN/NOTIFY.** Real-time fanout is delivered via Server-Sent Events, not polling. Two singletons follow the same pattern:
+  - `lib/chatStream.ts` (channel `chat_new`) — global + per-event chat. GlobalChat only opens SSE when the chat panel is expanded; when collapsed, it polls a lightweight `/api/chat/latest-id` endpoint every 30s for the unread badge. EventChat connects SSE on mount and supports backward cursor pagination (`?before=` param). Both fall back to 30s polling if SSE fails.
+  - `lib/mentionStream.ts` (channel `word_mention`) — admin live word-mention counter in `/customadmin`. Worker emits "fat" NOTIFY payloads (full mention row + `type: 'mention' | 'dismiss'` discriminator) so the SSE route is a pure pass-through with zero extra DB hits per event.
+  Both singletons survive Next.js hot reloads via `globalThis` and reconnect on disconnect.
 - **Lazy tab data loading.** Positions page and profile page only fetch data for the active tab. Orders and history fetch/poll when their tab becomes active; intervals are cleaned up when switching away. Follow the pattern: `useEffect` guarded by `tab !== 'x'` with interval inside.
 - **CSS display:none for tabs.** Tab content on positions and profile pages uses `style={{ display: active ? undefined : 'none' }}` instead of conditional rendering (`{tab === 'x' && (...)}`). DOM stays mounted across tab switches for instant switching and preserved scroll position.
 - **Memoized PNL map.** Profile page pre-computes `pnlMap` via `useMemo` over `activeHistory`, then uses `getPnl(h)` (a `Map.get` lookup) instead of calling `eventPnl(h)` repeatedly. All derived values (`periodPnl`, `biggestWin`, history row rendering) use `getPnl`.
@@ -245,6 +265,27 @@ Scoring rules:
 **Current competition:** May 4–17 2026, $1,000 prize pool (1st $600 / 2nd $300 / 3rd $100), top 3 teams win.
 
 **Markets page banner:** `PointsExplainerBanner` is hidden during the team comp. `TeamCompBanner` is active in its place (`app/markets/page.tsx`). After May 17, swap `<TeamCompBanner />` back to `<PointsExplainerBanner />` in the JSX (line ~902) and remove the eslint-disable comment from `PointsExplainerBanner`.
+
+## Live Transcription (transcript-worker)
+
+Sibling Node service in `services/transcript-worker/` (own `package.json`, own Railway deploy, separate env scope from Next.js). Live + VOD transcription via Deepgram Nova-3 with automatic word-mention detection. Full spec in `specs/live_transcription_spec.md` — read it before changing any of: schema, NOTIFY payloads, worker pool routing, or VOD path.
+
+**Surfaces in Next.js:**
+- Admin UI lives in `app/customadmin/` (transcription panel + live `MentionsPanel`/`WordEditorRow` per market).
+- API: `app/api/admin/streams/*` (start/cancel monitoring), `app/api/admin/mentions/*` (counter initial load + SSE + dismiss), `PATCH /api/custom/[id]/words/[wordId]` (per-word `mention_threshold` + `match_variants`).
+- DB helpers in `lib/db.ts`: `createMonitoredStream`, `getMonitoredStreamByEvent`, `cancelMonitoredStream`, `getMentionsForStream`, `dismissWordMention`, `updateCustomMarketWord`.
+- SSE singleton: `lib/mentionStream.ts` (see Performance Patterns above).
+
+**Worker boundary rules:**
+- Never import from `services/transcript-worker/` in Next.js code, or vice versa. The Next.js tsconfig already excludes `services/` from typecheck.
+- Worker and Next.js communicate only through Postgres (shared DB, separate role recommended) — `LISTEN/NOTIFY` channels (`stream_added`, `stream_canceled`, `word_mention`, `stream_ended`) and table reads/writes. No HTTP between them.
+- Worker NOTIFY payloads are forward-compatible: consumers tolerate missing fields (older worker generation) and ignore unknown fields. Don't break existing fields — only add.
+
+**Schema and run model:**
+- One `monitored_streams` row per worker run. Multiple terminal rows per `event_id` are allowed (each historical re-run preserves its own segments + mentions). Partial unique index on `(event_id) WHERE status IN ('pending','live')` blocks two simultaneously-active runs. `getMonitoredStreamByEvent` returns the active row when one exists, else the most recent terminal row.
+- Mentions API + UI scope by `stream_id` (the latest run), not `event_id` — aggregating across runs would pollute the live counter. No historical-run picker yet.
+- VOD jobs deliberately skip per-mention NOTIFY (would batch-spam SSE); Discord summary at completion is the signal.
+- **Pending resolution.** A word can be flagged `pending_resolution=true` (admin acts after seeing a Discord ping). Trading on that word is fully frozen by `POST /api/custom/[id]/trade` until either resolved or unmarked. Reversible until a final outcome is set; resolution is terminal. Admin toggles live in `MentionsPanel` (per word card) and `WordEditorRow` (full word list).
 
 ## Maintaining This File
 

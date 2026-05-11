@@ -42,6 +42,7 @@ export async function GET(
       yes_qty: yesQty,
       no_qty: noQty,
       resolved_outcome: w.resolved_outcome,
+      pending_resolution: w.pending_resolution,
       trader_count: traderMap.get(w.id) ?? 0,
     }
   })

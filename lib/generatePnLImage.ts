@@ -9,6 +9,8 @@ export interface PnLCardData {
   pnl: number
   shares: number
   isClaimed: boolean
+  currency: string
+  decimals: number
 }
 
 export interface MarketSummaryData {
@@ -18,6 +20,8 @@ export interface MarketSummaryData {
   totalCost: number
   totalPayout: number
   totalPnl: number
+  currency: string
+  decimals: number
 }
 
 const GREEN = '#34C759'
@@ -162,7 +166,7 @@ export async function generatePnLImage(data: PnLCardData): Promise<HTMLCanvasEle
   // P&L (big number)
   y = 140
   const pnlSign = data.pnl >= 0 ? '+' : ''
-  const pnlText = `${pnlSign}${data.pnl.toFixed(4)} SOL`
+  const pnlText = `${pnlSign}${data.pnl.toFixed(data.decimals)} ${data.currency}`
   ctx.font = 'bold 36px -apple-system, "Helvetica Neue", sans-serif'
   ctx.fillStyle = data.pnl >= 0 ? GREEN : RED
   ctx.textBaseline = 'top'
@@ -186,8 +190,8 @@ export async function generatePnLImage(data: PnLCardData): Promise<HTMLCanvasEle
   y = 228
   const colW = (W - pad * 2) / 2
   const stats = [
-    { label: 'Cost Basis', value: `${data.costBasis.toFixed(4)} SOL` },
-    { label: 'Payout', value: `${data.payout.toFixed(4)} SOL`, color: data.payout > 0 ? GREEN : WHITE },
+    { label: 'Cost Basis', value: `${data.costBasis.toFixed(data.decimals)} ${data.currency}` },
+    { label: 'Payout', value: `${data.payout.toFixed(data.decimals)} ${data.currency}`, color: data.payout > 0 ? GREEN : WHITE },
   ]
 
   stats.forEach((stat, i) => {
@@ -282,14 +286,14 @@ export async function generateMarketSummaryImage(data: MarketSummaryData): Promi
   ctx.font = 'bold 32px -apple-system, "Helvetica Neue", sans-serif'
   ctx.fillStyle = data.totalPnl >= 0 ? GREEN : RED
   ctx.textBaseline = 'top'
-  ctx.fillText(`${pnlSign}${data.totalPnl.toFixed(4)} SOL`, pad, y)
+  ctx.fillText(`${pnlSign}${data.totalPnl.toFixed(data.decimals)} ${data.currency}`, pad, y)
 
   // Stats row
   y = 168
   const colW = (W - pad * 2) / 2
   const stats = [
-    { label: 'Total Cost', value: `${data.totalCost.toFixed(4)} SOL` },
-    { label: 'Total Payout', value: `${data.totalPayout.toFixed(4)} SOL`, color: data.totalPayout > 0 ? GREEN : WHITE },
+    { label: 'Total Cost', value: `${data.totalCost.toFixed(data.decimals)} ${data.currency}` },
+    { label: 'Total Payout', value: `${data.totalPayout.toFixed(data.decimals)} ${data.currency}`, color: data.totalPayout > 0 ? GREEN : WHITE },
   ]
   stats.forEach((stat, i) => {
     const sx = pad + colW * i
