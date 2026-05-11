@@ -520,6 +520,12 @@ ALTER TABLE custom_market_words
 ALTER TABLE custom_market_words
   ADD COLUMN IF NOT EXISTS pending_resolution BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Admin opt-in: when TRUE, the transcript worker auto-flips pending_resolution
+-- on the first mention with confidence > AUTO_LOCK_MIN_CONFIDENCE (0.95). Off
+-- by default — auto-lock is a per-word trust decision the admin makes.
+ALTER TABLE custom_market_words
+  ADD COLUMN IF NOT EXISTS auto_lock_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Worker pool: which transcript-worker instance is responsible for this row.
 -- 'cloud' = the Railway-hosted worker (handles twitch://, youtube:// URLs).
 -- 'local' (or 'local-<machine>') = a laptop running with WORKER_POOL=local
