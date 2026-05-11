@@ -177,9 +177,17 @@ export class VodJob {
       // --js-runtimes node uses the container's existing Node binary as
       // yt-dlp's JS runtime — required since yt-dlp 2025 for YouTube URL
       // signing. See https://github.com/yt-dlp/yt-dlp/wiki/EJS
-      const yt = spawn('yt-dlp', ['-g', '--js-runtimes', 'node', '-f', 'bestaudio/best', url], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
+      const yt = spawn(
+        'yt-dlp',
+        [
+          '-g',
+          '--js-runtimes', 'node',
+          '--extractor-args', 'youtube:player_client=tv,web_safari',
+          '-f', 'bestaudio/best',
+          url,
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      )
       let stdout = ''
       let stderr = ''
       const timeout = setTimeout(() => {
@@ -230,7 +238,14 @@ export class VodJob {
       log.info('vod job: downloading audio via yt-dlp', { streamId: this.cfg.streamId })
       const yt = spawn(
         'yt-dlp',
-        ['-q', '--js-runtimes', 'node', '-o', '-', '-f', 'bestaudio/best', url],
+        [
+          '-q',
+          '--js-runtimes', 'node',
+          '--extractor-args', 'youtube:player_client=tv,web_safari',
+          '-o', '-',
+          '-f', 'bestaudio/best',
+          url,
+        ],
         { stdio: ['ignore', 'pipe', 'pipe'] },
       )
       const chunks: Buffer[] = []

@@ -96,11 +96,24 @@ export function buildPipeline(
     // --js-runtimes node uses the container's existing Node binary as
     // yt-dlp's JS runtime — required since yt-dlp 2025 for YouTube URL
     // signing. https://github.com/yt-dlp/yt-dlp/wiki/EJS
+    //
+    // --extractor-args player_client=tv,web_safari bypasses YouTube's
+    // "confirm you're not a bot" gate that hits the default player
+    // clients from cloud egress IPs. The tv/safari clients have weaker
+    // bot detection because YouTube can't reliably distinguish them
+    // from real devices.
     return {
       kind: 'piped',
       source,
       fetcherCmd: 'yt-dlp',
-      fetcherArgs: ['-q', '--js-runtimes', 'node', '-o', '-', '-f', 'bestaudio/best', url],
+      fetcherArgs: [
+        '-q',
+        '--js-runtimes', 'node',
+        '--extractor-args', 'youtube:player_client=tv,web_safari',
+        '-o', '-',
+        '-f', 'bestaudio/best',
+        url,
+      ],
       ffmpegArgs: pipedFfmpegArgs(),
     }
   }
