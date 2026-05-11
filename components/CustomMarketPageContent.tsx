@@ -19,6 +19,8 @@ import {
 import { virtualBuyCost, virtualSellReturn, sharesForTokens } from '@/lib/virtualLmsr'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import MarketResultsLeaderboard from '@/components/MarketResultsLeaderboard'
+import SharePnLModal from '@/components/SharePnLModal'
+import type { MarketSummaryData } from '@/lib/generatePnLImage'
 // Points multiplier — matches lib/customScoring.ts constant
 const VIRTUAL_MARKET_POINTS_MULTIPLIER = 0.5
 
@@ -252,6 +254,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [words, setWords] = useState<MarketWord[]>([])
   const [positions, setPositions] = useState<Position[]>([])
   const [balance, setBalance] = useState(1000)
+  const [shareData, setShareData] = useState<MarketSummaryData | null>(null)
   const [startingBalance, setStartingBalance] = useState(1000)
   const [traderCount, setTraderCount] = useState(0)
   const [trades, setTrades] = useState<Trade[]>([])
@@ -1075,17 +1078,53 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
               {/* Resolved summary */}
               {market.status === 'resolved' && positions.length > 0 && (
                 <div className={`glass rounded-2xl p-4 mb-5 border ${totalProfit > 0 ? 'border-apple-green/20' : 'border-white/5'}`}>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="text-sm text-neutral-400">Your Result</span>
-                    <div className="text-right">
-                      <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
-                        {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
-                      </div>
-                      {totalProfit > 0 && (
-                        <div className="text-xs text-neutral-500">
-                          = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${totalProfit > 0 ? 'text-apple-green' : totalProfit < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                          {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(1)} tokens
                         </div>
-                      )}
+                        {totalProfit > 0 && (
+                          <div className="text-xs text-neutral-500">
+                            = {Math.floor(totalProfit * VIRTUAL_MARKET_POINTS_MULTIPLIER)} platform points
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const summaryWords = positions
+                            .filter(p => p.yes_shares > 0.01 || p.no_shares > 0.01)
+                            .map(p => {
+                              const word = words.find(w => w.id === p.word_id)
+                              if (!word || word.resolved_outcome === null) return null
+                              const side: 'YES' | 'NO' = p.yes_shares >= p.no_shares ? 'YES' : 'NO'
+                              const won = (side === 'YES' && word.resolved_outcome === true) ||
+                                          (side === 'NO' && word.resolved_outcome === false)
+                              return { label: word.word, won, side }
+                            })
+                            .filter((w): w is { label: string; won: boolean; side: 'YES' | 'NO' } => w !== null)
+                          const totalCost = positions.reduce((s, p) => s + p.tokens_spent, 0)
+                          const totalPayout = positions.reduce((s, p) => s + p.tokens_received, 0)
+                          setShareData({
+                            marketLabel: market.title,
+                            marketId: String(market.id),
+                            words: summaryWords,
+                            totalCost,
+                            totalPayout,
+                            totalPnl: totalProfit,
+                            currency: 'tokens',
+                            decimals: 1,
+                          })
+                        }}
+                        className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors"
+                        aria-label="Share result"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                        Share
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1483,6 +1522,11 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
           </div>
         )}
       </div>
+
+      <SharePnLModal
+        shareData={shareData ? { type: 'market', data: shareData } : null}
+        onClose={() => setShareData(null)}
+      />
 
       {/* Tutorial overlay — shown after initial data load */}
       {showTutorial && !loading && (
