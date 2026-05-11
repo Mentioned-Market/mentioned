@@ -350,7 +350,7 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
                     }`}
                     title={
                       w.auto_lock_enabled
-                        ? 'Auto-lock ON — worker will mark this word pending on a high-confidence (>95%) mention'
+                        ? 'Auto-lock ON — worker will mark this word pending on a high-confidence (>90%) mention'
                         : 'Auto-lock OFF — only an admin can mark this word pending'
                     }
                   >
