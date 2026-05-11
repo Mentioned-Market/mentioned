@@ -28,6 +28,12 @@ export interface MatchableWord {
    * first-mention Discord ping, the admin UI) read it.
    */
   threshold: number
+  /**
+   * When TRUE, the StreamWorker auto-flips pending_resolution on the first
+   * mention whose confidence exceeds AUTO_LOCK_MIN_CONFIDENCE. Default FALSE
+   * — admin opts in per-word.
+   */
+  autoLockEnabled: boolean
 }
 
 export interface MatchHit {

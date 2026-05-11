@@ -25,14 +25,24 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
 
-  let body: { mentionThreshold?: unknown; matchVariants?: unknown; pendingResolution?: unknown }
+  let body: {
+    mentionThreshold?: unknown
+    matchVariants?: unknown
+    pendingResolution?: unknown
+    autoLockEnabled?: unknown
+  }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const patch: { mentionThreshold?: number; matchVariants?: string[]; pendingResolution?: boolean } = {}
+  const patch: {
+    mentionThreshold?: number
+    matchVariants?: string[]
+    pendingResolution?: boolean
+    autoLockEnabled?: boolean
+  } = {}
 
   if (body.mentionThreshold !== undefined) {
     const t = Number(body.mentionThreshold)
@@ -80,10 +90,18 @@ export async function PATCH(
     patch.pendingResolution = body.pendingResolution
   }
 
+  if (body.autoLockEnabled !== undefined) {
+    if (typeof body.autoLockEnabled !== 'boolean') {
+      return NextResponse.json({ error: 'autoLockEnabled must be a boolean' }, { status: 400 })
+    }
+    patch.autoLockEnabled = body.autoLockEnabled
+  }
+
   if (
     patch.mentionThreshold === undefined &&
     patch.matchVariants === undefined &&
-    patch.pendingResolution === undefined
+    patch.pendingResolution === undefined &&
+    patch.autoLockEnabled === undefined
   ) {
     return NextResponse.json(
       { error: 'No editable fields provided' },

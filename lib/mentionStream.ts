@@ -6,16 +6,19 @@ const sslDisabled = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')
 
 // Worker NOTIFY payload (fat — see streamWorker.ts:persistMention). Field
 // shape is forward-compatible: missing fields are tolerated, unknown
-// fields are ignored. Both 'mention' (new hit) and 'dismiss' (admin
-// flagged false positive) ride the same channel keyed by streamId.
+// fields are ignored. All discriminators ride the same channel keyed by
+// streamId:
+//   - 'mention'   new hit
+//   - 'dismiss'   admin flagged a false positive
+//   - 'auto_lock' worker flipped pending_resolution on a high-confidence hit
 export interface MentionNotification {
-  type: 'mention' | 'dismiss'
+  type: 'mention' | 'dismiss' | 'auto_lock'
   streamId: number
-  mentionId: number
+  /** Absent for type='auto_lock' (no specific mention id). */
+  mentionId?: number
   wordIndex: number
-  // The remaining fields are present on type='mention'. type='dismiss'
-  // only needs the dedupe keys above so the client can decrement counters
-  // and remove the snippet from its recent list.
+  // The remaining fields are present on type='mention'. 'dismiss' and
+  // 'auto_lock' only carry the dedupe keys above.
   eventId?: string
   word?: string
   matchedText?: string

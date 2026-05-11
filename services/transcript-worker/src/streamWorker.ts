@@ -46,6 +46,10 @@ const DEEPGRAM_REPLACE_DELAYS_MS = [1_000, 3_000, 9_000] as const
 // burst and we count toward the abandon threshold.
 const DEEPGRAM_STABLE_MS = 2 * 60_000
 
+// Minimum Deepgram per-mention confidence required to auto-lock a word into
+// pending_resolution. Words must also be admin-opted-in (auto_lock_enabled).
+const AUTO_LOCK_MIN_CONFIDENCE = 0.95
+
 export type EndReason =
   | 'manual_cancel'
   | 'silence_watchdog'
@@ -100,8 +104,12 @@ export class StreamWorker {
 
   /** Per-word threshold lookup, populated from cfg.words at construction. */
   private readonly thresholdByWordIndex: Map<number, number>
+  /** Per-word auto-lock opt-in lookup, populated from cfg.words at construction. */
+  private readonly autoLockByWordIndex: Map<number, boolean>
   /** Words for which we've already fired a first-mention Discord ping this run. */
   private readonly pingedWordIndices = new Set<number>()
+  /** Words for which we've already auto-flipped pending_resolution this run. */
+  private readonly autoLockedWordIndices = new Set<number>()
 
   // Deepgram replacement backoff state.
   private deepgramReplaceAttempts = 0
@@ -115,6 +123,7 @@ export class StreamWorker {
     this.startedAtMs = cfg.startedAt.getTime()
     this.matcher = new WordMatcher(cfg.words)
     this.thresholdByWordIndex = new Map(cfg.words.map((w) => [w.index, w.threshold]))
+    this.autoLockByWordIndex = new Map(cfg.words.map((w) => [w.index, w.autoLockEnabled]))
   }
 
   async start(): Promise<void> {
@@ -459,6 +468,94 @@ export class StreamWorker {
     // so admins can resolve immediately without waiting for the end-of-stream
     // summary. Fire-and-forget; failures must not break the insert path.
     void this.maybeFirstMentionPing(client, hit, segmentStartMs, mentionId, confidence)
+
+    // If the word is admin-opted-in for auto-lock and this mention's confidence
+    // clears the bar, flip pending_resolution. Same fire-and-forget contract.
+    void this.maybeAutoLock(hit, confidence)
+  }
+
+  /**
+   * Auto-flip pending_resolution on `custom_market_words` when:
+   *   - the word has auto_lock_enabled = TRUE (admin opt-in)
+   *   - this mention's confidence >= AUTO_LOCK_MIN_CONFIDENCE
+   *   - the word isn't already resolved (resolved_outcome IS NULL)
+   *   - we haven't already auto-locked this word in this run
+   *
+   * The pending_resolution flag freezes trading and lets the admin manually
+   * verify the call. We don't touch resolved_outcome — resolution is terminal
+   * and stays a human decision.
+   *
+   * Uses a fresh pool client (not the caller's) so a failure here can't
+   * affect the mention-insert path. Idempotent: the WHERE guard on
+   * pending_resolution = FALSE + resolved_outcome IS NULL means concurrent
+   * mentions or a worker restart can't double-flip.
+   */
+  private async maybeAutoLock(hit: MatchHit, confidence: number | null): Promise<void> {
+    if (this.autoLockedWordIndices.has(hit.wordIndex)) return
+    if (!this.autoLockByWordIndex.get(hit.wordIndex)) return
+    if (confidence == null || confidence < AUTO_LOCK_MIN_CONFIDENCE) return
+
+    // Optimistic mark to avoid concurrent mentions racing into multiple UPDATEs
+    // within the same finalized segment. The DB guard backs this up.
+    this.autoLockedWordIndices.add(hit.wordIndex)
+
+    const marketId = parseMarketIdFromEventId(this.cfg.eventId)
+    if (marketId == null) {
+      log.warn('auto-lock skipped: non-custom event_id', {
+        streamId: this.cfg.streamId,
+        eventId: this.cfg.eventId,
+      })
+      return
+    }
+
+    try {
+      const result = await pool.query<{ id: number }>(
+        `UPDATE custom_market_words
+            SET pending_resolution = TRUE
+          WHERE id = $1
+            AND market_id = $2
+            AND pending_resolution = FALSE
+            AND resolved_outcome IS NULL
+          RETURNING id`,
+        [hit.wordIndex, marketId],
+      )
+      if ((result.rowCount ?? 0) > 0) {
+        log.info('auto-lock fired', {
+          streamId: this.cfg.streamId,
+          wordIndex: hit.wordIndex,
+          word: hit.word,
+          confidence,
+        })
+        // NOTIFY admin SSE consumers so the "Pending" pill shows up immediately
+        // instead of waiting for the 20s periodic refetch. Rides the same
+        // word_mention channel as 'mention' and 'dismiss'; lib/mentionStream.ts
+        // pass-through fans it out.
+        const payload = JSON.stringify({
+          type: 'auto_lock',
+          eventId: this.cfg.eventId,
+          streamId: this.cfg.streamId,
+          wordIndex: hit.wordIndex,
+          word: hit.word,
+          confidence,
+        })
+        try {
+          await pool.query('SELECT pg_notify($1, $2)', ['word_mention', payload])
+        } catch (notifyErr) {
+          // Non-fatal — UI will catch up via the periodic refetch.
+          const msg = notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+          log.warn('auto-lock notify failed', { streamId: this.cfg.streamId, err: msg })
+        }
+      }
+    } catch (err) {
+      // Clear the optimistic mark so a later mention can retry.
+      this.autoLockedWordIndices.delete(hit.wordIndex)
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn('auto-lock update failed', {
+        streamId: this.cfg.streamId,
+        wordIndex: hit.wordIndex,
+        err: msg,
+      })
+    }
   }
 
   private async maybeFirstMentionPing(
@@ -941,4 +1038,10 @@ function pickHitConfidence(hit: MatchHit, t: FinalizedTranscript): number | null
   if (tokens.length === 0) return t.confidence
   const avg = tokens.reduce((s, w) => s + w.confidence, 0) / tokens.length
   return avg
+}
+
+function parseMarketIdFromEventId(eventId: string): number | null {
+  if (!eventId.startsWith('custom_')) return null
+  const id = parseInt(eventId.slice('custom_'.length), 10)
+  return Number.isFinite(id) ? id : null
 }

@@ -360,7 +360,12 @@ export default function CustomAdminPage() {
   async function handleUpdateWord(
     marketId: number,
     wordId: number,
-    patch: { mentionThreshold?: number; matchVariants?: string[] },
+    patch: {
+      mentionThreshold?: number
+      matchVariants?: string[]
+      pendingResolution?: boolean
+      autoLockEnabled?: boolean
+    },
   ) {
     try {
       const res = await fetch(`/api/custom/${marketId}/words/${wordId}`, {
@@ -1018,7 +1023,11 @@ export default function CustomAdminPage() {
                                       ...m,
                                       words: m.words.map(w =>
                                         w.id === wordId
-                                          ? { ...w, ...(patch.pendingResolution !== undefined ? { pending_resolution: patch.pendingResolution } : {}) }
+                                          ? {
+                                              ...w,
+                                              ...(patch.pendingResolution !== undefined ? { pending_resolution: patch.pendingResolution } : {}),
+                                              ...(patch.autoLockEnabled !== undefined ? { auto_lock_enabled: patch.autoLockEnabled } : {}),
+                                            }
                                           : w,
                                       ),
                                     }

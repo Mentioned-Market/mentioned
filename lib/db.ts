@@ -920,6 +920,7 @@ export interface MentionWordSummary {
   mention_threshold: number
   match_variants: string[]
   pending_resolution: boolean
+  auto_lock_enabled: boolean
   resolved_outcome: boolean | null
   count: number
   avg_confidence: number | null
@@ -961,11 +962,12 @@ export async function getMentionsForStream(streamId: number): Promise<MentionWor
       mention_threshold: number
       match_variants: string[]
       pending_resolution: boolean
+      auto_lock_enabled: boolean
       resolved_outcome: boolean | null
     }>(
       `SELECT id, word, mention_threshold,
               COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants,
-              pending_resolution, resolved_outcome
+              pending_resolution, auto_lock_enabled, resolved_outcome
          FROM custom_market_words
         WHERE market_id = $1
         ORDER BY id`,
@@ -1027,6 +1029,7 @@ export async function getMentionsForStream(streamId: number): Promise<MentionWor
       mention_threshold: w.mention_threshold,
       match_variants: w.match_variants,
       pending_resolution: w.pending_resolution,
+      auto_lock_enabled: w.auto_lock_enabled,
       resolved_outcome: w.resolved_outcome,
       count: agg?.count ?? 0,
       avg_confidence: agg?.avg_confidence ?? null,
@@ -1485,6 +1488,7 @@ export interface CustomMarketWordRow {
   mention_threshold: number
   match_variants: string[]
   pending_resolution: boolean
+  auto_lock_enabled: boolean
 }
 
 export interface CustomMarketPoolRow {
@@ -1875,7 +1879,12 @@ export async function removeCustomMarketWord(marketId: number, wordId: number): 
 export async function updateCustomMarketWord(
   marketId: number,
   wordId: number,
-  patch: { mentionThreshold?: number; matchVariants?: string[]; pendingResolution?: boolean },
+  patch: {
+    mentionThreshold?: number
+    matchVariants?: string[]
+    pendingResolution?: boolean
+    autoLockEnabled?: boolean
+  },
 ): Promise<CustomMarketWordRow | null> {
   // Validate pending transition against current resolved state. Done as a
   // pre-read rather than a CAS-on-update because we want to surface a
@@ -1906,6 +1915,10 @@ export async function updateCustomMarketWord(
   if (patch.pendingResolution !== undefined) {
     sets.push(`pending_resolution = $${i++}`)
     values.push(patch.pendingResolution)
+  }
+  if (patch.autoLockEnabled !== undefined) {
+    sets.push(`auto_lock_enabled = $${i++}`)
+    values.push(patch.autoLockEnabled)
   }
   if (sets.length === 0) {
     const cur = await pool.query<CustomMarketWordRow>(

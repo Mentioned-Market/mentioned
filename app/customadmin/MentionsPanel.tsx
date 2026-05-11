@@ -22,6 +22,7 @@ interface WordSummary {
   mention_threshold: number
   match_variants: string[]
   pending_resolution: boolean
+  auto_lock_enabled: boolean
   resolved_outcome: boolean | null
   count: number
   avg_confidence: number | null
@@ -29,9 +30,10 @@ interface WordSummary {
 }
 
 interface MentionEvent {
-  type: 'mention' | 'dismiss'
+  type: 'mention' | 'dismiss' | 'auto_lock'
   streamId: number
-  mentionId: number
+  /** Absent on 'auto_lock' (no specific mention id). */
+  mentionId?: number
   wordIndex: number
   word?: string
   matchedText?: string
@@ -81,7 +83,7 @@ interface Props {
   onError?: (msg: string) => void
   /** Notify parent when a word's pending state changes so the cached
    *  market list (powering WordEditorRow) stays in sync without a full refetch. */
-  onWordPatched?: (wordId: number, patch: { pendingResolution?: boolean }) => void
+  onWordPatched?: (wordId: number, patch: { pendingResolution?: boolean; autoLockEnabled?: boolean }) => void
 }
 
 export default function MentionsPanel({ streamId, marketId, isActive, streamUrl, kind, onError, onWordPatched }: Props) {
@@ -89,9 +91,12 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
   const [loading, setLoading] = useState(true)
   const [dismissingId, setDismissingId] = useState<number | null>(null)
   const [pendingBusy, setPendingBusy] = useState<number | null>(null)
+  const [autoLockBusy, setAutoLockBusy] = useState<number | null>(null)
   const sseRef = useRef<EventSource | null>(null)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
+  const onWordPatchedRef = useRef(onWordPatched)
+  onWordPatchedRef.current = onWordPatched
 
   // Initial load + periodic resync. The interval runs only while the
   // stream is active; terminal runs load once and stop.
@@ -144,12 +149,14 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
       let data: MentionEvent
       try { data = JSON.parse(ev.data) as MentionEvent } catch { return }
       if (data.type === 'mention') {
+        if (data.mentionId == null) return
+        const mentionId = data.mentionId
         setWords((prev) => prev.map((w) => {
           if (w.word_index !== data.wordIndex) return w
           // Skip duplicate (e.g. SSE replay or initial load race).
-          if (w.recent.some((r) => r.id === data.mentionId)) return w
+          if (w.recent.some((r) => r.id === mentionId)) return w
           const newRow: MentionRow = {
-            id: data.mentionId,
+            id: mentionId,
             stream_id: data.streamId,
             word_index: data.wordIndex,
             word: data.word ?? w.word,
@@ -177,10 +184,12 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
           }
         }))
       } else if (data.type === 'dismiss') {
+        if (data.mentionId == null) return
+        const mentionId = data.mentionId
         setWords((prev) => prev.map((w) => {
           if (w.word_index !== data.wordIndex) return w
-          const dismissed = w.recent.find((r) => r.id === data.mentionId)
-          const recent = w.recent.filter((r) => r.id !== data.mentionId)
+          const dismissed = w.recent.find((r) => r.id === mentionId)
+          const recent = w.recent.filter((r) => r.id !== mentionId)
           if (!dismissed && w.count === 0) return w
           const newCount = Math.max(0, w.count - 1)
           // Re-derive avg from remaining recent rows; lossy but bounded
@@ -190,6 +199,14 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
           const newAvg = confs.length > 0 ? confs.reduce((a, b) => a + b, 0) / confs.length : null
           return { ...w, count: newCount, avg_confidence: newAvg, recent }
         }))
+      } else if (data.type === 'auto_lock') {
+        // Worker flipped pending_resolution. Mirror locally so the "Pending"
+        // pill shows up immediately; parent's cache (powering WordEditorRow)
+        // also needs the update.
+        setWords((prev) => prev.map((w) =>
+          w.word_index === data.wordIndex ? { ...w, pending_resolution: true } : w,
+        ))
+        onWordPatchedRef.current?.(data.wordIndex, { pendingResolution: true })
       }
     }
 
@@ -241,6 +258,27 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
       onErrorRef.current?.(err instanceof Error ? err.message : 'Failed to update pending state')
     } finally {
       setPendingBusy(null)
+    }
+  }
+
+  async function handleToggleAutoLock(wordIndex: number, next: boolean) {
+    setAutoLockBusy(wordIndex)
+    try {
+      const res = await fetch(`/api/custom/${marketId}/words/${wordIndex}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoLockEnabled: next }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update auto-lock')
+      setWords((prev) => prev.map((w) =>
+        w.word_index === wordIndex ? { ...w, auto_lock_enabled: next } : w,
+      ))
+      onWordPatched?.(wordIndex, { autoLockEnabled: next })
+    } catch (err) {
+      onErrorRef.current?.(err instanceof Error ? err.message : 'Failed to update auto-lock')
+    } finally {
+      setAutoLockBusy(null)
     }
   }
 
@@ -301,22 +339,42 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
                 </span>
               )}
               {!isResolved && (
-                <button
-                  onClick={() => handleTogglePending(w.word_index, !w.pending_resolution)}
-                  disabled={pendingBusy === w.word_index}
-                  className={`ml-auto px-2.5 py-1 text-[11px] font-semibold rounded disabled:opacity-50 transition-colors ${
-                    w.pending_resolution
-                      ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
-                      : 'bg-white/5 text-neutral-300 hover:bg-white/10'
-                  }`}
-                  title={w.pending_resolution
-                    ? 'Reverse: word becomes tradeable again'
-                    : 'Pause trading on this word until you verify the outcome'}
-                >
-                  {pendingBusy === w.word_index
-                    ? '…'
-                    : w.pending_resolution ? 'Unmark Pending' : 'Mark Pending'}
-                </button>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <button
+                    onClick={() => handleToggleAutoLock(w.word_index, !w.auto_lock_enabled)}
+                    disabled={autoLockBusy === w.word_index}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded disabled:opacity-50 transition-colors ${
+                      w.auto_lock_enabled
+                        ? 'bg-purple-500/25 text-purple-300 hover:bg-purple-500/35'
+                        : 'bg-white/5 text-neutral-300 hover:bg-white/10'
+                    }`}
+                    title={
+                      w.auto_lock_enabled
+                        ? 'Auto-lock ON — worker will mark this word pending on a high-confidence (>95%) mention'
+                        : 'Auto-lock OFF — only an admin can mark this word pending'
+                    }
+                  >
+                    {autoLockBusy === w.word_index
+                      ? '…'
+                      : w.auto_lock_enabled ? 'Auto-Lock: On' : 'Auto-Lock: Off'}
+                  </button>
+                  <button
+                    onClick={() => handleTogglePending(w.word_index, !w.pending_resolution)}
+                    disabled={pendingBusy === w.word_index}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded disabled:opacity-50 transition-colors ${
+                      w.pending_resolution
+                        ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
+                        : 'bg-white/5 text-neutral-300 hover:bg-white/10'
+                    }`}
+                    title={w.pending_resolution
+                      ? 'Reverse: word becomes tradeable again'
+                      : 'Pause trading on this word until you verify the outcome'}
+                  >
+                    {pendingBusy === w.word_index
+                      ? '…'
+                      : w.pending_resolution ? 'Unmark Pending' : 'Mark Pending'}
+                  </button>
+                </div>
               )}
               {w.avg_confidence != null && (
                 <span className={`${isResolved ? 'ml-auto' : ''} text-xs ${confidenceColor(w.avg_confidence)}`}>

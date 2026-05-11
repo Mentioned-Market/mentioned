@@ -394,9 +394,11 @@ async function loadWordsForEvent(eventId: string): Promise<MatchableWord[]> {
     word: string
     match_variants: string[] | null
     mention_threshold: number
+    auto_lock_enabled: boolean
   }>(
     `SELECT id, word, mention_threshold,
-            COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants
+            COALESCE(match_variants, ARRAY[]::TEXT[]) AS match_variants,
+            auto_lock_enabled
        FROM custom_market_words
       WHERE market_id = $1
       ORDER BY id`,
@@ -407,6 +409,7 @@ async function loadWordsForEvent(eventId: string): Promise<MatchableWord[]> {
     word: r.word,
     variants: r.match_variants ?? [],
     threshold: r.mention_threshold ?? 1,
+    autoLockEnabled: r.auto_lock_enabled === true,
   }))
 }
 
