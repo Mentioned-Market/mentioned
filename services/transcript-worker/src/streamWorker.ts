@@ -48,7 +48,7 @@ const DEEPGRAM_STABLE_MS = 2 * 60_000
 
 // Minimum Deepgram per-mention confidence required to auto-lock a word into
 // pending_resolution. Words must also be admin-opted-in (auto_lock_enabled).
-const AUTO_LOCK_MIN_CONFIDENCE = 0.95
+const AUTO_LOCK_MIN_CONFIDENCE = 0.9
 
 export type EndReason =
   | 'manual_cancel'
