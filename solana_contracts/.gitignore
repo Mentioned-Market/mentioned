@@ -4,3 +4,6 @@ target
 node_modules
 test-ledger
 deployer-keypair.json
+# Never commit program keypairs — these are private keys to the deployed
+# program ID and can be used to upgrade the program.
+*-keypair.json

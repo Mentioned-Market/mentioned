@@ -38,4 +38,13 @@ next-env.d.ts
 .env
 
 scratch
-specs/scalability_security_plan.md
+
+# Internal-only docs that shouldn't be in the public repo.
+specs/scale_and_security_plan.md
+
+# Analytics / pitch-deck scratch files
+scripts/alt-detection.sql
+scripts/demo-traffic.ts
+scripts/pitch-deck-stats.sql
+scripts/pitch-deck-stats-wow.csv
+scripts/teamless-traders.sql
