@@ -424,6 +424,17 @@ CREATE TABLE IF NOT EXISTS custom_market_results (
 CREATE INDEX IF NOT EXISTS idx_cmr_market ON custom_market_results(market_id);
 CREATE INDEX IF NOT EXISTS idx_cmr_wallet ON custom_market_results(wallet, market_id);
 
+-- Paid (on-chain USDC) market metadata stored in DB to supplement on-chain state
+CREATE TABLE IF NOT EXISTS paid_market_metadata (
+  market_id       BIGINT PRIMARY KEY,
+  title           TEXT NOT NULL,
+  description     TEXT,
+  cover_image_url TEXT,
+  stream_url      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- User feedback submissions
 CREATE TABLE IF NOT EXISTS feedback_submissions (
   id              SERIAL PRIMARY KEY,
