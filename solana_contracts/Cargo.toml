@@ -1,7 +1,6 @@
 [workspace]
 members = [
-    "programs/mention-market",
-    "programs/mention-market-amm"
+    "programs/mention-market-usdc-amm"
 ]
 resolver = "2"
 

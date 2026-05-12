@@ -67,12 +67,14 @@ export function parseTradeEvent(base64Data: string): ParsedTradeEvent | null {
     marketId: dv.getBigUint64(8, true),
     wordIndex: data[16],
     direction: data[17],
-    quantity: Number(dv.getBigUint64(18, true)) / 1e9,
-    cost: Number(dv.getBigUint64(26, true)) / 1e9,
-    fee: Number(dv.getBigUint64(34, true)) / 1e9,
-    newYesQty: Number(dv.getBigInt64(42, true)) / 1e9,
-    newNoQty: Number(dv.getBigInt64(50, true)) / 1e9,
-    impliedPrice: Number(dv.getBigUint64(58, true)) / 1e9,
+    // cost/fee/quantity stored as raw USDC base units (1e6 = 1 USDC)
+    quantity: Number(dv.getBigUint64(18, true)),
+    cost: Number(dv.getBigUint64(26, true)),
+    fee: Number(dv.getBigUint64(34, true)),
+    newYesQty: Number(dv.getBigInt64(42, true)),
+    newNoQty: Number(dv.getBigInt64(50, true)),
+    // implied_price stored as 0-1 float for chart rendering
+    impliedPrice: Number(dv.getBigUint64(58, true)) / 1e6,
     trader: base58Encode(data.slice(66, 98)),
     timestamp: Number(dv.getBigInt64(98, true)),
   }
