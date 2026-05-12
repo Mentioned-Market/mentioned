@@ -35,14 +35,14 @@ app/
 │   └── ...
 ├── polymarkets/          # Polymarket pages (event listing + event detail trading)
 ├── markets/              # Market listing (paid on-chain + free markets with filter tabs)
-├── market/[id]/          # On-chain market detail (trading, chart, admin)
 ├── free/[slug]/          # Free market detail (virtual LMSR trading, chart, positions)
 ├── customadmin/          # Free market admin (create, manage, resolve, live transcription panel)
 ├── positions/            # User positions/orders/history tabs
 ├── leaderboard/          # Weekly rankings + points leaderboard
 ├── profile/              # Unified profile: /profile/[username] handles owner + visitor views; /profile redirects to /profile/{wallet}
-├── admin/                # On-chain market creation, liquidity, resolution
 └── polyadmin/            # Polymarket admin panel
+# Note: /market/[id] (on-chain market UI) and /paidcustomadmin live on
+# feat/add-paid-markets, not main. Main has the contract + SDK + API only.
 
 components/               # React components (Header, EventChat, EventPriceChart, CustomEventCard, etc.)
 contexts/                 # WalletContext (Phantom connection, balance, signing), AchievementContext
@@ -98,8 +98,8 @@ services/                 # Sibling Node services (own package.json, own Railway
 ### 2. On-Chain Mention Markets (USDC, devnet)
 - Custom LMSR AMM deployed on Solana **devnet**, settled in **devnet USDC** (6 decimals).
 - Trades signed via Phantom's `signTransaction` (raw-bytes path on `WalletContext.signOnly`) and broadcast directly to Helius devnet RPC — bypasses the mainnet simulate/send proxy.
-- Pages: `/market/[id]` (detail/trading: `OnchainMarketClient`), `/paidcustomadmin` (admin create/liquidity/resolve). No `/admin` route exists despite still being listed in `app/api/sitemap/route.ts`.
-- API: `/api/paid-markets/*` (chart, trades, metadata, user-positions), `/api/webhook` (Helius → `tradeParser.ts` → `trade_events`).
+- **UI lives on `feat/add-paid-markets` branch, not main.** When that branch ships, it adds `/market/[id]` (detail/trading: `OnchainMarketClient`) and `/paidcustomadmin` (admin create/liquidity/resolve), plus paid-market sections of `app/positions` and `app/profile/[username]`. Main has the contract source + SDK + read API only.
+- API on main: `/api/paid-markets/*` (chart, trades, metadata, user-positions), `/api/webhook` (Helius → `tradeParser.ts` → `trade_events`).
 - Legacy `/api/trades/*` routes are unmaintained — they still read `trade_events` but expect the old SOL/1e9 units; the parser now emits raw USDC base units (1e6) so any external caller will be off by ~1e6×. Only `TradeTicker` calls `/api/trades/recent`, which reads from `polymarket_trades` / `custom_market_trades` and is unaffected.
 - Off-chain metadata (title, cover image, stream URL) lives in DB table `paid_market_metadata`; on-chain state is the source of truth for everything else.
 - Contract: `9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk` (Anchor program `mention-market-usdc-amm`). Source: `solana_contracts/programs/mention-market-usdc-amm/`.
