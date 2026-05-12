@@ -932,8 +932,8 @@ export interface MentionWordSummary {
  * the market's word list so words with zero mentions still appear.
  *
  * Scoped by stream_id (not event_id) so historical re-runs don't pollute
- * the live counter — see specs/live_transcription_spec.md "Open Items"
- * note about partial unique index allowing multiple terminal rows.
+ * the live counter. The partial unique index on monitored_streams allows
+ * multiple terminal rows per event_id; this query scopes to the latest run.
  *
  * The market's word list is pulled from custom_market_words via the
  * stream's event_id ('custom_<marketId>').

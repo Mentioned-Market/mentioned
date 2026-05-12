@@ -448,7 +448,6 @@ CREATE TABLE IF NOT EXISTS feedback_submissions (
 );
 
 -- ── Live transcription / word mention detection ─────────────────────────────
--- Spec: specs/live_transcription_spec.md
 -- Owned by the transcript-worker service (services/transcript-worker).
 -- v1: free markets only. event_id format follows event_chat_messages: 'custom_<id>'.
 
