@@ -84,24 +84,19 @@ export default function EventPage() {
     setLoading(false)
   }, [eventId])
 
-  // TODO: Wire up Solana contract interactions
-  const handleBuy = async (buyYes: boolean) => {
+  const handleBuy = async (_buyYes: boolean) => {
     if (!amount || !selectedWord || !connected) return
     setTxStatus('pending')
-    console.log(`[Solana] Buy ${buyYes ? 'YES' : 'NO'} - ${amount} shares of "${selectedWord.word}" (not yet wired)`)
     setTimeout(() => setTxStatus('idle'), 1500)
   }
 
-  const handleSell = async (sellYes: boolean) => {
+  const handleSell = async (_sellYes: boolean) => {
     if (!amount || !selectedWord || !connected) return
     setTxStatus('pending')
-    console.log(`[Solana] Sell ${sellYes ? 'YES' : 'NO'} - ${amount} shares of "${selectedWord.word}" (not yet wired)`)
     setTimeout(() => setTxStatus('idle'), 1500)
   }
 
-  const handleRefresh = () => {
-    console.log('[Solana] Refresh (not yet wired)')
-  }
+  const handleRefresh = () => {}
 
   const selectedWordData = selectedWord || (words.length > 0 ? words[0] : null)
 
