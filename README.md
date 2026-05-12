@@ -77,7 +77,7 @@ Open <http://localhost:3000>.
 
 ### Optional: transcript worker
 
-The transcript worker runs as its own Node process. Local dev:
+The transcript worker runs as its own Node process.
 
 ```bash
 cd services/transcript-worker
