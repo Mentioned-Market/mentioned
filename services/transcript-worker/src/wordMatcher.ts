@@ -1,7 +1,6 @@
 // Sliding-window phrase matcher with position-based dedupe.
 //
-// See specs/live_transcription_spec.md → "Word matcher". Two requirements
-// drive the design:
+// Two requirements drive the design:
 //
 //   1. Phrases must match across Deepgram segment boundaries (Deepgram
 //      finalizes at endpointing pauses, which can fall mid-phrase).

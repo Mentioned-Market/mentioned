@@ -67,9 +67,6 @@ solana_contracts/         # Anchor programs (Rust)
 └── ...
 
 scripts/                  # DB migration, seed, backfill (ts-node)
-specs/                    # Feature specifications
-├── custom_free_market_spec.md    # Complete free market spec (read this for free market context)
-└── live_transcription_spec.md    # Live transcription / word-detection spec (read for transcript-worker context)
 
 services/                 # Sibling Node services (own package.json, own Railway deploy)
 └── transcript-worker/    # Live + VOD transcription pipeline (Deepgram, ffmpeg, streamlink/yt-dlp)
@@ -110,7 +107,6 @@ services/                 # Sibling Node services (own package.json, own Railway
 - **Discord required to trade.** Users can view free markets but must link Discord before placing trades. Enforced both client-side (UI gate in `/free/[slug]`) and server-side (403 from `/api/custom/[id]/trade`).
 - Pages: `/free/[slug]` (resolves slug → id via `/api/custom/by-slug/[slug]`), `/customadmin`
 - API: `/api/custom/*`
-- Full spec: `specs/custom_free_market_spec.md`
 - Key files: `lib/virtualLmsr.ts`, `lib/customScoring.ts`, `lib/customMarketUtils.ts`
 
 ## Database Tables
@@ -189,7 +185,6 @@ npm run lint          # ESLint
 - New pages go in `app/` using App Router conventions. Use `'use client'` only when needed.
 - Wallet interactions use `useWallet()` from `contexts/WalletContext.tsx`.
 - Solana instructions are built in `lib/mentionMarket.ts`.
-- Free market changes reference `specs/custom_free_market_spec.md` for full context.
 - Don't import server-only modules (`lib/db.ts`, `lib/customScoring.ts`) in client components — they pull in `pg`/`fs` which break the webpack build.
 - Don't cross the Next.js / `services/transcript-worker` boundary with imports. They share Postgres only (NOTIFY channels + tables). The worker has its own `package.json` and Railway deploy.
 - Profile page is unified: ownership is derived (`profile.wallet === publicKey`), not a separate route. Owner-only UI (editing, Discord, orders tab, history tab, stat cards) is gated on `isOwnProfile`. Visitors see a read-only view. Use `isOwnerView = isOwnProfile && !viewAsPublic` to control which branch renders.
@@ -268,7 +263,7 @@ Scoring rules:
 
 ## Live Transcription (transcript-worker)
 
-Sibling Node service in `services/transcript-worker/` (own `package.json`, own Railway deploy, separate env scope from Next.js). Live + VOD transcription via Deepgram Nova-3 with automatic word-mention detection. Full spec in `specs/live_transcription_spec.md` — read it before changing any of: schema, NOTIFY payloads, worker pool routing, or VOD path.
+Sibling Node service in `services/transcript-worker/` (own `package.json`, own Railway deploy, separate env scope from Next.js). Live + VOD transcription via Deepgram Nova-3 with automatic word-mention detection.
 
 **Surfaces in Next.js:**
 - Admin UI lives in `app/customadmin/` (transcription panel + live `MentionsPanel`/`WordEditorRow` per market).
