@@ -51,8 +51,6 @@ specs/                 Feature specifications
 - **Instructions:** `create_market`, `deposit_liquidity`, `withdraw_liquidity`, `buy`, `sell`, `resolve_word`, `redeem`, `pause_market`, `withdraw_fees`
 - **Events:** Anchor events on every trade; indexed via Helius webhooks into `trade_events`.
 
-> The on-chain trading UI lives on the `feat/add-paid-markets` branch and isn't user-facing yet. Main has the program source, the Anchor test suite, the client SDK (`lib/mentionMarketUsdc.ts`), and the read API (`app/api/paid-markets/*`).
-
 ## Getting started (local dev)
 
 Prereqs: Node 20+, Docker, Anchor 0.31.1 (for contract work), `solana-cli`.
