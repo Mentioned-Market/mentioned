@@ -54,6 +54,13 @@ export default function Footer() {
           >
             Disclaimer
           </Link>
+          <span className="text-neutral-700">·</span>
+          <Link
+            href="/rules"
+            className="text-neutral-500 hover:text-neutral-300 text-xs transition-colors duration-200"
+          >
+            Community Rules
+          </Link>
         </nav>
 
         {/* Legal Disclaimer */}
