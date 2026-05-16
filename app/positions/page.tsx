@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -120,6 +120,17 @@ interface FreeTrade {
   market_slug: string
 }
 
+interface FreeMarketGroup {
+  market_id: number
+  market_title: string
+  market_status: string
+  market_slug: string
+  positions: FreePosition[]
+  totalSpent: number
+  totalReceived: number
+  pnl: number
+}
+
 // ── Helpers ────────────────────────────────────────────────
 
 function microToUsd(micro: number | null | string | undefined): string {
@@ -216,6 +227,7 @@ export default function PositionsPage() {
   const [freeTrades, setFreeTrades] = useState<FreeTrade[]>([])
   const [freePointsEarned, setFreePointsEarned] = useState<number>(0)
   const [loadingFree, setLoadingFree] = useState(false)
+  const [expandedMarkets, setExpandedMarkets] = useState<Set<number>>(new Set())
 
   // ── Fetch positions ───────────────────────────────────────
 
@@ -469,30 +481,80 @@ export default function PositionsPage() {
   const totalPnl = unrealizedPnl + realizedPnl
   const totalValue = positions.reduce((sum, p) => sum + (Number(p.sizeUsd) || 0), 0)
 
+  const toggleExpand = useCallback((marketId: number) => {
+    setExpandedMarkets(prev => {
+      const next = new Set(prev)
+      if (next.has(marketId)) next.delete(marketId)
+      else next.add(marketId)
+      return next
+    })
+  }, [])
+
   // Free market derived
   const freeTotalSpent = freePositions.reduce((sum, p) => sum + parseFloat(p.tokens_spent), 0)
+
+  const SHARE_THRESHOLD = 0.01
+
+  const freeMarketGroups = useMemo<FreeMarketGroup[]>(() => {
+    const map = new Map<number, FreeMarketGroup>()
+    for (const pos of freePositions) {
+      const yes = parseFloat(pos.yes_shares)
+      const no = parseFloat(pos.no_shares)
+      // Skip near-zero positions in open/locked markets (float remainders from selling)
+      if (pos.market_status !== 'resolved' && yes < SHARE_THRESHOLD && no < SHARE_THRESHOLD) {
+        continue
+      }
+      if (!map.has(pos.market_id)) {
+        map.set(pos.market_id, {
+          market_id: pos.market_id,
+          market_title: pos.market_title,
+          market_status: pos.market_status,
+          market_slug: pos.market_slug || String(pos.market_id),
+          positions: [],
+          totalSpent: 0,
+          totalReceived: 0,
+          pnl: 0,
+        })
+      }
+      const group = map.get(pos.market_id)!
+      group.positions.push(pos)
+      group.totalSpent += parseFloat(pos.tokens_spent)
+      group.totalReceived += parseFloat(pos.tokens_received)
+      group.pnl = group.totalReceived - group.totalSpent
+    }
+    return Array.from(map.values())
+  }, [freePositions])
+
+  const freeOpenMarkets = useMemo(
+    () => freeMarketGroups.filter(g => g.market_status !== 'resolved'),
+    [freeMarketGroups],
+  )
+  const freeHistoryMarkets = useMemo(
+    () => freeMarketGroups.filter(g => g.market_status === 'resolved'),
+    [freeMarketGroups],
+  )
 
   // ── Pagination ────────────────────────────────────────────
 
   const posPg = usePagination(positions)
   const ordersPg = usePagination(openOrders)
   const historyPg = usePagination(history)
-  const freePosPg = usePagination(freePositions)
-  const freeTradesPg = usePagination(freeTrades)
+  const freeOpenPg = usePagination(freeOpenMarkets)
+  const freeHistoryPg = usePagination(freeHistoryMarkets)
 
   // Reset to page 1 on tab or market mode change
   useEffect(() => {
     posPg.setPage(1); ordersPg.setPage(1); historyPg.setPage(1)
-    freePosPg.setPage(1); freeTradesPg.setPage(1)
+    freeOpenPg.setPage(1); freeHistoryPg.setPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, marketMode])
 
   // ── Tab counts ────────────────────────────────────────────
 
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'positions', label: 'Positions', count: marketMode === 'paid' ? positions.length : freePositions.length },
+    { key: 'positions', label: marketMode === 'free' ? 'Open Positions' : 'Positions', count: marketMode === 'paid' ? positions.length : freeOpenMarkets.length },
     { key: 'orders', label: 'Open Orders', count: openOrders.length },
-    { key: 'history', label: 'History', count: marketMode === 'paid' ? history.length : freeTrades.length },
+    { key: 'history', label: 'History', count: marketMode === 'paid' ? history.length : freeHistoryMarkets.length },
   ]
 
   // ── Render ────────────────────────────────────────────────
@@ -590,8 +652,8 @@ export default function PositionsPage() {
                     ) : (
                       <>
                         <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
-                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
-                          <div className="text-white text-xl font-bold tabular-nums">{freePositions.length}</div>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Markets</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{freeMarketGroups.length}</div>
                         </div>
                         <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
                           <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Tokens Spent</div>
@@ -611,7 +673,7 @@ export default function PositionsPage() {
 
                   {/* Tabs */}
                   <div
-                    className="animate-fade-in"
+                    className="animate-fade-in pt-5 pb-4"
                     style={{ animationDelay: '180ms', animationFillMode: 'both' }}
                   >
                     <div className="flex items-center justify-between mb-1 pb-3">
@@ -641,11 +703,11 @@ export default function PositionsPage() {
                     </div>
                   </div>
 
-                  {/* ── Free Market Positions Tab ─────────────────── */}
+                  {/* ── Free Market Open Positions Tab ────────────── */}
                   <div style={{ display: marketMode === 'free' && tab === 'positions' ? undefined : 'none' }}>
                     {loadingFree ? (
                       <MentionedSpinner className="py-20" />
-                    ) : freePositions.length === 0 ? (
+                    ) : freeOpenMarkets.length === 0 ? (
                       <div className="flex flex-col items-center py-20 gap-3">
                         <p className="text-neutral-500 text-sm">No open free market positions</p>
                         <Link href="/markets?type=free" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
@@ -654,134 +716,237 @@ export default function PositionsPage() {
                       </div>
                     ) : (
                       <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
-                        <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
-                          <div>Market / Word</div>
-                          <div className="text-right">YES Shares</div>
-                          <div className="text-right">NO Shares</div>
-                          <div className="text-right">Tokens Spent</div>
-                          <div className="text-right">Tokens Received</div>
-                          <div className="text-right">Status</div>
-                        </div>
-                        {freePosPg.paged.map((pos, i) => (
-                          <div
-                            key={pos.id}
-                            className="group grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
-                            style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                parseFloat(pos.yes_shares) > 0 ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
-                              }`}>
-                                {parseFloat(pos.yes_shares) > 0 ? 'YES' : 'NO'}
-                              </span>
-                              <div className="min-w-0">
-                                <Link href={`/free/${pos.market_slug || pos.market_id}`} className="text-white text-sm font-semibold truncate hover:underline block leading-snug">
-                                  {pos.market_title}
-                                </Link>
-                                <span className="text-neutral-600 text-xs">{pos.word}</span>
-                              </div>
+                        {freeOpenPg.paged.map(group => {
+                          const isExpanded = expandedMarkets.has(group.market_id)
+                          const statusClass = group.market_status === 'locked'
+                            ? 'bg-yellow-500/10 text-yellow-400'
+                            : 'bg-white/5 text-neutral-400'
+                          const statusLabel = group.market_status.charAt(0).toUpperCase() + group.market_status.slice(1)
+                          return (
+                            <div key={group.market_id} className="border-b border-white/[0.04] last:border-b-0">
+                              <button
+                                onClick={() => toggleExpand(group.market_id)}
+                                className="w-full px-4 py-4 flex items-center gap-3 hover:bg-white/[0.04] transition-colors duration-100 text-left"
+                              >
+                                <svg
+                                  className={`w-3.5 h-3.5 text-neutral-500 shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Link
+                                      href={`/free/${group.market_slug}`}
+                                      className="text-white text-sm font-semibold hover:underline truncate leading-snug"
+                                      target="_blank" rel="noopener noreferrer"
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      {group.market_title}
+                                    </Link>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${statusClass}`}>
+                                      {statusLabel}
+                                    </span>
+                                  </div>
+                                  <div className="text-neutral-600 text-xs mt-0.5">
+                                    {group.positions.length} word{group.positions.length !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4 md:gap-6 shrink-0">
+                                  <div className="text-right hidden sm:block">
+                                    <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Spent</div>
+                                    <div className="text-neutral-400 text-sm tabular-nums">{group.totalSpent.toFixed(0)}</div>
+                                  </div>
+                                  <div className="text-right hidden sm:block">
+                                    <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Received</div>
+                                    <div className="text-neutral-400 text-sm tabular-nums">{group.totalReceived.toFixed(0)}</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-[10px] text-neutral-600 uppercase tracking-widest">P&L</div>
+                                    <div className={`text-sm font-bold tabular-nums ${group.pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                      {group.pnl >= 0 ? '+' : ''}{group.pnl.toFixed(0)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                              {isExpanded && (
+                                <div className="border-t border-white/[0.04]">
+                                  <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr] gap-3 px-4 pl-11 py-2 text-[10px] text-neutral-700 uppercase tracking-widest font-medium" style={{ background: 'rgba(255,255,255,0.015)' }}>
+                                    <div>Word</div>
+                                    <div className="text-right">Spent</div>
+                                    <div className="text-right">Received</div>
+                                    <div className="text-right">P&L</div>
+                                  </div>
+                                  {group.positions.map(pos => {
+                                    const wordPnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
+                                    const yes = parseFloat(pos.yes_shares)
+                                    const no = parseFloat(pos.no_shares)
+                                    const hasYes = yes >= SHARE_THRESHOLD
+                                    const hasNo = no >= SHARE_THRESHOLD
+                                    return (
+                                      <div
+                                        key={pos.id}
+                                        className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 pl-4 md:pl-11 py-3 border-b border-white/[0.03] last:border-b-0"
+                                        style={{ background: 'rgba(255,255,255,0.015)' }}
+                                      >
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          {hasYes && (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-green/15 text-apple-green">
+                                              YES {yes.toFixed(2)}
+                                            </span>
+                                          )}
+                                          {hasNo && (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-red/15 text-apple-red">
+                                              NO {no.toFixed(2)}
+                                            </span>
+                                          )}
+                                          <span className="text-neutral-300 text-sm">{pos.word}</span>
+                                        </div>
+                                        <div className="flex md:block justify-between md:text-right items-center">
+                                          <span className="text-neutral-600 text-xs md:hidden">Spent</span>
+                                          <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex md:block justify-between md:text-right items-center">
+                                          <span className="text-neutral-600 text-xs md:hidden">Received</span>
+                                          <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_received).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex md:block justify-between md:text-right items-center">
+                                          <span className="text-neutral-600 text-xs md:hidden">P&L</span>
+                                          <span className={`text-sm font-bold tabular-nums ${wordPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                            {wordPnl >= 0 ? '+' : ''}{wordPnl.toFixed(2)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
                             </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">YES Shares</span>
-                              <span className="text-neutral-300 text-sm tabular-nums">{parseFloat(pos.yes_shares).toFixed(2)}</span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">NO Shares</span>
-                              <span className="text-neutral-300 text-sm tabular-nums">{parseFloat(pos.no_shares).toFixed(2)}</span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Tokens Spent</span>
-                              <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Tokens Received</span>
-                              <span className={`text-sm font-medium tabular-nums ${parseFloat(pos.tokens_received) > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
-                                {parseFloat(pos.tokens_received).toFixed(2)}
-                              </span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Status</span>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
-                                pos.market_status === 'resolved'
-                                  ? 'bg-apple-green/10 text-apple-green'
-                                  : pos.market_status === 'locked'
-                                  ? 'bg-yellow-500/10 text-yellow-400'
-                                  : 'bg-white/5 text-neutral-400'
-                              }`}>
-                                {pos.market_status.charAt(0).toUpperCase() + pos.market_status.slice(1)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                        <Pagination page={freePosPg.page} totalPages={freePosPg.totalPages} totalItems={freePosPg.totalItems} onPageChange={freePosPg.setPage} />
+                          )
+                        })}
+                        <Pagination page={freeOpenPg.page} totalPages={freeOpenPg.totalPages} totalItems={freeOpenPg.totalItems} onPageChange={freeOpenPg.setPage} />
                       </div>
                     )}
                   </div>
 
-                  {/* ── Free Market History Tab ────────────────────── */}
+                  {/* ── Free Market History Tab (resolved markets) ── */}
                   <div style={{ display: marketMode === 'free' && tab === 'history' ? undefined : 'none' }}>
                     {loadingFree ? (
                       <MentionedSpinner className="py-20" />
-                    ) : freeTrades.length === 0 ? (
+                    ) : freeHistoryMarkets.length === 0 ? (
                       <div className="flex flex-col items-center py-20 gap-3">
-                        <p className="text-neutral-500 text-sm">No free market trade history yet</p>
+                        <p className="text-neutral-500 text-sm">No resolved free market positions yet</p>
                         <Link href="/markets?type=free" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                           Browse free markets
                         </Link>
                       </div>
                     ) : (
                       <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
-                        <div className="hidden md:grid grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
-                          <div>Market / Word</div>
-                          <div className="text-center">Action</div>
-                          <div className="text-center">Side</div>
-                          <div className="text-right">Shares</div>
-                          <div className="text-right">Cost (tokens)</div>
-                          <div className="text-right">Date</div>
-                        </div>
-                        {freeTradesPg.paged.map((t, i) => (
-                          <div
-                            key={t.id}
-                            className="group grid grid-cols-1 md:grid-cols-[2fr_0.8fr_0.8fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 transition-colors duration-100 hover:bg-white/[0.05]"
-                            style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
-                          >
-                            <div className="min-w-0">
-                              <Link href={`/free/${t.market_slug || t.market_id}`} className="text-white text-sm font-semibold truncate hover:underline block leading-snug">
-                                {t.market_title}
-                              </Link>
-                              <span className="text-neutral-600 text-xs">{t.word}</span>
+                        {freeHistoryPg.paged.map(group => {
+                          const isExpanded = expandedMarkets.has(group.market_id)
+                          return (
+                            <div key={group.market_id} className="border-b border-white/[0.04] last:border-b-0">
+                              <button
+                                onClick={() => toggleExpand(group.market_id)}
+                                className="w-full px-4 py-4 flex items-center gap-3 hover:bg-white/[0.04] transition-colors duration-100 text-left"
+                              >
+                                <svg
+                                  className={`w-3.5 h-3.5 text-neutral-500 shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Link
+                                      href={`/free/${group.market_slug}`}
+                                      className="text-white text-sm font-semibold hover:underline truncate leading-snug"
+                                      target="_blank" rel="noopener noreferrer"
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      {group.market_title}
+                                    </Link>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 bg-apple-green/10 text-apple-green">
+                                      Resolved
+                                    </span>
+                                  </div>
+                                  <div className="text-neutral-600 text-xs mt-0.5">
+                                    {group.positions.length} word{group.positions.length !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4 md:gap-6 shrink-0">
+                                  <div className="text-right hidden sm:block">
+                                    <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Spent</div>
+                                    <div className="text-neutral-400 text-sm tabular-nums">{group.totalSpent.toFixed(0)}</div>
+                                  </div>
+                                  <div className="text-right hidden sm:block">
+                                    <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Received</div>
+                                    <div className="text-neutral-400 text-sm tabular-nums">{group.totalReceived.toFixed(0)}</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-[10px] text-neutral-600 uppercase tracking-widest">P&L</div>
+                                    <div className={`text-sm font-bold tabular-nums ${group.pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                      {group.pnl >= 0 ? '+' : ''}{group.pnl.toFixed(0)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                              {isExpanded && (
+                                <div className="border-t border-white/[0.04]">
+                                  <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr] gap-3 px-4 pl-11 py-2 text-[10px] text-neutral-700 uppercase tracking-widest font-medium" style={{ background: 'rgba(255,255,255,0.015)' }}>
+                                    <div>Word</div>
+                                    <div className="text-right">Spent</div>
+                                    <div className="text-right">Received</div>
+                                    <div className="text-right">P&L</div>
+                                  </div>
+                                  {group.positions.map(pos => {
+                                    const wordPnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
+                                    const yes = parseFloat(pos.yes_shares)
+                                    const no = parseFloat(pos.no_shares)
+                                    const hasYes = yes >= SHARE_THRESHOLD
+                                    const hasNo = no >= SHARE_THRESHOLD
+                                    return (
+                                      <div
+                                        key={pos.id}
+                                        className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 pl-4 md:pl-11 py-3 border-b border-white/[0.03] last:border-b-0"
+                                        style={{ background: 'rgba(255,255,255,0.015)' }}
+                                      >
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          {hasYes && (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-green/15 text-apple-green">
+                                              YES {yes.toFixed(2)}
+                                            </span>
+                                          )}
+                                          {hasNo && (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-red/15 text-apple-red">
+                                              NO {no.toFixed(2)}
+                                            </span>
+                                          )}
+                                          <span className="text-neutral-300 text-sm">{pos.word}</span>
+                                        </div>
+                                        <div className="flex md:block justify-between md:text-right items-center">
+                                          <span className="text-neutral-600 text-xs md:hidden">Spent</span>
+                                          <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex md:block justify-between md:text-right items-center">
+                                          <span className="text-neutral-600 text-xs md:hidden">Received</span>
+                                          <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_received).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex md:block justify-between md:text-right items-center">
+                                          <span className="text-neutral-600 text-xs md:hidden">P&L</span>
+                                          <span className={`text-sm font-bold tabular-nums ${wordPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                            {wordPnl >= 0 ? '+' : ''}{wordPnl.toFixed(2)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
                             </div>
-                            <div className="flex md:block justify-between md:text-center items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Action</span>
-                              <span className={`text-sm font-medium ${t.action === 'buy' ? 'text-apple-green' : 'text-apple-red'}`}>
-                                {t.action.charAt(0).toUpperCase() + t.action.slice(1)}
-                              </span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-center items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Side</span>
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block ${
-                                t.side === 'yes' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
-                              }`}>
-                                {t.side.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Shares</span>
-                              <span className="text-neutral-300 text-sm tabular-nums">{parseFloat(t.shares).toFixed(4)}</span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Cost</span>
-                              <span className={`text-sm font-medium tabular-nums ${t.action === 'sell' ? 'text-apple-green' : 'text-white'}`}>
-                                {t.action === 'sell' ? '+' : '-'}{Math.abs(parseFloat(t.cost)).toFixed(2)}
-                              </span>
-                            </div>
-                            <div className="flex md:block justify-between md:text-right items-center">
-                              <span className="text-neutral-600 text-xs md:hidden">Date</span>
-                              <span className="text-neutral-500 text-xs">{formatDate(Math.floor(new Date(t.created_at).getTime() / 1000))}</span>
-                            </div>
-                          </div>
-                        ))}
-                        <Pagination page={freeTradesPg.page} totalPages={freeTradesPg.totalPages} totalItems={freeTradesPg.totalItems} onPageChange={freeTradesPg.setPage} />
+                          )
+                        })}
+                        <Pagination page={freeHistoryPg.page} totalPages={freeHistoryPg.totalPages} totalItems={freeHistoryPg.totalItems} onPageChange={freeHistoryPg.setPage} />
                       </div>
                     )}
                   </div>

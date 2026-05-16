@@ -155,6 +155,17 @@ interface FreeMarketData {
   }
 }
 
+interface FreeMarketGroup {
+  market_id: number
+  market_title: string
+  market_status: string
+  market_slug: string
+  positions: FreePosition[]
+  totalSpent: number
+  totalReceived: number
+  pnl: number
+}
+
 interface PointHistoryEntry {
   points: number
   created_at: string
@@ -484,6 +495,7 @@ export default function ProfilePage() {
   const [profileMode, setProfileMode] = useState<ProfileMode>('free')
   const [freeOwnerTab, setFreeOwnerTab] = useState<FreeOwnerTab>('positions')
   const [freePublicTab, setFreePublicTab] = useState<FreePublicTab>('positions')
+  const [expandedMarkets, setExpandedMarkets] = useState<Set<number>>(new Set())
 
   // ── Shared state ───────────────────────────────────────
   const [ownerTab, setOwnerTab] = useState<OwnerTab>('positions')
@@ -930,20 +942,68 @@ export default function ProfilePage() {
     return closedPositions.filter(h => !q || (h.marketMetadata?.title ?? h.marketId).toLowerCase().includes(q))
   }, [profile, posFilter, search, closedPositions])
 
+  const SHARE_THRESHOLD = 0.01
+
+  const toggleExpand = useCallback((marketId: number) => {
+    setExpandedMarkets(prev => {
+      const next = new Set(prev)
+      if (next.has(marketId)) next.delete(marketId)
+      else next.add(marketId)
+      return next
+    })
+  }, [])
+
+  const freeMarketGroups = useMemo<FreeMarketGroup[]>(() => {
+    const positions = profile?.freeMarket?.positions ?? []
+    const map = new Map<number, FreeMarketGroup>()
+    for (const pos of positions) {
+      const yes = parseFloat(pos.yes_shares)
+      const no = parseFloat(pos.no_shares)
+      if (pos.market_status !== 'resolved' && yes < SHARE_THRESHOLD && no < SHARE_THRESHOLD) continue
+      if (!map.has(pos.market_id)) {
+        map.set(pos.market_id, {
+          market_id: pos.market_id,
+          market_title: pos.market_title,
+          market_status: pos.market_status,
+          market_slug: pos.market_slug || String(pos.market_id),
+          positions: [],
+          totalSpent: 0,
+          totalReceived: 0,
+          pnl: 0,
+        })
+      }
+      const group = map.get(pos.market_id)!
+      group.positions.push(pos)
+      group.totalSpent += parseFloat(pos.tokens_spent)
+      group.totalReceived += parseFloat(pos.tokens_received)
+      group.pnl = group.totalReceived - group.totalSpent
+    }
+    return Array.from(map.values())
+  }, [profile?.freeMarket?.positions])
+
+  const freeOpenMarkets = useMemo(
+    () => freeMarketGroups.filter(g => g.market_status !== 'resolved'),
+    [freeMarketGroups],
+  )
+  const freeHistoryMarkets = useMemo(
+    () => freeMarketGroups.filter(g => g.market_status === 'resolved'),
+    [freeMarketGroups],
+  )
+
   // ── Pagination ────────────────────────────────────────
   const ownerPosPg = usePagination(ownerPositions)
   const ownerOrdersPg = usePagination(openOrders)
   const ownerHistPg = usePagination(ownerHistory)
   const publicPosPg = usePagination<PublicPosition | HistoryEvent>(filteredPublicPositions)
   const publicHistPg = usePagination(profile?.history ?? [])
-  const freePosPg = usePagination(profile?.freeMarket?.positions ?? [])
-  const freeTradesPg = usePagination(profile?.freeMarket?.trades ?? [])
+  const freeOpenPg = usePagination(freeOpenMarkets)
+  const freeHistoryPg = usePagination(freeHistoryMarkets)
 
   // Reset to page 1 on tab / mode changes
   useEffect(() => {
     ownerPosPg.setPage(1); ownerOrdersPg.setPage(1); ownerHistPg.setPage(1)
     publicPosPg.setPage(1); publicHistPg.setPage(1)
-    freePosPg.setPage(1); freeTradesPg.setPage(1)
+    freeOpenPg.setPage(1); freeHistoryPg.setPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerTab, publicTab, freeOwnerTab, freePublicTab, profileMode])
 
@@ -1700,8 +1760,8 @@ export default function ProfilePage() {
         ) : (
           isOwnerView ? (
             ([
-              ['positions', 'Positions', profile.freeMarket.positions.length],
-              ['history', 'History', profile.freeMarket.trades.length],
+              ['positions', 'Positions', freeOpenMarkets.length],
+              ['history', 'History', freeHistoryMarkets.length],
               ['achievements', 'Achievements', unlockedCount],
             ] as [FreeOwnerTab, string, number][]).map(([key, label, count]) => (
               <button
@@ -2239,146 +2299,243 @@ export default function ProfilePage() {
           FREE MARKET TAB CONTENT
           ════════════════════════════════════════════════ */}
 
-      {/* Free: Positions (owner + public) */}
+      {/* Free: Open Positions (owner + public) */}
       <div style={{ display: profileMode === 'free' && (isOwnerView ? freeOwnerTab === 'positions' : freePublicTab === 'positions') ? undefined : 'none' }}>
-        {profile.freeMarket.positions.length === 0 ? (
+        {freeOpenMarkets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2">
-            <span className="text-neutral-500 text-sm">No free market positions</span>
+            <span className="text-neutral-500 text-sm">No open free market positions</span>
             <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">Browse free markets</Link>
           </div>
         ) : (
-          <>
-            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-              <span>Market / Word</span>
-              <span className="text-right">YES Shares</span>
-              <span className="text-right">NO Shares</span>
-              <span className="text-right">Tokens Spent</span>
-              <span className="text-right">Tokens Received</span>
-              <span className="text-right">Status</span>
-            </div>
-            {freePosPg.paged.map((pos: typeof profile.freeMarket.positions[0]) => {
-              const pnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+            {freeOpenPg.paged.map((group: FreeMarketGroup) => {
+              const isExpanded = expandedMarkets.has(group.market_id)
+              const statusClass = group.market_status === 'locked'
+                ? 'bg-yellow-500/10 text-yellow-400'
+                : 'bg-white/5 text-neutral-400'
+              const statusLabel = group.market_status.charAt(0).toUpperCase() + group.market_status.slice(1)
               return (
-                <div
-                  key={pos.id}
-                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-                >
-                  <div className="min-w-0">
-                    <Link href={`/free/${pos.market_slug}`} className="text-white text-sm font-medium truncate hover:underline block">
-                      {pos.market_title}
-                    </Link>
-                    <span className="text-neutral-500 text-xs">{pos.word}</span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">YES</span>
-                    <span className={`text-sm font-medium ${parseFloat(pos.yes_shares) > 0 ? 'text-apple-green' : 'text-neutral-500'}`}>
-                      {parseFloat(pos.yes_shares).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">NO</span>
-                    <span className={`text-sm font-medium ${parseFloat(pos.no_shares) > 0 ? 'text-apple-red' : 'text-neutral-500'}`}>
-                      {parseFloat(pos.no_shares).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Spent</span>
-                    <span className="text-white text-sm">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Received</span>
-                    <span className="text-white text-sm">{parseFloat(pos.tokens_received).toFixed(2)}</span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Status</span>
-                    <div>
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        pos.market_status === 'open' ? 'text-apple-green bg-apple-green/10' :
-                        pos.market_status === 'resolved' ? 'text-neutral-300 bg-white/5' :
-                        'text-yellow-400 bg-yellow-400/10'
-                      }`}>
-                        {pos.market_status.charAt(0).toUpperCase() + pos.market_status.slice(1)}
-                      </span>
-                      {pnl !== 0 && (
-                        <span className={`block text-[10px] mt-0.5 ${pnl > 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                          {pnl > 0 ? '+' : ''}{pnl.toFixed(2)} tokens
+                <div key={group.market_id} className="border-b border-white/[0.04] last:border-b-0">
+                  <button
+                    onClick={() => toggleExpand(group.market_id)}
+                    className="w-full px-4 py-4 flex items-center gap-3 hover:bg-white/[0.04] transition-colors duration-100 text-left"
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 text-neutral-500 shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/free/${group.market_slug}`}
+                          className="text-white text-sm font-semibold hover:underline truncate leading-snug"
+                          target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {group.market_title}
+                        </Link>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${statusClass}`}>
+                          {statusLabel}
                         </span>
-                      )}
+                      </div>
+                      <div className="text-neutral-600 text-xs mt-0.5">
+                        {group.positions.length} word{group.positions.length !== 1 ? 's' : ''}
+                      </div>
                     </div>
-                  </div>
+                    <div className="flex items-center gap-4 md:gap-6 shrink-0">
+                      <div className="text-right hidden sm:block">
+                        <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Spent</div>
+                        <div className="text-neutral-400 text-sm tabular-nums">{group.totalSpent.toFixed(0)}</div>
+                      </div>
+                      <div className="text-right hidden sm:block">
+                        <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Received</div>
+                        <div className="text-neutral-400 text-sm tabular-nums">{group.totalReceived.toFixed(0)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] text-neutral-600 uppercase tracking-widest">P&L</div>
+                        <div className={`text-sm font-bold tabular-nums ${group.pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                          {group.pnl >= 0 ? '+' : ''}{group.pnl.toFixed(0)}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t border-white/[0.04]">
+                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr] gap-3 px-4 pl-11 py-2 text-[10px] text-neutral-700 uppercase tracking-widest font-medium" style={{ background: 'rgba(255,255,255,0.015)' }}>
+                        <div>Word</div>
+                        <div className="text-right">Spent</div>
+                        <div className="text-right">Received</div>
+                        <div className="text-right">P&L</div>
+                      </div>
+                      {group.positions.map((pos: FreePosition) => {
+                        const wordPnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
+                        const yes = parseFloat(pos.yes_shares)
+                        const no = parseFloat(pos.no_shares)
+                        const hasYes = yes >= SHARE_THRESHOLD
+                        const hasNo = no >= SHARE_THRESHOLD
+                        return (
+                          <div
+                            key={pos.id}
+                            className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 pl-4 md:pl-11 py-3 border-b border-white/[0.03] last:border-b-0"
+                            style={{ background: 'rgba(255,255,255,0.015)' }}
+                          >
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {hasYes && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-green/15 text-apple-green">
+                                  YES {yes.toFixed(2)}
+                                </span>
+                              )}
+                              {hasNo && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-red/15 text-apple-red">
+                                  NO {no.toFixed(2)}
+                                </span>
+                              )}
+                              <span className="text-neutral-300 text-sm">{pos.word}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Spent</span>
+                              <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Received</span>
+                              <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_received).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">P&L</span>
+                              <span className={`text-sm font-bold tabular-nums ${wordPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                {wordPnl >= 0 ? '+' : ''}{wordPnl.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )
             })}
-              <Pagination page={freePosPg.page} totalPages={freePosPg.totalPages} totalItems={freePosPg.totalItems} onPageChange={freePosPg.setPage} />
-          </>
+            <Pagination page={freeOpenPg.page} totalPages={freeOpenPg.totalPages} totalItems={freeOpenPg.totalItems} onPageChange={freeOpenPg.setPage} />
+          </div>
         )}
       </div>
 
-      {/* Free: Trade History (owner) / Activity (public) */}
+      {/* Free: Resolved History (owner) / Activity (public) */}
       <div style={{ display: profileMode === 'free' && (isOwnerView ? freeOwnerTab === 'history' : freePublicTab === 'activity') ? undefined : 'none' }}>
-        {profile.freeMarket.trades.length === 0 ? (
+        {freeHistoryMarkets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2">
-            <span className="text-neutral-500 text-sm">No free market trades yet</span>
+            <span className="text-neutral-500 text-sm">No resolved free market positions yet</span>
             <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">Browse free markets</Link>
           </div>
         ) : (
-          <>
-            <div className="hidden md:grid grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-              <span>Market / Word</span>
-              <span className="text-center">Action</span>
-              <span className="text-right">Shares</span>
-              <span className="text-right">Cost</span>
-              <span className="text-right">Price After</span>
-              <span className="text-right">Date</span>
-            </div>
-            {freeTradesPg.paged.map((t: typeof profile.freeMarket.trades[0]) => (
-              <div
-                key={t.id}
-                className="grid grid-cols-1 md:grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
-                      t.side === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
-                    }`}>
-                      {t.side}
-                    </span>
-                    <Link href={`/free/${t.market_slug}`} className="text-white text-sm font-medium truncate hover:underline">
-                      {t.market_title}
-                    </Link>
-                  </div>
-                  <span className="text-neutral-500 text-xs">{t.word}</span>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+            {freeHistoryPg.paged.map((group: FreeMarketGroup) => {
+              const isExpanded = expandedMarkets.has(group.market_id)
+              return (
+                <div key={group.market_id} className="border-b border-white/[0.04] last:border-b-0">
+                  <button
+                    onClick={() => toggleExpand(group.market_id)}
+                    className="w-full px-4 py-4 flex items-center gap-3 hover:bg-white/[0.04] transition-colors duration-100 text-left"
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 text-neutral-500 shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/free/${group.market_slug}`}
+                          className="text-white text-sm font-semibold hover:underline truncate leading-snug"
+                          target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {group.market_title}
+                        </Link>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 bg-apple-green/10 text-apple-green">
+                          Resolved
+                        </span>
+                      </div>
+                      <div className="text-neutral-600 text-xs mt-0.5">
+                        {group.positions.length} word{group.positions.length !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 md:gap-6 shrink-0">
+                      <div className="text-right hidden sm:block">
+                        <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Spent</div>
+                        <div className="text-neutral-400 text-sm tabular-nums">{group.totalSpent.toFixed(0)}</div>
+                      </div>
+                      <div className="text-right hidden sm:block">
+                        <div className="text-[10px] text-neutral-600 uppercase tracking-widest">Received</div>
+                        <div className="text-neutral-400 text-sm tabular-nums">{group.totalReceived.toFixed(0)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] text-neutral-600 uppercase tracking-widest">P&L</div>
+                        <div className={`text-sm font-bold tabular-nums ${group.pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                          {group.pnl >= 0 ? '+' : ''}{group.pnl.toFixed(0)}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t border-white/[0.04]">
+                      <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr] gap-3 px-4 pl-11 py-2 text-[10px] text-neutral-700 uppercase tracking-widest font-medium" style={{ background: 'rgba(255,255,255,0.015)' }}>
+                        <div>Word</div>
+                        <div className="text-right">Spent</div>
+                        <div className="text-right">Received</div>
+                        <div className="text-right">P&L</div>
+                      </div>
+                      {group.positions.map((pos: FreePosition) => {
+                        const wordPnl = parseFloat(pos.tokens_received) - parseFloat(pos.tokens_spent)
+                        const yes = parseFloat(pos.yes_shares)
+                        const no = parseFloat(pos.no_shares)
+                        const hasYes = yes >= SHARE_THRESHOLD
+                        const hasNo = no >= SHARE_THRESHOLD
+                        return (
+                          <div
+                            key={pos.id}
+                            className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 pl-4 md:pl-11 py-3 border-b border-white/[0.03] last:border-b-0"
+                            style={{ background: 'rgba(255,255,255,0.015)' }}
+                          >
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {hasYes && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-green/15 text-apple-green">
+                                  YES {yes.toFixed(2)}
+                                </span>
+                              )}
+                              {hasNo && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-apple-red/15 text-apple-red">
+                                  NO {no.toFixed(2)}
+                                </span>
+                              )}
+                              <span className="text-neutral-300 text-sm">{pos.word}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Spent</span>
+                              <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_spent).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">Received</span>
+                              <span className="text-neutral-400 text-sm tabular-nums">{parseFloat(pos.tokens_received).toFixed(2)}</span>
+                            </div>
+                            <div className="flex md:block justify-between md:text-right items-center">
+                              <span className="text-neutral-600 text-xs md:hidden">P&L</span>
+                              <span className={`text-sm font-bold tabular-nums ${wordPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                                {wordPnl >= 0 ? '+' : ''}{wordPnl.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div className="flex md:block justify-between md:text-center">
-                  <span className="text-neutral-500 text-xs md:hidden">Action</span>
-                  <span className={`text-sm font-semibold ${t.action === 'buy' ? 'text-apple-green' : 'text-apple-red'}`}>
-                    {t.action === 'buy' ? 'Buy' : 'Sell'}
-                  </span>
-                </div>
-                <div className="flex md:block justify-between md:text-right">
-                  <span className="text-neutral-500 text-xs md:hidden">Shares</span>
-                  <span className="text-white text-sm">{parseFloat(t.shares).toFixed(2)}</span>
-                </div>
-                <div className="flex md:block justify-between md:text-right">
-                  <span className="text-neutral-500 text-xs md:hidden">Cost</span>
-                  <span className="text-white text-sm">{parseFloat(t.cost).toFixed(2)}</span>
-                </div>
-                <div className="flex md:block justify-between md:text-right">
-                  <span className="text-neutral-500 text-xs md:hidden">Price After</span>
-                  <span className="text-neutral-300 text-sm">
-                    Y: {(parseFloat(t.yes_price) * 100).toFixed(0)}% / N: {(parseFloat(t.no_price) * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <div className="flex md:block justify-between md:text-right">
-                  <span className="text-neutral-500 text-xs md:hidden">Date</span>
-                  <span className="text-neutral-400 text-xs">
-                    {new Date(t.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                  </span>
-                </div>
-              </div>
-            ))}
-              <Pagination page={freeTradesPg.page} totalPages={freeTradesPg.totalPages} totalItems={freeTradesPg.totalItems} onPageChange={freeTradesPg.setPage} />
-          </>
+              )
+            })}
+            <Pagination page={freeHistoryPg.page} totalPages={freeHistoryPg.totalPages} totalItems={freeHistoryPg.totalItems} onPageChange={freeHistoryPg.setPage} />
+          </div>
         )}
       </div>
 
