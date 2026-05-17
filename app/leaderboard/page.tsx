@@ -8,13 +8,14 @@ function isArenaActive(): boolean {
   return now >= ARENA_START && now < ARENA_END
 }
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import InfoTooltip from '@/components/InfoTooltip'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import UserProfilePopup from '@/components/UserProfilePopup'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -137,6 +138,7 @@ function RankedRow({
   isYou,
   index,
   maxPts,
+  onOpenPopup,
 }: {
   rank: number
   entry: PointsEntry
@@ -144,6 +146,7 @@ function RankedRow({
   isYou: boolean
   index: number
   maxPts: number
+  onOpenPopup: (identifier: string, el: HTMLElement) => void
 }) {
   const pts = sort === 'alltime' ? entry.allTimePoints : entry.weeklyPoints
   const name = entry.username || truncateWallet(entry.wallet)
@@ -154,9 +157,12 @@ function RankedRow({
   const barWidth = maxPts > 0 ? Math.max(2, (pts / maxPts) * 100) : 0
 
   return (
-    <Link
-      href={`/profile/${entry.username ?? entry.wallet}`}
-      className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 hover:bg-white/[0.04]"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={(e) => onOpenPopup(entry.username ?? entry.wallet, e.currentTarget)}
+      onKeyDown={(e) => e.key === 'Enter' && onOpenPopup(entry.username ?? entry.wallet, e.currentTarget)}
+      className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 hover:bg-white/[0.04] cursor-pointer"
       style={{
         background: isYou ? 'rgba(242,183,31,0.04)' : isTop5 ? a.bg : index % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent',
         borderLeft: isYou ? '2px solid rgba(242,183,31,0.4)' : isTop5 ? `2px solid ${a.ring}` : '2px solid transparent',
@@ -229,7 +235,7 @@ function RankedRow({
       ) : (
         <span className="w-8 flex-shrink-0" />
       ))}
-    </Link>
+    </div>
   )
 }
 
@@ -400,6 +406,11 @@ export default function LeaderboardPage() {
   const [sort, setSort] = useState<PointsSortKey>('this')
   const [countdown, setCountdown] = useState('')
   const [userEntry, setUserEntry] = useState<PointsEntry | null>(null)
+  const [popupTarget, setPopupTarget] = useState<string | null>(null)
+
+  function handleOpenPopup(identifier: string, _el: HTMLElement) {
+    setPopupTarget(identifier)
+  }
 
   useEffect(() => {
     const tick = () => setCountdown(formatCountdown(getMsUntilNextMonday()))
@@ -567,6 +578,7 @@ export default function LeaderboardPage() {
                           isYou={publicKey === e.wallet}
                           index={i}
                           maxPts={maxPts}
+                          onOpenPopup={handleOpenPopup}
                         />
                       ))}
 
@@ -594,6 +606,11 @@ export default function LeaderboardPage() {
           </div>
         </div>
       </div>
+
+      <UserProfilePopup
+        identifier={popupTarget}
+        onClose={() => setPopupTarget(null)}
+      />
     </div>
   )
 }
