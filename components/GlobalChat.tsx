@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
+import UserProfilePopup from '@/components/UserProfilePopup'
 
 interface ChatMessage {
   id: number
@@ -36,6 +37,7 @@ export default function GlobalChat() {
   const unreadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initialScrollDoneRef = useRef(false)
+  const [popupTarget, setPopupTarget] = useState<string | null>(null)
 
   // ── SSE connection (only when open) ────────────────────
   const connectSSE = useCallback(() => {
@@ -304,9 +306,12 @@ export default function GlobalChat() {
                 {isOwn ? (
                   <span className="text-xs font-semibold text-apple-green">{msg.username}</span>
                 ) : (
-                  <Link href={`/profile/${msg.wallet}`} className="text-xs font-semibold text-white hover:text-apple-blue transition-colors">
+                  <button
+                    className="text-xs font-semibold text-white hover:text-apple-blue transition-colors"
+                    onClick={() => setPopupTarget(msg.wallet)}
+                  >
                     {msg.username}
-                  </Link>
+                  </button>
                 )}
                 <span className="text-[10px] text-neutral-600">
                   {formatTime(msg.created_at)}
@@ -351,6 +356,11 @@ export default function GlobalChat() {
           </p>
         )}
       </div>
+
+      <UserProfilePopup
+        identifier={popupTarget}
+        onClose={() => setPopupTarget(null)}
+      />
     </div>
   )
 }

@@ -1460,6 +1460,71 @@ export async function getWalletFreeMarketStats(wallet: string): Promise<{
   }
 }
 
+export async function getWalletPopupData(wallet: string): Promise<{
+  allTimePoints: number
+  totalTrades: number
+  tokenPnl: number
+  winRate: number | null
+  recentTrades: Array<{
+    marketTitle: string
+    word: string
+    action: string
+    side: string
+    cost: number
+    createdAt: string
+    marketSlug: string | null
+  }>
+}> {
+  const [statsResult, winResult, tradesResult] = await Promise.all([
+    pool.query(
+      `SELECT
+         (SELECT COALESCE(SUM(points), 0)::int FROM point_events WHERE wallet = $1) AS all_time_points,
+         (SELECT COUNT(*)::int FROM custom_market_trades WHERE wallet = $1) AS total_trades,
+         (SELECT COALESCE(SUM(p.tokens_received::numeric) - SUM(p.tokens_spent::numeric), 0)::float
+          FROM custom_market_positions p WHERE p.wallet = $1) AS token_pnl`,
+      [wallet],
+    ),
+    pool.query(
+      `SELECT
+         COUNT(CASE WHEN p.tokens_received::numeric > p.tokens_spent::numeric THEN 1 END)::int AS wins,
+         COUNT(CASE WHEN p.tokens_received::numeric > 0 OR p.tokens_spent::numeric > 0 THEN 1 END)::int AS total
+       FROM custom_market_positions p
+       WHERE p.wallet = $1`,
+      [wallet],
+    ),
+    pool.query(
+      `SELECT t.action, t.side, t.cost, t.created_at, w.word, m.title AS market_title, m.slug AS market_slug
+       FROM custom_market_trades t
+       JOIN custom_market_words w ON w.id = t.word_id
+       JOIN custom_markets m ON m.id = t.market_id
+       WHERE t.wallet = $1
+       ORDER BY t.created_at DESC
+       LIMIT 5`,
+      [wallet],
+    ),
+  ])
+
+  const s = statsResult.rows[0]
+  const w = winResult.rows[0]
+  const winRate = w?.total > 0 ? w.wins / w.total : null
+
+  return {
+    allTimePoints: s?.all_time_points ?? 0,
+    totalTrades: s?.total_trades ?? 0,
+    tokenPnl: s?.token_pnl ?? 0,
+    winRate,
+    recentTrades: tradesResult.rows.map((r) => ({
+      marketTitle: r.market_title,
+      word: r.word,
+      action: r.action,
+      side: r.side,
+      cost: Number(r.cost),
+      createdAt: r.created_at,
+      marketSlug: r.market_slug,
+    })),
+  }
+}
+
 // ── Custom Markets ───────────────────────────────────
 
 export interface CustomMarketRow {

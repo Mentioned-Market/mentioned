@@ -7,6 +7,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import UserProfilePopup from '@/components/UserProfilePopup'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ export default function TeamProfilePage() {
   const [notFound, setNotFound] = useState(false)
   const [sort, setSort] = useState<'weekly' | 'alltime'>('weekly')
   const [copied, setCopied] = useState(false)
+  const [popupTarget, setPopupTarget] = useState<string | null>(null)
 
   useEffect(() => {
     if (!teamSlug) return
@@ -580,10 +582,13 @@ export default function TeamProfilePage() {
                         const barWidth = maxPts > 0 ? Math.max(2, (pts / maxPts) * 100) : 0
 
                         return (
-                          <Link
+                          <div
                             key={m.wallet}
-                            href={`/profile/${m.username ?? m.wallet}`}
-                            className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 hover:bg-white/[0.04]"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setPopupTarget(m.username ?? m.wallet)}
+                            onKeyDown={(e) => e.key === 'Enter' && setPopupTarget(m.username ?? m.wallet)}
+                            className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 hover:bg-white/[0.04] cursor-pointer"
                             style={{
                               background: isYou ? 'rgba(242,183,31,0.04)' : i % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent',
                               borderLeft: isYou ? '2px solid rgba(242,183,31,0.4)' : '2px solid transparent',
@@ -624,7 +629,7 @@ export default function TeamProfilePage() {
                             <span className="text-sm font-bold tabular-nums flex-shrink-0" style={{ color: '#737373' }}>
                               {pts.toLocaleString()}
                             </span>
-                          </Link>
+                          </div>
                         )
                       })}
                     </div>
@@ -703,6 +708,11 @@ export default function TeamProfilePage() {
           </div>
         </div>
       </div>
+
+      <UserProfilePopup
+        identifier={popupTarget}
+        onClose={() => setPopupTarget(null)}
+      />
     </div>
   )
 }

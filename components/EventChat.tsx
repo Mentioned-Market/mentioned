@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
+import UserProfilePopup from '@/components/UserProfilePopup'
 
 interface ChatMessage {
   id: number
@@ -79,6 +80,7 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const positionCache = useRef<Map<string, UserPosition[]>>(new Map())
   const customPositionCache = useRef<Map<string, CustomPosition[]>>(new Map())
+  const [popupTarget, setPopupTarget] = useState<string | null>(null)
 
   // ── Initial load ───────────────────────────────────────
   const fetchInitialMessages = useCallback(async () => {
@@ -407,23 +409,16 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
                   <span className="text-xs">{msg.pfp_emoji}</span>
                 )}
                 {isOwn ? (
-                  <Link
-                    href={`/profile/${msg.username}`}
-                    className="text-xs font-semibold text-apple-green hover:underline transition-colors"
-                    onMouseEnter={(e) => handleMouseEnter(msg.wallet, e)}
-                    onMouseLeave={handleMouseLeave}
-                  >
-                    {msg.username}
-                  </Link>
+                  <span className="text-xs font-semibold text-apple-green">{msg.username}</span>
                 ) : (
-                  <Link
-                    href={`/profile/${msg.wallet}`}
+                  <button
                     className="text-xs font-semibold text-white hover:text-apple-blue transition-colors"
+                    onClick={() => setPopupTarget(msg.wallet)}
                     onMouseEnter={(e) => handleMouseEnter(msg.wallet, e)}
                     onMouseLeave={handleMouseLeave}
                   >
                     {msg.username}
-                  </Link>
+                  </button>
                 )}
                 <span className="text-[10px] text-neutral-600">
                   {formatTime(msg.created_at)}
@@ -540,6 +535,11 @@ export default function EventChat({ eventId, marketIds }: EventChatProps) {
           </p>
         )}
       </div>
+
+      <UserProfilePopup
+        identifier={popupTarget}
+        onClose={() => setPopupTarget(null)}
+      />
     </div>
   )
 }

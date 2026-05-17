@@ -31,8 +31,8 @@ function formatTokens(cost: number | string | null | undefined): string {
   if (cost == null) return ''
   const n = Number(cost)
   if (isNaN(n)) return ''
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toFixed(1)
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  return String(Math.round(n))
 }
 
 function timeAgo(isoDate: string): string {
@@ -97,7 +97,7 @@ function TradeChip({ trade }: { trade: TradeItem }) {
       </Link>
       <span className={`text-xs font-semibold ${labelColor}`}>{label}</span>
       {isFree ? (
-        <span className="text-[#F2B71F] text-xs font-bold">{formatTokens(trade.cost)} pts</span>
+        <span className="text-[#F2B71F] text-xs font-bold">{formatTokens(trade.cost)} tokens</span>
       ) : (
         <span className="text-white text-xs font-bold">{formatAmount(trade.amountUsd)}</span>
       )}
