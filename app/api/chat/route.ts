@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRecentChatMessages, insertChatMessage, getProfile, getChatPointsCountToday } from '@/lib/db'
+import { getRecentChatMessages, insertChatMessage, getProfile, getChatPointsCountToday, countChatDaysThisWeek } from '@/lib/db'
 import { awardPoints, POINT_CONFIG } from '@/lib/points'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { checkSlurs } from '@/lib/chatFilter'
@@ -71,12 +71,13 @@ export async function POST(req: NextRequest) {
   // Chat achievements
   const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
   try {
-    const push = (a: Awaited<ReturnType<typeof tryUnlockAchievement>>) => {
-      if (a) newAchievements.push({ id: a.id, emoji: a.emoji, title: a.title, points: a.points })
+    const days = await countChatDaysThisWeek(wallet)
+    if (days >= 3) {
+      const ach = await tryUnlockAchievement(wallet, 'chatterbox')
+      if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
     }
-    push(await tryUnlockAchievement(wallet, 'send_chat'))
   } catch (err) {
-    console.error('Achievement error (chat):', err)
+    console.error('Achievement error (chatterbox):', err)
   }
 
   return NextResponse.json({ ...row, newAchievements })

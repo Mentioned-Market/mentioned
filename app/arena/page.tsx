@@ -60,6 +60,10 @@ function getCountdownState(): { label: string; ms: number } {
   return { label: 'Arena ends in', ms: COMP_CLOSE.getTime() - now }
 }
 
+function isCompEnded(): boolean {
+  return Date.now() >= COMP_CLOSE.getTime()
+}
+
 const ACCENTS = {
   1: { color: '#F2B71F', ring: 'rgba(242,183,31,0.5)', bg: 'rgba(242,183,31,0.06)' },
   2: { color: '#9ba8b5', ring: 'rgba(155,168,181,0.4)', bg: 'rgba(155,168,181,0.04)' },
@@ -715,28 +719,30 @@ export default function TeamsPage() {
 
               {/* Sidebar */}
               <div className="w-full lg:w-72 flex-shrink-0 flex flex-col gap-4 animate-fade-in" style={{ animationDelay: '160ms', animationFillMode: 'both' }}>
-                {/* Countdown — centered above YOUR TEAM */}
-                <div
-                  className="flex flex-col items-center justify-center py-3 rounded-2xl"
-                  style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.15)' }}
-                  suppressHydrationWarning
-                >
-                  <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-1" suppressHydrationWarning>{countdownLabel}</span>
-                  <span className="text-3xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
-                    {countdown}
-                  </span>
-                </div>
+                {isCompEnded() ? (
+                  <div
+                    className="flex flex-col items-center justify-center py-4 px-4 rounded-2xl text-center gap-1"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <span className="text-neutral-500 text-[9px] uppercase tracking-widest leading-none mb-0.5">Competition</span>
+                    <span className="text-xl font-black text-white">Ended</span>
+                    <span className="text-neutral-600 text-[11px] mt-0.5">May 4 – 17, 2026</span>
+                  </div>
+                ) : (
+                  <div
+                    className="flex flex-col items-center justify-center py-3 rounded-2xl"
+                    style={{ background: 'rgba(242,183,31,0.06)', border: '1px solid rgba(242,183,31,0.15)' }}
+                    suppressHydrationWarning
+                  >
+                    <span className="text-[9px] text-neutral-600 uppercase tracking-widest leading-none mb-1" suppressHydrationWarning>{countdownLabel}</span>
+                    <span className="text-3xl font-black tabular-nums leading-none" style={{ color: '#F2B71F' }} suppressHydrationWarning>
+                      {countdown}
+                    </span>
+                  </div>
+                )}
 
-                {myTeam !== undefined && (
-                  myTeam ? (
-                    <MyTeamCard team={myTeam} />
-                  ) : (
-                    <NoTeamCard
-                      connected={connected}
-                      onCreate={() => setShowCreate(true)}
-                      onJoin={() => setShowJoin(true)}
-                    />
-                  )
+                {myTeam !== undefined && myTeam && (
+                  <MyTeamCard team={myTeam} />
                 )}
                 <HowTeamsWorkCard />
               </div>

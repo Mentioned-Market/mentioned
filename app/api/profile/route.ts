@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, upsertProfile, updatePfpEmoji, getUnlockedAchievements, ensureReferralCode, getReferralStats } from '@/lib/db'
-import { tryUnlockAchievement, ACHIEVEMENT_MAP } from '@/lib/achievements'
+import { ACHIEVEMENT_MAP } from '@/lib/achievements'
 import { checkSlurs } from '@/lib/chatFilter'
 import { getVerifiedWallet } from '@/lib/walletAuth'
 
@@ -94,16 +94,7 @@ export async function PUT(req: NextRequest) {
   try {
     await upsertProfile(wallet, trimmed)
 
-    // Fire-and-forget achievement — but collect result for toast
-    const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
-    try {
-      const ach = await tryUnlockAchievement(wallet, 'set_profile')
-      if (ach) newAchievements.push({ id: ach.id, emoji: ach.emoji, title: ach.title, points: ach.points })
-    } catch (err) {
-      console.error('Achievement error (nickname):', err)
-    }
-
-    return NextResponse.json({ success: true, newAchievements })
+    return NextResponse.json({ success: true, newAchievements: [] })
   } catch (err: unknown) {
     const msg = (err as Error).message || ''
     if (msg.includes('user_profiles_username_key')) {

@@ -1,8 +1,4 @@
-import { unlockAchievement, insertPointEvent } from './db'
-
-// Pinned to arena start — achievements do not rotate weekly during The Arena (May 4–18 2026).
-// After the arena, remove this constant and restore `getWeekStart(at)` in tryUnlockAchievement.
-const ARENA_WEEK_START = '2026-05-04'
+import { unlockAchievement, insertPointEvent, getWeekStart } from './db'
 
 // ── Achievement Definitions ─────────────────────────────
 
@@ -14,61 +10,34 @@ export interface AchievementDef {
   points: number
 }
 
-/**
- * Weekly achievements — rotated each week by replacing this array.
- * Each week's set should encourage a mix of actions (trading, chatting,
- * profile setup, free markets) so users engage broadly with the platform.
- *
- * When rotating: clear user_achievements table, update this array,
- * and redeploy / restart the server.
- *
- * Daily login tiers (daily_login_3 / _5 / _7) are permanent fixtures —
- * they are awarded by POST /api/visit based on the user_visit_logs table
- * and should always be present here.
- */
 export const ACHIEVEMENTS: AchievementDef[] = [
   {
-    id: 'send_chat',
+    id: 'trade_3_markets',
+    emoji: '🗺️',
+    title: 'Market Explorer',
+    description: 'Trade on 3 different markets in a week',
+    points: 35,
+  },
+  {
+    id: 'contrarian',
+    emoji: '🎲',
+    title: 'Against the Grain',
+    description: 'Win a trade on the minority side (>60% against you)',
+    points: 50,
+  },
+  {
+    id: 'chatterbox',
     emoji: '💬',
-    title: 'Say Something',
-    description: 'Send a message in any chat',
-    points: 40,
+    title: 'Chatterbox',
+    description: 'Send messages on 3 different days this week',
+    points: 35,
   },
   {
-    id: 'full_house',
-    emoji: '🏠',
-    title: 'Full House',
-    description: 'All 3 teammates each place a trade on the same day',
-    points: 100,
-  },
-  {
-    id: 'free_trade',
-    emoji: '🎮',
-    title: 'Play Money',
-    description: 'Place a trade on a free market',
-    points: 60,
-  },
-  {
-    id: 'win_free_trade',
-    emoji: '🏆',
-    title: 'Cashed Out',
-    description: 'Win a free market trade',
-    points: 100,
-  },
-  // refer_friend hidden during Arena comp (May 4–May 18 2026) — kept for future use
-  // {
-  //   id: 'refer_friend',
-  //   emoji: '🤝',
-  //   title: 'Bring a Friend',
-  //   description: 'Refer a new user to Mentioned',
-  //   points: 100,
-  // },
-  {
-    id: 'market_sweep',
-    emoji: '🌊',
-    title: 'Market Sweep',
-    description: 'Your team trades on 5+ different markets this week',
-    points: 150,
+    id: 'hat_trick',
+    emoji: '🎩',
+    title: 'Hat Trick',
+    description: 'Win 3 markets in one week',
+    points: 50,
   },
   // Daily login streak — tiered, stacking
   {
@@ -76,21 +45,14 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     emoji: '📅',
     title: 'Showing Up',
     description: 'Visit Mentioned 3 days this week',
-    points: 50,
+    points: 25,
   },
   {
     id: 'daily_login_5',
     emoji: '🗓️',
     title: 'Regular',
     description: 'Visit Mentioned 5 days this week',
-    points: 75,
-  },
-  {
-    id: 'daily_login_7',
-    emoji: '🔥',
-    title: 'Every Day',
-    description: 'Visit Mentioned every day of a week during The Arena',
-    points: 100,
+    points: 38,
   },
 ]
 
@@ -100,15 +62,6 @@ export const ACHIEVEMENT_MAP = Object.fromEntries(
 
 // ── Unlock Logic ────────────────────────────────────────
 
-/**
- * Try to unlock an achievement for a wallet.
- * Returns the achievement def if newly unlocked, or null if already had it.
- * Safe to call repeatedly — UNIQUE constraint deduplicates.
- *
- * `at` overrides the timestamp the achievement is recorded against — used when an
- * unlock is derived from a market that ended in a prior week, so the achievement
- * row, the bonus point event's ref_id, and its created_at all align to that week.
- */
 export async function tryUnlockAchievement(
   wallet: string,
   achievementId: string,
@@ -117,12 +70,10 @@ export async function tryUnlockAchievement(
   const def = ACHIEVEMENT_MAP[achievementId]
   if (!def) return null
 
-  const week = ARENA_WEEK_START
+  const week = getWeekStart(at)
   const unlocked = await unlockAchievement(wallet, achievementId, def.points, week)
   if (!unlocked) return null
 
-  // Award bonus points — ref_id includes week_start so the same achievement ID
-  // can be awarded again in a new week without hitting the ON CONFLICT dedup.
   if (def.points > 0) {
     await insertPointEvent(wallet, 'achievement', def.points, `ach:${achievementId}:${week}`, undefined, at)
   }

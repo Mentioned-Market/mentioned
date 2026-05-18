@@ -5,6 +5,8 @@ import {
   getMarketPositionsForScoring,
   insertMarketResults,
   getCustomMarket,
+  countMarketWinsThisWeek,
+  hasContrarianWinTrade,
 } from './db'
 import { tryUnlockAchievement } from './achievements'
 
@@ -72,10 +74,18 @@ export async function resolveAndScoreVirtualMarket(marketId: number): Promise<vo
         { marketId, net, multiplier: VIRTUAL_MARKET_POINTS_MULTIPLIER },
         effectiveAt,
       )
-      // Award win achievement (idempotent within a week)
-      tryUnlockAchievement(wallet, 'win_free_trade', effectiveAt).catch(err =>
-        console.error(`Achievement error (win_free_trade) for ${wallet}:`, err),
-      )
+      // Hat trick — win 3 markets in one week
+      countMarketWinsThisWeek(wallet)
+        .then(wins => {
+          if (wins >= 3) return tryUnlockAchievement(wallet, 'hat_trick', effectiveAt)
+        })
+        .catch(err => console.error(`Achievement error (hat_trick) for ${wallet}:`, err))
+      // Contrarian — won on the minority side (>60% against them at trade time)
+      hasContrarianWinTrade(wallet, marketId)
+        .then(isContrarian => {
+          if (isContrarian) return tryUnlockAchievement(wallet, 'contrarian', effectiveAt)
+        })
+        .catch(err => console.error(`Achievement error (contrarian) for ${wallet}:`, err))
     }
   }
 }
