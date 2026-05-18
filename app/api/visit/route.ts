@@ -8,7 +8,6 @@ import { getClientIp } from '@/lib/clientIp'
 const LOGIN_TIERS = [
   { days: 3, id: 'daily_login_3' },
   { days: 5, id: 'daily_login_5' },
-  { days: 7, id: 'daily_login_7' },
 ] as const
 
 export async function POST(req: NextRequest) {

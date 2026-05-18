@@ -1314,18 +1314,12 @@ export async function unlockAchievement(
   return (result.rowCount ?? 0) > 0
 }
 
-/**
- * Get achievements unlocked this week for a wallet (for PFP unlock validation).
- */
-// Pinned for The Arena (May 4–18 2026) — restore getWeekStart() after the arena.
-const ARENA_WEEK_START = '2026-05-04'
-
 export async function getUnlockedAchievements(
   wallet: string,
 ): Promise<{ achievement_id: string; unlocked_at: string }[]> {
   const result = await pool.query(
     `SELECT achievement_id, unlocked_at FROM user_achievements WHERE wallet = $1 AND week_start = $2`,
-    [wallet, ARENA_WEEK_START],
+    [wallet, getWeekStart()],
   )
   return result.rows
 }
@@ -1347,10 +1341,11 @@ export async function backfillAchievementPoints(wallet: string): Promise<void> {
            AND pe.action = 'achievement'
            AND pe.ref_id = 'ach:' || ua.achievement_id || ':' || $2
        )`,
-    [wallet, ARENA_WEEK_START],
+    [wallet, getWeekStart()],
   )
+  const week = getWeekStart()
   for (const row of result.rows) {
-    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}:${ARENA_WEEK_START}`)
+    await insertPointEvent(wallet, 'achievement', row.points_awarded, `ach:${row.achievement_id}:${week}`)
   }
 }
 
@@ -2940,6 +2935,59 @@ export async function checkTeamFullHouseToday(wallet: string): Promise<boolean> 
     [wallet],
   )
   return result.rows[0]?.all_traded ?? false
+}
+
+export async function countWalletDistinctMarketsThisWeek(wallet: string): Promise<number> {
+  const result = await pool.query<{ c: string }>(
+    `SELECT COUNT(DISTINCT market_id)::text AS c
+     FROM custom_market_trades
+     WHERE wallet = $1
+       AND created_at >= date_trunc('week', NOW() AT TIME ZONE 'UTC')`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.c ?? '0', 10)
+}
+
+export async function countChatDaysThisWeek(wallet: string): Promise<number> {
+  const result = await pool.query<{ c: string }>(
+    `SELECT COUNT(DISTINCT date_trunc('day', created_at AT TIME ZONE 'UTC'))::text AS c
+     FROM (
+       SELECT created_at FROM chat_messages
+       WHERE wallet = $1 AND created_at >= date_trunc('week', NOW() AT TIME ZONE 'UTC')
+       UNION ALL
+       SELECT created_at FROM event_chat_messages
+       WHERE wallet = $1 AND created_at >= date_trunc('week', NOW() AT TIME ZONE 'UTC')
+     ) msgs`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.c ?? '0', 10)
+}
+
+export async function countMarketWinsThisWeek(wallet: string): Promise<number> {
+  const result = await pool.query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c
+     FROM point_events
+     WHERE wallet = $1
+       AND action = 'custom_market_win'
+       AND created_at >= date_trunc('week', NOW() AT TIME ZONE 'UTC')`,
+    [wallet],
+  )
+  return parseInt(result.rows[0]?.c ?? '0', 10)
+}
+
+export async function hasContrarianWinTrade(wallet: string, marketId: number): Promise<boolean> {
+  const result = await pool.query<{ has_contrarian: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM custom_market_trades
+       WHERE wallet = $1 AND market_id = $2 AND action = 'buy'
+         AND (
+           (side = 'YES' AND yes_price < 0.4) OR
+           (side = 'NO'  AND yes_price > 0.6)
+         )
+     ) AS has_contrarian`,
+    [wallet, marketId],
+  )
+  return result.rows[0]?.has_contrarian ?? false
 }
 
 export async function getTeamMembers(teamId: number): Promise<TeamMemberRow[]> {
