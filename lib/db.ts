@@ -810,6 +810,7 @@ export interface MonitoredStreamRow {
   source: 'twitch' | 'youtube' | 'local-audio' | null
   started_at: string | null
   ended_at: string | null
+  scheduled_start_at: string | null
   minutes_used: string
   cost_cents: number
   error_message: string | null
@@ -848,6 +849,11 @@ export async function getMonitoredStreamByEvent(
  * should pre-check via getMonitoredStreamByEvent or handle the resulting
  * unique-violation.
  *
+ * When `scheduledStartAt` is provided, the row is created with that timestamp
+ * and we deliberately skip the NOTIFY. The worker runs a 30s tick that picks
+ * up due scheduled rows and feeds them through the same CAS spawn path. This
+ * keeps "start now" and "start later" using the same downstream code.
+ *
  * Returns the new row's id. The worker performs CAS pending→live and starts
  * the pipeline.
  */
@@ -857,6 +863,7 @@ export async function createMonitoredStream(input: {
   workerPool: string
   kind: 'live' | 'vod'
   createdBy: string
+  scheduledStartAt?: Date | null
 }): Promise<MonitoredStreamRow> {
   const client = await pool.connect()
   try {
@@ -864,17 +871,26 @@ export async function createMonitoredStream(input: {
 
     const insertRes = await client.query<MonitoredStreamRow>(
       `INSERT INTO monitored_streams
-         (event_id, stream_url, status, worker_pool, kind, created_by)
-       VALUES ($1, $2, 'pending', $3, $4, $5)
+         (event_id, stream_url, status, worker_pool, kind, created_by, scheduled_start_at)
+       VALUES ($1, $2, 'pending', $3, $4, $5, $6)
        RETURNING *`,
-      [input.eventId, input.streamUrl, input.workerPool, input.kind, input.createdBy],
+      [
+        input.eventId,
+        input.streamUrl,
+        input.workerPool,
+        input.kind,
+        input.createdBy,
+        input.scheduledStartAt ?? null,
+      ],
     )
     const row = insertRes.rows[0]
 
-    await client.query('SELECT pg_notify($1, $2)', [
-      'stream_added',
-      JSON.stringify({ streamId: row.id }),
-    ])
+    if (!input.scheduledStartAt) {
+      await client.query('SELECT pg_notify($1, $2)', [
+        'stream_added',
+        JSON.stringify({ streamId: row.id }),
+      ])
+    }
 
     await client.query('COMMIT')
     return row

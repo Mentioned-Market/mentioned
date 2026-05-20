@@ -22,6 +22,7 @@ interface MonitoredStreamRow {
   source: 'twitch' | 'youtube' | 'local-audio' | null
   started_at: string | null
   ended_at: string | null
+  scheduled_start_at: string | null
   minutes_used: string
   cost_cents: number
   error_message: string | null
@@ -40,6 +41,24 @@ function transcriptionStatusBadge(status: MonitoredStreamRow['status']): string 
 
 function transcriptionStatusText(status: MonitoredStreamRow['status']): string {
   return status === 'error' ? 'text-apple-red' : 'text-neutral-400'
+}
+
+/** True if the row is pending with a schedule that's still in the future. */
+function isScheduledForLater(row: MonitoredStreamRow): boolean {
+  if (row.status !== 'pending' || !row.scheduled_start_at) return false
+  return new Date(row.scheduled_start_at).getTime() > Date.now()
+}
+
+function formatScheduledTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function formatRelative(iso: string): string {
@@ -98,6 +117,7 @@ export default function CustomAdminPage() {
   const [transcriptionUrl, setTranscriptionUrl] = useState('')
   const [transcriptionPool, setTranscriptionPool] = useState<'cloud' | 'local'>('cloud')
   const [transcriptionKind, setTranscriptionKind] = useState<'live' | 'vod'>('live')
+  const [transcriptionScheduledAt, setTranscriptionScheduledAt] = useState('')
   const [transcriptionBusy, setTranscriptionBusy] = useState(false)
 
   const show = (text: string, type: 'success' | 'error' = 'success') => {
@@ -160,6 +180,7 @@ export default function CustomAdminPage() {
     setTranscriptionUrl(market.stream_url || '')
     setTranscriptionPool('cloud')
     setTranscriptionKind('live')
+    setTranscriptionScheduledAt('')
   }
 
   const fetchTranscription = useCallback(async (marketId: number) => {
@@ -189,6 +210,17 @@ export default function CustomAdminPage() {
       show('Stream URL is required', 'error')
       return
     }
+    // datetime-local input gives "YYYY-MM-DDTHH:mm" in the user's local
+    // tz. Convert through Date to ISO for the API.
+    let scheduledStartAt: string | undefined
+    if (transcriptionKind === 'live' && transcriptionScheduledAt) {
+      const parsed = new Date(transcriptionScheduledAt)
+      if (Number.isNaN(parsed.getTime())) {
+        show('Scheduled time is not valid', 'error')
+        return
+      }
+      scheduledStartAt = parsed.toISOString()
+    }
     setTranscriptionBusy(true)
     try {
       const res = await fetch('/api/admin/streams', {
@@ -199,12 +231,18 @@ export default function CustomAdminPage() {
           streamUrl: url,
           workerPool: transcriptionPool,
           kind: transcriptionKind,
+          scheduledStartAt,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to start')
       setTranscription(json.stream)
-      show('Transcription requested — worker is claiming the stream')
+      show(
+        scheduledStartAt
+          ? 'Transcription scheduled — worker will start at the chosen time'
+          : 'Transcription requested — worker is claiming the stream',
+      )
+      setTranscriptionScheduledAt('')
     } catch (err) {
       show(err instanceof Error ? err.message : 'Failed to start transcription', 'error')
     } finally {
@@ -214,7 +252,11 @@ export default function CustomAdminPage() {
 
   async function handleCancelTranscription() {
     if (!transcription) return
-    if (!confirm('Force-end this transcription? The worker will tear down its pipeline.')) return
+    const isScheduled = isScheduledForLater(transcription)
+    const promptMsg = isScheduled
+      ? 'Cancel this scheduled transcription? It will not start at the scheduled time.'
+      : 'Force-end this transcription? The worker will tear down its pipeline.'
+    if (!confirm(promptMsg)) return
     setTranscriptionBusy(true)
     try {
       const res = await fetch(`/api/admin/streams/${transcription.id}/cancel`, { method: 'POST' })
@@ -920,27 +962,34 @@ export default function CustomAdminPage() {
                           {transcription && (transcription.status === 'pending' || transcription.status === 'live') ? (
                             <div className="flex flex-wrap items-center gap-3 mb-2 text-xs text-neutral-300">
                               <span className={`px-2 py-1 rounded ${transcriptionStatusBadge(transcription.status)}`}>
-                                {transcription.status.toUpperCase()}
+                                {isScheduledForLater(transcription) ? 'SCHEDULED' : transcription.status.toUpperCase()}
                               </span>
                               <span className="text-neutral-400">
                                 {transcription.kind === 'vod' ? 'vod' : 'live'} ·
                                 {transcription.source ? ` ${transcription.source} ·` : ''}
                                 {' '}{transcription.worker_pool} pool
                               </span>
-                              {transcription.started_at && (
+                              {isScheduledForLater(transcription) && transcription.scheduled_start_at && (
+                                <span className="text-neutral-500">
+                                  starts {formatScheduledTime(transcription.scheduled_start_at)}
+                                </span>
+                              )}
+                              {transcription.started_at && !isScheduledForLater(transcription) && (
                                 <span className="text-neutral-500">
                                   started {formatRelative(transcription.started_at)}
                                 </span>
                               )}
-                              <span className="text-neutral-500">
-                                {Number(transcription.minutes_used).toFixed(1)} min · ${(transcription.cost_cents / 100).toFixed(2)}
-                              </span>
+                              {!isScheduledForLater(transcription) && (
+                                <span className="text-neutral-500">
+                                  {Number(transcription.minutes_used).toFixed(1)} min · ${(transcription.cost_cents / 100).toFixed(2)}
+                                </span>
+                              )}
                               <button
                                 onClick={handleCancelTranscription}
                                 disabled={transcriptionBusy}
                                 className="ml-auto px-3 py-1.5 bg-apple-red/20 text-apple-red text-xs font-semibold rounded-lg hover:bg-apple-red/30 transition-colors disabled:opacity-50"
                               >
-                                Force end
+                                {isScheduledForLater(transcription) ? 'Cancel' : 'Force end'}
                               </button>
                             </div>
                           ) : (
@@ -984,6 +1033,15 @@ export default function CustomAdminPage() {
                                     : 'https://twitch.tv/<channel>  or  local-audio://laptop'}
                                   className="flex-1 min-w-[260px] px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200 placeholder:text-neutral-600"
                                 />
+                                {transcriptionKind === 'live' && (
+                                  <input
+                                    type="datetime-local"
+                                    value={transcriptionScheduledAt}
+                                    onChange={(e) => setTranscriptionScheduledAt(e.target.value)}
+                                    title="Optional: schedule the worker to start at this time (your local timezone). Leave empty to start now."
+                                    className="px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-xs text-neutral-200 placeholder:text-neutral-600"
+                                  />
+                                )}
                                 <select
                                   value={transcriptionPool}
                                   onChange={(e) => setTranscriptionPool(e.target.value as 'cloud' | 'local')}
@@ -999,7 +1057,11 @@ export default function CustomAdminPage() {
                                   disabled={transcriptionBusy || !transcriptionUrl.trim()}
                                   className="px-4 py-1.5 bg-apple-green/20 text-apple-green text-xs font-semibold rounded-lg hover:bg-apple-green/30 transition-colors disabled:opacity-50"
                                 >
-                                  {transcriptionKind === 'vod' ? 'Start VOD transcription' : 'Start transcription'}
+                                  {transcriptionKind === 'vod'
+                                    ? 'Start VOD transcription'
+                                    : transcriptionScheduledAt
+                                      ? 'Schedule transcription'
+                                      : 'Start transcription'}
                                 </button>
                               </div>
                             </div>

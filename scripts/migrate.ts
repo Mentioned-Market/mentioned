@@ -552,6 +552,16 @@ CREATE INDEX IF NOT EXISTS idx_monitored_streams_pool
 -- (yt-dlp -g → Deepgram REST). Same DB shape; different code path.
 ALTER TABLE monitored_streams
   ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'live';
+
+-- Optional scheduled start. When NULL, the row is started immediately via
+-- NOTIFY stream_added. When set, the row is left in 'pending' state with no
+-- NOTIFY; the worker's scheduled-row tick claims it at the scheduled time.
+-- Partial index keeps the tick query cheap regardless of terminal row volume.
+ALTER TABLE monitored_streams
+  ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_monitored_streams_scheduled
+  ON monitored_streams(scheduled_start_at, worker_pool)
+  WHERE status = 'pending' AND scheduled_start_at IS NOT NULL;
 `
 
 async function main() {

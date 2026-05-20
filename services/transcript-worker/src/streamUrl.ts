@@ -84,11 +84,18 @@ export function buildPipeline(
 ): Pipeline {
   const source = detectSource(url)
   if (source === 'twitch') {
+    // --retry-streams 30 --retry-max 0 makes streamlink poll the channel
+    // every 30s indefinitely, waiting for it to go live. This is what makes
+    // scheduled starts and late-streamer grace work — the fetcher just
+    // keeps polling and produces no audio until the broadcast actually
+    // starts. Cost protection is the pre-audio hard cap in StreamWorker
+    // (SCHEDULED_STREAM_WAIT_MINUTES). Verified via streamlink docs:
+    // retry-max 0 + retry-streams non-zero = infinite retry.
     return {
       kind: 'piped',
       source,
       fetcherCmd: 'streamlink',
-      fetcherArgs: ['--stdout', '--retry-streams', '5', '--retry-max', '3', url, 'best'],
+      fetcherArgs: ['--stdout', '--retry-streams', '30', '--retry-max', '0', url, 'best'],
       ffmpegArgs: pipedFfmpegArgs(),
     }
   }
@@ -102,6 +109,20 @@ export function buildPipeline(
     // clients from cloud egress IPs. The tv/safari clients have weaker
     // bot detection because YouTube can't reliably distinguish them
     // from real devices.
+    //
+    // --wait-for-video 30 polls every 30s for a scheduled/premiere stream
+    // to become available — enables scheduled starts and late-streamer
+    // grace for YouTube live.
+    //
+    // --match-filter is_live refuses to download anything that isn't
+    // currently live. This is critical: when a YouTube live stream ends,
+    // the same URL transitions to a VOD almost immediately. Without this
+    // filter, the AudioPipe restart cycle would have yt-dlp happily
+    // download the just-ended show as a complete audio file, ffmpeg -re
+    // would pace it real-time, and we'd re-transcribe the entire stream
+    // at full Deepgram cost. The filter makes yt-dlp reject the URL
+    // instead, the fetcher exits, and the silence watchdog (or probe
+    // tick, if enabled) cleanly ends the run.
     return {
       kind: 'piped',
       source,
@@ -110,6 +131,8 @@ export function buildPipeline(
         '-q',
         '--js-runtimes', 'node',
         '--extractor-args', 'youtube:player_client=tv,web_safari',
+        '--wait-for-video', '30',
+        '--match-filter', 'is_live',
         '-o', '-',
         '-f', 'bestaudio/best',
         url,

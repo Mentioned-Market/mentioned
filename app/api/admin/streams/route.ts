@@ -41,6 +41,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     streamUrl?: string
     workerPool?: string
     kind?: string
+    scheduledStartAt?: string | null
   }
   try {
     body = await req.json()
@@ -70,6 +71,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     )
   }
 
+  // Scheduled-start parsing. Allow ≤2 min in the past as clock-drift slop
+  // (treat as immediate). Anything older than that is rejected — the admin
+  // almost certainly meant a different time. VOD jobs don't accept a
+  // schedule because the underlying file is already complete.
+  let scheduledStartAt: Date | null = null
+  if (body.scheduledStartAt) {
+    if (kind === 'vod') {
+      return NextResponse.json(
+        { error: 'scheduledStartAt is only supported for live streams' },
+        { status: 400 },
+      )
+    }
+    const parsed = new Date(body.scheduledStartAt)
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json(
+        { error: 'scheduledStartAt is not a valid ISO date' },
+        { status: 400 },
+      )
+    }
+    const slopMs = 2 * 60_000
+    if (parsed.getTime() < Date.now() - slopMs) {
+      return NextResponse.json(
+        { error: 'scheduledStartAt must be in the future' },
+        { status: 400 },
+      )
+    }
+    // Anything within the slop window is treated as "start now" — don't set
+    // the column so the row goes through the normal NOTIFY path immediately.
+    if (parsed.getTime() > Date.now() + slopMs) {
+      scheduledStartAt = parsed
+    }
+  }
+
   // URL validation differs per (kind, workerPool):
   //  - live + cloud  → twitch.tv/<channel> or youtube.com (no /videos/<id>)
   //  - live + local  → local-audio://...
@@ -96,7 +130,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   let row: MonitoredStreamRow
   try {
-    row = await createMonitoredStream({ eventId, streamUrl, workerPool, kind, createdBy: wallet })
+    row = await createMonitoredStream({
+      eventId,
+      streamUrl,
+      workerPool,
+      kind,
+      createdBy: wallet,
+      scheduledStartAt,
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: `Failed to create monitored stream: ${msg}` }, { status: 500 })
