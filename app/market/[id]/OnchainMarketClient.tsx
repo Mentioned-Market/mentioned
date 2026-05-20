@@ -25,6 +25,7 @@ import {
   formatUsdc,
   statusLabel,
   MarketStatus,
+  USDC_MINT,
   USDC_PRECISION,
   type UsdcMarketAccount,
   type WordState,
@@ -391,9 +392,10 @@ export default function OnchainMarketClient({ marketId }: Props) {
       const fee = (cost * BigInt(market.tradeFeeBps)) / 10000n
       const maxCost = cost + fee + (cost + fee) / 50n // 2% slippage
 
-      const ataIx = await createAtaIx(wallet, wallet, side === 'YES' ? word.yesMint : word.noMint)
+      const usdcAtaIx = await createAtaIx(wallet, wallet, USDC_MINT)
+      const tokenAtaIx = await createAtaIx(wallet, wallet, side === 'YES' ? word.yesMint : word.noMint)
       const buyIx = await createBuyIx(wallet, id, selectedWordIdx, side, shares, maxCost)
-      await sendInstructions(signer, signOnly, [ataIx, buyIx])
+      await sendInstructions(signer, signOnly, [usdcAtaIx, tokenAtaIx, buyIx])
 
       setTradeStatus({ msg: `Bought ${formatTokens(shares)} ${side} tokens for "${word.label}"`, error: false })
       setAmount('')
@@ -414,8 +416,10 @@ export default function OnchainMarketClient({ marketId }: Props) {
       const wallet = publicKey as Address
       const ret = estimateSellReturn(word, market.liquidityParamB, side, sellShares)
       const minReturn = ret - ret / 50n // 2% slippage
+      const usdcAtaIx = await createAtaIx(wallet, wallet, USDC_MINT)
+      const tokenAtaIx = await createAtaIx(wallet, wallet, side === 'YES' ? word.yesMint : word.noMint)
       const sellIx = await createSellIx(wallet, id, selectedWordIdx, side, sellShares, minReturn)
-      await sendInstructions(signer, signOnly, [sellIx])
+      await sendInstructions(signer, signOnly, [usdcAtaIx, tokenAtaIx, sellIx])
 
       setTradeStatus({ msg: `Sold ${formatTokens(sellShares)} ${side} tokens`, error: false })
       setAmount('')
