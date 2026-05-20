@@ -25,7 +25,7 @@ export const PROGRAM_ID = toAddress(
   '9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk'
 )
 export const USDC_MINT = toAddress(
-  'CxRN4jp8ki3o3Bs16Ld6JsKsAP8rG8Jrp6dq48TYig9L'
+  '6duUhxsjpsRasCSmvejAad4hH7aSyuBba99iZvsCsDum'
 )
 export const TOKEN_PROGRAM = toAddress(
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
@@ -64,6 +64,7 @@ const DISC = {
   sell:              new Uint8Array([51, 230, 133, 164, 1, 127, 131, 173]),
   redeem:            new Uint8Array([184, 12, 86, 149, 70, 196, 97, 225]),
   withdrawFees:      new Uint8Array([198, 212, 171, 109, 144, 215, 174, 89]),
+  lockWord:          new Uint8Array([201, 76, 214, 115, 128, 187, 227, 106]),
 }
 
 // Account discriminators
@@ -97,6 +98,7 @@ export interface WordState {
   yesQuantity: bigint
   noQuantity: bigint
   outcome: boolean | null
+  locked: boolean
 }
 
 export interface UsdcMarketAccount {
@@ -346,6 +348,27 @@ export async function createResolveWordIx(
       DISC.resolveWord,
       new Uint8Array([wordIndex]),
       new Uint8Array([outcome ? 1 : 0])
+    ),
+  }
+}
+
+export async function createLockWordIx(
+  authority: Address,
+  marketId: bigint,
+  wordIndex: number,
+  locked: boolean
+): Promise<Instruction> {
+  const [marketPda] = await getMarketPDA(marketId)
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: authority, role: AccountRole.READONLY_SIGNER },
+      { address: marketPda, role: AccountRole.WRITABLE },
+    ] as AccountMeta[],
+    data: concat(
+      DISC.lockWord,
+      new Uint8Array([wordIndex]),
+      new Uint8Array([locked ? 1 : 0])
     ),
   }
 }
@@ -912,9 +935,10 @@ export function deserializeMarketAccount(data: Uint8Array): UsdcMarketAccount | 
     const noQuantity = readI64(data, off); off += 8
     let outcome: boolean | null
     ;[outcome, off] = readOptionBool(data, off)
-    off += 32 // _reserved
+    const locked = data[off] !== 0; off += 1
+    off += 31 // _reserved
 
-    words.push({ wordIndex, label: wordLabel, yesMint, noMint, yesQuantity, noQuantity, outcome })
+    words.push({ wordIndex, label: wordLabel, yesMint, noMint, yesQuantity, noQuantity, outcome, locked })
   }
 
   const status = data[off] as MarketStatus; off += 1
