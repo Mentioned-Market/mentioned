@@ -52,6 +52,28 @@ function drawRoundedRect(
   ctx.closePath()
 }
 
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let line = ''
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line)
+      line = word
+    } else {
+      line = test
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+
 function drawBadge(
   ctx: CanvasRenderingContext2D,
   text: string, x: number, y: number,
@@ -219,9 +241,44 @@ export async function generatePnLImage(data: PnLCardData): Promise<HTMLCanvasEle
 
 export async function generateMarketSummaryImage(data: MarketSummaryData): Promise<HTMLCanvasElement> {
   const dpr = 2
-  const wordsPerRow = 4
+  const pad = 32
+  const chipH = 32
+  const chipGap = 8
+  const availW = W - pad * 2
+  const titleFont = 'bold 24px -apple-system, "Helvetica Neue", sans-serif'
+  const chipFont = 'bold 12px -apple-system, "Helvetica Neue", sans-serif'
+  const titleLineH = 30
+
+  // Pre-measure everything in a temp canvas so height can be computed before creation
+  const tempCanvas = document.createElement('canvas')
+  const tempCtx = tempCanvas.getContext('2d')!
+
+  tempCtx.font = titleFont
+  const titleLines = wrapText(tempCtx, data.marketLabel, availW)
+  const titleLineCount = titleLines.length
+
+  // Pick wordsPerRow so no chip text overflows (with 20px horizontal padding)
+  tempCtx.font = chipFont
+  const maxWordW = data.words.length > 0
+    ? Math.max(...data.words.map((w) => tempCtx.measureText(w.label).width))
+    : 0
+  let wordsPerRow = 4
+  for (const n of [4, 3, 2, 1]) {
+    const chipW = (availW - chipGap * (n - 1)) / n
+    if (maxWordW + 24 <= chipW) { wordsPerRow = n; break }
+  }
   const rowCount = Math.ceil(data.words.length / wordsPerRow)
-  const h = 290 + rowCount * 36
+  const chipW = (availW - chipGap * (wordsPerRow - 1)) / wordsPerRow
+
+  // Flow-based layout — all positions derived from the section above
+  const titleY = 72
+  const correctY = titleY + titleLineCount * titleLineH + 10
+  const pnlY = correctY + 14 + 16           // 14px font + 16px gap
+  const statsY = pnlY + 40 + 18             // ~40px for 32px text + 18px gap
+  const dividerY = statsY + 46              // 12px label + 18px gap + ~16px value
+  const chipsY = dividerY + 22
+  const chipsEndY = chipsY + rowCount * (chipH + chipGap) - chipGap
+  const h = chipsEndY + 44                  // 44px footer area
 
   const canvas = document.createElement('canvas')
   canvas.width = W * dpr
@@ -231,8 +288,6 @@ export async function generateMarketSummaryImage(data: MarketSummaryData): Promi
 
   const ctx = canvas.getContext('2d')!
   ctx.scale(dpr, dpr)
-
-  const pad = 32
 
   // Background
   ctx.fillStyle = BG
@@ -258,7 +313,7 @@ export async function generateMarketSummaryImage(data: MarketSummaryData): Promi
     ctx.fillText('MENTIONED', pad, pad)
   }
 
-  // Market info (top-right)
+  // Market# (top-right)
   ctx.font = '12px -apple-system, "Helvetica Neue", sans-serif'
   ctx.fillStyle = DARK_GRAY
   ctx.textAlign = 'right'
@@ -266,31 +321,28 @@ export async function generateMarketSummaryImage(data: MarketSummaryData): Promi
   ctx.fillText(`Market #${data.marketId}`, W - pad, pad + 4)
   ctx.textAlign = 'left'
 
-  // Market label
-  let y = 72
-  ctx.font = 'bold 24px -apple-system, "Helvetica Neue", sans-serif'
+  // Title (wrapped)
+  ctx.font = titleFont
   ctx.fillStyle = WHITE
   ctx.textBaseline = 'top'
-  ctx.fillText(data.marketLabel, pad, y)
+  titleLines.forEach((line, i) => ctx.fillText(line, pad, titleY + i * titleLineH))
 
-  // Words correct count
+  // X/Y correct
   const correct = data.words.filter((w) => w.won).length
   const total = data.words.length
   ctx.font = '14px -apple-system, "Helvetica Neue", sans-serif'
   ctx.fillStyle = GRAY
-  ctx.fillText(`${correct}/${total} correct`, pad, y + 30)
+  ctx.fillText(`${correct}/${total} correct`, pad, correctY)
 
   // P&L (big number)
-  y = 122
   const pnlSign = data.totalPnl >= 0 ? '+' : ''
   ctx.font = 'bold 32px -apple-system, "Helvetica Neue", sans-serif'
   ctx.fillStyle = data.totalPnl >= 0 ? GREEN : RED
   ctx.textBaseline = 'top'
-  ctx.fillText(`${pnlSign}${data.totalPnl.toFixed(data.decimals)} ${data.currency}`, pad, y)
+  ctx.fillText(`${pnlSign}${data.totalPnl.toFixed(data.decimals)} ${data.currency}`, pad, pnlY)
 
   // Stats row
-  y = 168
-  const colW = (W - pad * 2) / 2
+  const colW = availW / 2
   const stats = [
     { label: 'Total Cost', value: `${data.totalCost.toFixed(data.decimals)} ${data.currency}` },
     { label: 'Total Payout', value: `${data.totalPayout.toFixed(data.decimals)} ${data.currency}`, color: data.totalPayout > 0 ? GREEN : WHITE },
@@ -300,46 +352,48 @@ export async function generateMarketSummaryImage(data: MarketSummaryData): Promi
     ctx.font = '12px -apple-system, "Helvetica Neue", sans-serif'
     ctx.fillStyle = GRAY
     ctx.textBaseline = 'top'
-    ctx.fillText(stat.label, sx, y)
+    ctx.fillText(stat.label, sx, statsY)
     ctx.font = 'bold 15px -apple-system, "Helvetica Neue", sans-serif'
     ctx.fillStyle = stat.color ?? WHITE
-    ctx.fillText(stat.value, sx, y + 18)
+    ctx.fillText(stat.value, sx, statsY + 18)
   })
 
   // Divider
-  y = 214
   ctx.strokeStyle = 'rgba(255,255,255,0.08)'
   ctx.lineWidth = 1
   ctx.beginPath()
-  ctx.moveTo(pad, y)
-  ctx.lineTo(W - pad, y)
+  ctx.moveTo(pad, dividerY)
+  ctx.lineTo(W - pad, dividerY)
   ctx.stroke()
 
-  // Word chips
-  y = 230
-  const chipH = 26
-  const chipGap = 8
-  const availW = W - pad * 2
-  const chipW = (availW - chipGap * (wordsPerRow - 1)) / wordsPerRow
+  // Word chips — text truncated with ellipsis if still too wide
+  const chipTextMaxW = chipW - 24
+  tempCtx.font = chipFont
+  const truncate = (text: string): string => {
+    if (tempCtx.measureText(text).width <= chipTextMaxW) return text
+    let t = text
+    while (t.length > 0 && tempCtx.measureText(t + '…').width > chipTextMaxW) t = t.slice(0, -1)
+    return t + '…'
+  }
 
   data.words.forEach((word, i) => {
     const col = i % wordsPerRow
     const row = Math.floor(i / wordsPerRow)
     const cx = pad + col * (chipW + chipGap)
-    const cy = y + row * (chipH + chipGap)
+    const cy = chipsY + row * (chipH + chipGap)
 
     const color = word.won ? GREEN : RED
     ctx.globalAlpha = 0.15
     ctx.fillStyle = color
-    drawRoundedRect(ctx, cx, cy, chipW, chipH, 6)
+    drawRoundedRect(ctx, cx, cy, chipW, chipH, 7)
     ctx.fill()
     ctx.globalAlpha = 1
 
-    ctx.font = 'bold 12px -apple-system, "Helvetica Neue", sans-serif'
+    ctx.font = chipFont
     ctx.fillStyle = color
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(word.label, cx + chipW / 2, cy + chipH / 2)
+    ctx.fillText(truncate(word.label), cx + chipW / 2, cy + chipH / 2)
   })
   ctx.textAlign = 'left'
 
@@ -348,7 +402,7 @@ export async function generateMarketSummaryImage(data: MarketSummaryData): Promi
   ctx.fillStyle = DARK_GRAY
   ctx.textAlign = 'center'
   ctx.textBaseline = 'bottom'
-  ctx.fillText('mentioned.market', W / 2, h - 16)
+  ctx.fillText('mentioned.market', W / 2, h - 18)
   ctx.textAlign = 'left'
 
   return canvas
