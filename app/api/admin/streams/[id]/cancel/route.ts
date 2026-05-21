@@ -37,6 +37,28 @@ export async function POST(
     )
   }
 
+  // Pending rows have no spawned worker yet — the worker's onStreamCanceled
+  // handler early-returns when there's no active StreamWorker, so a NOTIFY
+  // alone would leave the row stuck in 'pending'. UPDATE directly here. The
+  // CAS clause races safely with the worker's own pending→live CAS: if we
+  // win, the worker's claim affects 0 rows and bails out; if the worker
+  // wins, our UPDATE affects 0 rows and we fall through to the NOTIFY path
+  // below so its stop() handles the live teardown.
+  if (status === 'pending') {
+    const cancelRes = await pool.query(
+      `UPDATE monitored_streams
+          SET status = 'ended',
+              ended_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'`,
+      [streamId],
+    )
+    if ((cancelRes.rowCount ?? 0) > 0) {
+      return NextResponse.json({ ok: true })
+    }
+    // Lost the race — row is now 'live'. Fall through to the NOTIFY path.
+  }
+
   await cancelMonitoredStream(streamId)
   return NextResponse.json({ ok: true })
 }

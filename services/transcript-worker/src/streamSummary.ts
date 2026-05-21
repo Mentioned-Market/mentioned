@@ -122,10 +122,13 @@ async function buildSummary(input: SummaryInput): Promise<string> {
     : []
 
   const lines: string[] = []
-  const headerEmoji = reason === 'manual_cancel' || reason === 'silence_watchdog' || reason === 'hard_cap'
-    ? '🟢'
-    : '🔴'
-  const headerText = reason === 'manual_cancel' || reason === 'silence_watchdog' || reason === 'hard_cap'
+  const isCleanEnd =
+    reason === 'manual_cancel' ||
+    reason === 'silence_watchdog' ||
+    reason === 'hard_cap' ||
+    reason === 'platform_offline'
+  const headerEmoji = isCleanEnd ? '🟢' : '🔴'
+  const headerText = isCleanEnd
     ? 'Stream ended — ready for resolution'
     : 'Stream ended with error'
 
@@ -246,6 +249,8 @@ function humanReason(reason: EndReason): string {
     case 'fetcher_failed': return 'audio source failed (fetcher exhausted retries)'
     case 'pipeline_error': return 'pipeline error'
     case 'shutdown': return 'worker shutdown'
+    case 'never_started': return 'stream never produced audio (pre-audio wait timeout)'
+    case 'platform_offline': return 'platform reported stream offline'
   }
 }
 
