@@ -121,6 +121,17 @@ interface WalletContextType {
   privyReady: boolean
 }
 
+const SSR_DEFAULT: WalletContextType = {
+  publicKey: null, balance: null, connected: false, signer: null, signOnly: null,
+  mode: 'normal', walletType: null, showConnectModal: false, username: null,
+  pfpEmoji: null, discordLinked: null, discordTooNew: false, lockedAt: null,
+  profileLoading: false, authenticated: false, walletReady: false, connecting: false,
+  privyReady: false,
+  connect: () => {}, disconnect: () => {}, setMode: () => {}, setShowConnectModal: () => {},
+  connectPhantom: async () => {}, connectPrivy: () => {}, connectGoogle: () => {}, connectX: () => {},
+  refreshProfile: () => {}, setCachedUsername: () => {},
+}
+
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
 
 // ── Helpers ──────────────────────────────────────────────
@@ -859,8 +870,5 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
 export function useWallet() {
   const context = useContext(WalletContext)
-  if (context === undefined) {
-    throw new Error('useWallet must be used within a WalletProvider')
-  }
-  return context
+  return context ?? SSR_DEFAULT
 }

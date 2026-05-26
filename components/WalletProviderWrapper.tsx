@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { PrivyProvider } from '@privy-io/react-auth'
 import { WalletProvider } from '@/contexts/WalletContext'
 import { AchievementProvider } from '@/contexts/AchievementContext'
@@ -27,7 +28,10 @@ export default function WalletProviderWrapper({
 }: {
   children: React.ReactNode
 }) {
-  if (!PRIVY_APP_ID) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  if (!mounted || !PRIVY_APP_ID) {
     return <>{children}</>
   }
   return (
