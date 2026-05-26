@@ -11,6 +11,11 @@ import Link from 'next/link'
 import { useState, useRef, useEffect } from 'react'
 import UserSearch from '@/components/UserSearch'
 
+function formatUsdc(baseUnits: string | null): string {
+  if (!baseUnits) return '—'
+  return '$' + (Number(BigInt(baseUnits)) / 1_000_000).toFixed(2)
+}
+
 export default function Header() {
   const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType, connecting, refreshProfile } = useWallet()
   const { showAchievementToast } = useAchievements()
@@ -19,6 +24,8 @@ export default function Header() {
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
   const [showFundsModal, setShowFundsModal] = useState(false)
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
+  const [portfolioValue, setPortfolioValue] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const discordTooltipRef = useRef<HTMLDivElement>(null)
@@ -81,6 +88,28 @@ export default function Header() {
       .catch(() => {})
   }, [connected, publicKey, showAchievementToast])
 
+  // Fetch USDC balance + portfolio value when connected
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      setUsdcBalance(null)
+      setPortfolioValue(null)
+      return
+    }
+    const load = () => {
+      fetch(`/api/paid-markets/wallet-summary?wallet=${publicKey}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data) return
+          setUsdcBalance(data.usdcBalance)
+          setPortfolioValue(data.portfolioValue)
+        })
+        .catch(() => {})
+    }
+    load()
+    const id = setInterval(load, 30_000)
+    return () => clearInterval(id)
+  }, [connected, publicKey])
+
   return (
     <>
       <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] border-b border-white/10" style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
@@ -115,6 +144,27 @@ export default function Header() {
             </svg>
             How it works
           </button>
+
+          {/* USDC balance display — desktop only, logged-in only */}
+          {connected && (usdcBalance !== null || portfolioValue !== null) && (
+            <div className="hidden md:flex items-center gap-1">
+              <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="text-center">
+                  <div className="text-[10px] text-neutral-500 font-medium leading-none mb-0.5">Portfolio</div>
+                  <div className="text-sm font-bold text-apple-green leading-none tabular-nums">
+                    {portfolioValue !== null ? formatUsdc(portfolioValue) : '—'}
+                  </div>
+                </div>
+                <div className="w-px h-6 bg-white/10" />
+                <div className="text-center">
+                  <div className="text-[10px] text-neutral-500 font-medium leading-none mb-0.5">Cash</div>
+                  <div className="text-sm font-bold text-apple-green leading-none tabular-nums">
+                    {usdcBalance !== null ? formatUsdc(usdcBalance) : '—'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {walletReady && connected && discordLinked === false && (
             <div className="relative" ref={discordTooltipRef}>

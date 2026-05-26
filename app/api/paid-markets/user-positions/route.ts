@@ -4,6 +4,7 @@ import {
   fetchAllMarkets,
   getAssociatedTokenAddress,
   impliedYesPrice,
+  estimateSellReturn,
   createRpc,
   MarketStatus,
 } from '@/lib/mentionMarketUsdc'
@@ -30,6 +31,7 @@ export interface OnchainPosition {
   yesPrice: number    // 0-1 implied price
   noPrice: number
   outcome: boolean | null   // true = YES won, false = NO won, null = unresolved
+  estValueUsdc: string      // LMSR sell return in base units, stringified bigint
 }
 
 export async function GET(req: NextRequest) {
@@ -112,6 +114,7 @@ export async function GET(req: NextRequest) {
         yesPrice,
         noPrice: 1 - yesPrice,
         outcome: word.outcome,
+        estValueUsdc: '0',
       })
     }
     const pos = posMap.get(key)!
@@ -120,8 +123,25 @@ export async function GET(req: NextRequest) {
     else pos.noShares = amount.toString()
   }
 
+  // Compute accurate LMSR sell-return for each position
+  const DUST = 10_000n
+  for (const pos of posMap.values()) {
+    const mkt = mktMap.get(BigInt(pos.marketId))!
+    const word = mkt.words[pos.wordIndex]
+    const yes = BigInt(pos.yesShares)
+    const no  = BigInt(pos.noShares)
+    try {
+      const yesRet = yes >= DUST ? estimateSellReturn(word, mkt.liquidityParamB, 'YES', yes) : 0n
+      const noRet  = no  >= DUST ? estimateSellReturn(word, mkt.liquidityParamB, 'NO',  no)  : 0n
+      pos.estValueUsdc = (yesRet + noRet).toString()
+    } catch {
+      pos.estValueUsdc = '0'
+    }
+  }
+
+  // 10_000 base units = 0.01 shares — filter out dust left after selling
   const positions = Array.from(posMap.values()).filter(
-    p => BigInt(p.yesShares) > 0n || BigInt(p.noShares) > 0n
+    p => BigInt(p.yesShares) >= DUST || BigInt(p.noShares) >= DUST
   )
 
   // Sort: active markets first, then resolved; within each group by market id desc

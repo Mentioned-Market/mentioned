@@ -683,81 +683,97 @@ export default function OnchainMarketClient({ marketId }: Props) {
       )}
 
       {/* User positions */}
-      {connected && userTokens.some(t => t.yes > 0n || t.no > 0n) && market && (
+      {connected && userTokens.some(t => t.yes >= 10_000n || t.no >= 10_000n) && market && (
         <div className="mt-4 pt-4 border-t border-white/10">
-          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">
+          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-3">
             Your Positions
           </div>
           <div className="space-y-2">
             {market.words.map((w, i) => {
               const tok = userTokens[i]
-              if (!tok || (tok.yes <= 0n && tok.no <= 0n)) return null
+              if (!tok || (tok.yes < 10_000n && tok.no < 10_000n)) return null
+              const yesPrice = impliedYesPrice(w, market.liquidityParamB)
+              const noPrice  = 1 - yesPrice
+              const yesReturn = (() => { try { return tok.yes >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'YES', tok.yes) : 0n } catch { return 0n } })()
+              const noReturn  = (() => { try { return tok.no  >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'NO',  tok.no)  : 0n } catch { return 0n } })()
               const winDir: 'YES' | 'NO' | null = w.outcome === true ? 'YES' : w.outcome === false ? 'NO' : null
               return (
-                <div
-                  key={i}
-                  className="glass rounded-lg p-2.5"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-white font-medium text-xs truncate max-w-[140px]">{w.label}</span>
-                    {winDir && (
-                      <span className={`text-[10px] font-bold uppercase ${winDir === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {winDir === side ? 'Won' : 'Lost'}
+                <div key={i} className="glass rounded-xl p-3 space-y-2">
+                  {/* Word label + outcome badge */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-white font-semibold text-xs truncate max-w-[160px]">{w.label}</span>
+                    {winDir ? (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${winDir === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                        {winDir} Won
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-neutral-600 font-medium">
+                        ${formatUsdc(yesReturn + noReturn)} value
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {tok.yes > 0n && (
-                      <button
-                        onClick={() => {
-                          if (isResolved && w.outcome === true) {
-                            handleRedeem(i, 'YES')
-                          } else if (!w.outcome) {
-                            setSelectedWordIdx(i)
-                            setTradeMode('sell')
-                            setSide('YES')
-                            setAmount('')
-                          }
-                        }}
-                        className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
-                          isResolved && w.outcome !== null
-                            ? w.outcome === true
-                              ? 'border-apple-green/40 bg-apple-green/10 text-apple-green hover:bg-apple-green/20'
-                              : 'border-white/10 bg-white/5 text-neutral-500 cursor-default'
-                            : 'border-apple-green/30 text-apple-green hover:bg-apple-green/10'
-                        }`}
-                        disabled={isResolved && w.outcome !== true}
-                      >
-                        {formatTokens(tok.yes)} YES
-                        {isResolved && w.outcome === true ? ' · Redeem' : !w.outcome ? ' · sell' : ''}
-                      </button>
-                    )}
-                    {tok.no > 0n && (
-                      <button
-                        onClick={() => {
-                          if (isResolved && w.outcome === false) {
-                            handleRedeem(i, 'NO')
-                          } else if (!w.outcome) {
-                            setSelectedWordIdx(i)
-                            setTradeMode('sell')
-                            setSide('NO')
-                            setAmount('')
-                          }
-                        }}
-                        className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
-                          isResolved && w.outcome !== null
-                            ? w.outcome === false
-                              ? 'border-apple-red/40 bg-apple-red/10 text-apple-red hover:bg-apple-red/20'
-                              : 'border-white/10 bg-white/5 text-neutral-500 cursor-default'
-                            : 'border-apple-red/30 text-apple-red hover:bg-apple-red/10'
-                        }`}
-                        disabled={isResolved && w.outcome !== false}
-                      >
-                        {formatTokens(tok.no)} NO
-                        {isResolved && w.outcome === false ? ' · Redeem' : !w.outcome ? ' · sell' : ''}
-                      </button>
-                    )}
-                  </div>
+
+                  {/* YES side */}
+                  {tok.yes >= 10_000n && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-apple-green font-semibold text-sm tabular-nums">{formatTokens(tok.yes)}</span>
+                        <span className="text-apple-green text-xs ml-1">YES</span>
+                        <span className="text-neutral-500 text-xs ml-2 tabular-nums">
+                          @ {Math.round(yesPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(yesReturn)}</span>
+                        </span>
+                      </div>
+                      {isResolved && w.outcome === true ? (
+                        <button
+                          onClick={() => handleRedeem(i, 'YES')}
+                          disabled={txPending}
+                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50"
+                        >
+                          Redeem
+                        </button>
+                      ) : !isResolved ? (
+                        <button
+                          onClick={() => { setSelectedWordIdx(i); setTradeMode('sell'); setSide('YES'); setAmount('') }}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-colors"
+                        >
+                          Sell
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-neutral-600">Lost</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* NO side */}
+                  {tok.no >= 10_000n && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-apple-red font-semibold text-sm tabular-nums">{formatTokens(tok.no)}</span>
+                        <span className="text-apple-red text-xs ml-1">NO</span>
+                        <span className="text-neutral-500 text-xs ml-2 tabular-nums">
+                          @ {Math.round(noPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(noReturn)}</span>
+                        </span>
+                      </div>
+                      {isResolved && w.outcome === false ? (
+                        <button
+                          onClick={() => handleRedeem(i, 'NO')}
+                          disabled={txPending}
+                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50"
+                        >
+                          Redeem
+                        </button>
+                      ) : !isResolved ? (
+                        <button
+                          onClick={() => { setSelectedWordIdx(i); setTradeMode('sell'); setSide('NO'); setAmount('') }}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-colors"
+                        >
+                          Sell
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-neutral-600">Lost</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

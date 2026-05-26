@@ -23,6 +23,7 @@ import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth'
 import {
   useWallets as usePrivySolanaWallets,
   useSignAndSendTransaction,
+  useSignTransaction as usePrivySignTransaction,
   useCreateWallet as useCreateSolanaWallet,
 } from '@privy-io/react-auth/solana'
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
@@ -284,6 +285,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     privySignAndSendRef.current = privySignAndSend
   }, [privySignAndSend])
+
+  const { signTransaction: privySignTx } = usePrivySignTransaction()
+  const privySignTxRef = useRef(privySignTx)
+  useEffect(() => { privySignTxRef.current = privySignTx }, [privySignTx])
 
   const privyWalletRef = useRef<any>(null)
 
@@ -790,8 +795,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [walletType, clearState, privyLogout])
 
   // Sign raw tx bytes via Phantom's signTransaction feature — no simulate, no send.
-  // Used for devnet on-chain markets where the mainnet simulate/send proxy is wrong network.
+  // Sign raw tx bytes without sending — used for devnet on-chain markets so we can
+  // broadcast directly to the devnet RPC instead of going through the mainnet proxy.
   const signOnly = useCallback(async (txBytes: Uint8Array): Promise<Uint8Array> => {
+    // Privy embedded wallet path
+    if (walletTypeRef.current === 'privy') {
+      const result = await privySignTxRef.current({
+        transaction: txBytes,
+        wallet: privyWalletRef.current,
+        chain: 'solana:devnet' as any,
+      })
+      return result.signedTransaction as Uint8Array
+    }
+    // Phantom (or other Wallet Standard wallet) path
     const wallet = walletRef.current
     const account = walletAccountRef.current
     if (!wallet || !account) throw new Error('Wallet not connected')

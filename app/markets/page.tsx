@@ -86,6 +86,17 @@ interface SidebarData {
   weekStart: string
 }
 
+interface PaidMarketSummary {
+  marketId: string
+  title: string
+  coverImageUrl: string | null
+  status: number  // 0=Open 1=Paused 2=Resolved
+  wordCount: number
+  words: { label: string; yesPrice: number; noPrice: number; outcome: boolean | null }[]
+}
+
+type MarketFilter = 'all' | 'free' | 'paid'
+
 // ── Sidebar cache (persists across SPA navigations) ──────────────────────
 
 const SIDEBAR_STALE_MS = 60 * 1000 // 1 minute
@@ -389,7 +400,7 @@ function PointsExplainerBanner() {
 
 // Team competition banner — active May 4–17 2026. Swap back to PointsExplainerBanner after.
 // Featured market — large hero card for one free market
-function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
+function FeaturedMarket({ market, showTypeBadge }: { market: CustomMarketSummary; showTypeBadge?: boolean }) {
   const [imgError, setImgError] = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
   const url = `/free/${market.slug}`
@@ -444,6 +455,9 @@ function FeaturedMarket({ market }: { market: CustomMarketSummary }) {
             )
           })()}
           <span className="px-2 py-0.5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-medium backdrop-blur-sm">Featured</span>
+          {showTypeBadge && (
+            <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/25 text-[#F2B71F] text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">Free</span>
+          )}
         </div>
         {isLive && (
           <div className="absolute top-3 right-3">
@@ -718,6 +732,100 @@ function TopTradersWidget({ traders, grow }: { traders: TopTrader[]; grow?: bool
   )
 }
 
+// ── Paid market card (on-chain USDC AMM) ──────────────────────────────────
+
+const PAID_STATUS_LABELS: Record<number, string> = { 0: 'Open', 1: 'Paused', 2: 'Resolved' }
+const PAID_STATUS_CLASSES: Record<number, string> = {
+  0: 'bg-apple-green/20 text-apple-green',
+  1: 'bg-yellow-500/20 text-yellow-400',
+  2: 'bg-white/10 text-neutral-400',
+}
+
+function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; showTypeBadge?: boolean }) {
+  const [imgError, setImgError] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const url = `/market/${market.marketId}`
+  const topWords = market.words.slice(0, 5)
+
+  return (
+    <div className="group relative block overflow-hidden rounded-2xl transition-all duration-300 hover-lift" style={{ background: 'rgba(10,10,10,0.75)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
+      <Link href={url} className="block w-full relative overflow-hidden bg-neutral-800" style={{ height: '140px' }}>
+        {(!market.coverImageUrl || imgError) && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-neutral-500 text-2xl">💎</span>
+          </div>
+        )}
+        {market.coverImageUrl && !imgError && !imgLoaded && (
+          <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%)', animation: 'shimmerSlide 2.2s ease-in-out infinite' }} />
+        )}
+        {market.coverImageUrl && !imgError && (
+          <img
+            src={market.coverImageUrl}
+            alt={market.title}
+            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+            style={{ opacity: imgLoaded ? 1 : 0 }}
+            loading="lazy"
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
+          />
+        )}
+        <div className="absolute top-3 left-3 flex items-center gap-1.5">
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm ${PAID_STATUS_CLASSES[market.status] ?? PAID_STATUS_CLASSES[0]}`}>
+            {PAID_STATUS_LABELS[market.status] ?? 'Open'}
+          </span>
+          {showTypeBadge && (
+            <span className="px-2 py-0.5 rounded-full bg-apple-blue/25 text-apple-blue text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
+              Paid
+            </span>
+          )}
+        </div>
+      </Link>
+
+      <div className="p-4 flex flex-col gap-3">
+        <Link href={url}>
+          <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem] hover:text-neutral-200 transition-colors">
+            {market.title}
+          </h3>
+        </Link>
+
+        {topWords.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {topWords.map((w, i) => {
+              const yesPct = Math.round(w.yesPrice * 100)
+              const noPct = 100 - yesPct
+              return (
+                <Link key={i} href={url} className="flex items-center gap-2 h-[30px] px-2 rounded-lg bg-white/[0.06] hover:bg-white/10 transition-colors">
+                  <span className="text-white text-xs font-medium truncate flex-1">{w.label}</span>
+                  {w.outcome !== null ? (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${w.outcome ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                      {w.outcome ? 'YES' : 'NO'}
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-apple-green text-[11px] font-semibold tabular-nums w-12 text-right">{yesPct}¢</span>
+                      <span className="text-apple-red text-[11px] font-semibold tabular-nums w-12 text-right">{noPct}¢</span>
+                    </>
+                  )}
+                </Link>
+              )
+            })}
+          </div>
+        )}
+
+        <Link href={url} className="flex items-center gap-2 pt-2 border-t border-white/5">
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+            {market.wordCount} words
+          </span>
+          <span className="text-neutral-600 text-[10px]">·</span>
+          <span className="px-2 py-0.5 rounded-full bg-apple-blue/10 text-apple-blue text-[10px] font-medium">
+            USDC
+          </span>
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 // ── Animated background blobs ──────────────────────────────────────────────
 
 function AnimatedBackground() {
@@ -798,13 +906,16 @@ function MarketCardSkeleton({ index = 0 }: { index?: number }) {
 export default function MarketsPage() {
   const [events, setEvents] = useState<PolyEvent[]>([])
   const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
+  const [paidMarkets, setPaidMarkets] = useState<PaidMarketSummary[]>([])
   const [sidebarData, setSidebarData] = useState<SidebarData | null>(null)
   const [sidebarLoading, setSidebarLoading] = useState(true)
   const [polyLoading, setPolyLoading] = useState(false)
   const [customLoading, setCustomLoading] = useState(true)
+  const [paidLoading, setPaidLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
   const [paidOpen, setPaidOpen] = useState(false)
+  const [marketFilter, setMarketFilter] = useState<MarketFilter>('all')
   const polyFetchedRef = useRef(false)
 
   // Live countdown — shows arena end during competition, otherwise next Monday
@@ -828,6 +939,17 @@ export default function MarketsPage() {
       .then(data => { if (!cancelled) setCustomMarkets(data.markets || []) })
       .catch(() => {})
       .finally(() => { if (!cancelled) setCustomLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Fetch paid on-chain markets
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/paid-markets/list')
+      .then(res => res.ok ? res.json() : { markets: [] })
+      .then(data => { if (!cancelled) setPaidMarkets(data.markets || []) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setPaidLoading(false) })
     return () => { cancelled = true }
   }, [])
 
@@ -875,9 +997,35 @@ export default function MarketsPage() {
   const liveEvents = activeEvents.filter(e => e.isLive)
   const upcomingEvents = activeEvents.filter(e => !e.isLive)
 
-  const pageReady = !customLoading && !sidebarLoading
+  const pageReady = !customLoading && !sidebarLoading && !paidLoading
   const featuredMarket = customMarkets.find(m => m.is_featured) ?? null
-  const remainingMarkets = customMarkets.filter(m => featuredMarket ? m.id !== featuredMarket.id : true)
+
+  const sortedPaidMarkets = [...paidMarkets].sort((a, b) =>
+    (a.status === 2 ? 1 : 0) - (b.status === 2 ? 1 : 0)
+  )
+  const sortedFreeMarkets = customMarkets
+    .filter(m => featuredMarket ? m.id !== featuredMarket.id : true)
+    .sort((a, b) => (a.status === 'resolved' ? 1 : 0) - (b.status === 'resolved' ? 1 : 0))
+
+  const showFree = marketFilter === 'all' || marketFilter === 'free'
+  const showPaid = marketFilter === 'all' || marketFilter === 'paid'
+  const showFeatured = showFree && featuredMarket
+  const showTypeBadge = marketFilter === 'all'
+
+  // Blended list for "All" view — interleave paid + free, resolved last
+  type BlendedItem =
+    | { kind: 'paid'; market: PaidMarketSummary }
+    | { kind: 'free'; market: CustomMarketSummary }
+  const blendedMarkets: BlendedItem[] = marketFilter === 'all'
+    ? [
+        ...sortedPaidMarkets.map(m => ({ kind: 'paid' as const, market: m })),
+        ...sortedFreeMarkets.map(m => ({ kind: 'free' as const, market: m })),
+      ].sort((a, b) => {
+        const aResolved = (a.kind === 'paid' ? a.market.status === 2 : a.market.status === 'resolved') ? 1 : 0
+        const bResolved = (b.kind === 'paid' ? b.market.status === 2 : b.market.status === 'resolved') ? 1 : 0
+        return aResolved - bResolved
+      })
+    : []
 
   return (
     <>
@@ -889,26 +1037,95 @@ export default function MarketsPage() {
             <Header />
             <main className="flex-1 pt-6 pb-4">
 
-              {/* Free markets + sidebar — two columns */}
+              {/* Markets + sidebar — two columns */}
               <div className="flex gap-6 items-stretch mb-8">
-                {/* Free markets */}
+                {/* Markets */}
                 <div className="flex-1 min-w-0">
                   <PointsExplainerBanner />
 
-                  {!customLoading && (
+                  {/* Filter tabs */}
+                  <div className="flex items-center gap-1 mb-5 p-1 rounded-xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    {([
+                      ['all', 'All Markets'],
+                      ['free', 'Free'],
+                      ['paid', 'Paid'],
+                    ] as [MarketFilter, string][]).map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setMarketFilter(key)}
+                        className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                          marketFilter === key
+                            ? key === 'paid'
+                              ? 'bg-apple-blue/20 text-apple-blue shadow-sm'
+                              : key === 'free'
+                              ? 'bg-[#F2B71F]/20 text-[#F2B71F] shadow-sm'
+                              : 'bg-white/10 text-white shadow-sm'
+                            : 'text-neutral-500 hover:text-neutral-300'
+                        }`}
+                      >
+                        {label}
+                        {key === 'free' && customMarkets.length > 0 && (
+                          <span className="ml-1.5 text-[10px] font-bold opacity-70">{customMarkets.length}</span>
+                        )}
+                        {key === 'paid' && paidMarkets.length > 0 && (
+                          <span className="ml-1.5 text-[10px] font-bold opacity-70">{paidMarkets.length}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {!pageReady ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {Array.from({ length: 6 }).map((_, i) => <MarketCardSkeleton key={i} index={i} />)}
+                    </div>
+                  ) : (
                     <div className="animate-fade-up">
-                      {featuredMarket && (
-                        <FeaturedMarket market={featuredMarket} />
+                      {/* Featured free market — only in All/Free views */}
+                      {showFeatured && (
+                        <FeaturedMarket market={featuredMarket!} showTypeBadge={showTypeBadge} />
                       )}
-                      {remainingMarkets.length > 0 && (
+
+                      {/* All: blended grid */}
+                      {marketFilter === 'all' && blendedMarkets.length > 0 && (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                          {remainingMarkets.map(market => (
-                            <CustomEventCard key={`custom-${market.id}`} market={market} />
-                          ))}
+                          {blendedMarkets.map(item =>
+                            item.kind === 'paid' ? (
+                              <PaidMarketCard key={`paid-${item.market.marketId}`} market={item.market} showTypeBadge />
+                            ) : (
+                              <CustomEventCard key={`free-${item.market.id}`} market={item.market} showTypeBadge />
+                            )
+                          )}
                         </div>
                       )}
-                      {customMarkets.length === 0 && (
-                        <p className="text-neutral-500 text-sm py-4">No free markets available right now</p>
+
+                      {/* Paid filter only */}
+                      {marketFilter === 'paid' && (
+                        sortedPaidMarkets.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {sortedPaidMarkets.map(market => (
+                              <PaidMarketCard key={`paid-${market.marketId}`} market={market} />
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
+                        )
+                      )}
+
+                      {/* Free filter only */}
+                      {marketFilter === 'free' && (
+                        sortedFreeMarkets.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {sortedFreeMarkets.map(market => (
+                              <CustomEventCard key={`free-${market.id}`} market={market} />
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-neutral-500 text-sm py-4">No free markets available right now</p>
+                        )
+                      )}
+
+                      {marketFilter === 'all' && blendedMarkets.length === 0 && (
+                        <p className="text-neutral-500 text-sm py-4">No markets available right now</p>
                       )}
                     </div>
                   )}

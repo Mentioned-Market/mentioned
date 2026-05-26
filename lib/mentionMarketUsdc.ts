@@ -829,6 +829,27 @@ export async function sendInstructions(
   if (json.error) {
     throw new Error(json.error.message || JSON.stringify(json.error))
   }
+
+  // Poll until confirmed (up to 30 s) so callers can trust the tx landed
+  const signature = json.result as string
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 1_500))
+    const statusRes = await fetch(DEVNET_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1,
+        method: 'getSignatureStatuses',
+        params: [[signature], { searchTransactionHistory: false }],
+      }),
+    })
+    const statusJson = await statusRes.json()
+    const status = statusJson.result?.value?.[0]
+    if (status?.err) throw new Error(`Transaction failed on-chain: ${JSON.stringify(status.err)}`)
+    if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return
+  }
+  throw new Error('Transaction confirmation timed out after 30s')
 }
 
 // ── Account deserialization ──────────────────────────────
