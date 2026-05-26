@@ -6,7 +6,7 @@ import { AchievementProvider } from '@/contexts/AchievementContext'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit'
 
-const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID!
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? ''
 const MAINNET_HTTP = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const MAINNET_WSS = MAINNET_HTTP.replace(/^https?:\/\//, 'wss://')
 const DEVNET_HTTP = process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL || 'https://api.devnet.solana.com'
@@ -27,6 +27,9 @@ export default function WalletProviderWrapper({
 }: {
   children: React.ReactNode
 }) {
+  if (!PRIVY_APP_ID) {
+    return <>{children}</>
+  }
   return (
     <PrivyProvider
       appId={PRIVY_APP_ID}

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getTeamLeaderboard } from '@/lib/db'
 import { COMP_START, COMP_END } from '@/lib/teamComp'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const entries = await getTeamLeaderboard(COMP_START, COMP_END)
