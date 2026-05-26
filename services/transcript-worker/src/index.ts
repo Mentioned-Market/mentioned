@@ -27,6 +27,11 @@ const env = {
   maxConcurrent: numberFromEnv('MAX_CONCURRENT_STREAMS', 20),
   maxHours: numberFromEnv('MAX_HOURS_PER_STREAM', 12),
   maxSilentMinutes: numberFromEnv('MAX_SILENT_MINUTES', 20),
+  // Pre-audio hard timeout. Covers scheduled-start grace ("streamer is 10 min
+  // late") and unscheduled "I started early" cases. After this many minutes
+  // of no PCM bytes ever received, the worker gives up with reason
+  // 'never_started' → status='error'.
+  scheduledStreamWaitMinutes: numberFromEnv('SCHEDULED_STREAM_WAIT_MINUTES', 120),
   deepgramRotateMinutes: numberFromEnv('DEEPGRAM_ROTATE_MINUTES', 90),
   ffmpegRecycleMinutes: numberFromEnv('FFMPEG_RECYCLE_MINUTES', 240),
   dailyCostCentsAlert: numberFromEnv('DAILY_COST_CENTS_ALERT', 2000),
@@ -62,6 +67,7 @@ async function main(): Promise<void> {
     maxConcurrent: env.maxConcurrent,
     maxHours: env.maxHours,
     maxSilentMinutes: env.maxSilentMinutes,
+    scheduledStreamWaitMinutes: env.scheduledStreamWaitMinutes,
     deepgramConfigured: env.deepgramApiKey.length > 0,
     discordConfigured: !!process.env.DISCORD_WEBHOOK_URL,
     dailyCostCentsAlert: env.dailyCostCentsAlert,
@@ -111,7 +117,46 @@ async function main(): Promise<void> {
     })
   }, 60_000).unref()
 
+  // Scheduled-row tick. Picks up `pending` rows whose scheduled_start_at has
+  // arrived and routes them through onStreamAdded (same gates as a real
+  // NOTIFY: cost guard, concurrent cap, CAS spawn gate filtered by pool).
+  setInterval(() => { void checkScheduledStreams() }, 30_000).unref()
+
   setupSignalHandlers(listener)
+}
+
+async function checkScheduledStreams(): Promise<void> {
+  if (costGuard.isHalted()) return
+  const slots = env.maxConcurrent - activeStreams.size
+  if (slots <= 0) return
+  let rows: { id: number }[]
+  try {
+    const res = await pool.query<{ id: number }>(
+      `SELECT id FROM monitored_streams
+        WHERE status = 'pending'
+          AND worker_pool = $1
+          AND kind = 'live'
+          AND scheduled_start_at IS NOT NULL
+          AND scheduled_start_at <= NOW()
+        ORDER BY scheduled_start_at
+        LIMIT $2`,
+      [env.workerPool, slots],
+    )
+    rows = res.rows
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log.warn('scheduled-row tick query failed', { err: msg })
+    return
+  }
+  for (const row of rows) {
+    if (activeStreams.size >= env.maxConcurrent) break
+    try {
+      await onStreamAdded(row.id)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('scheduled-row spawn failed', { streamId: row.id, err: msg })
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -209,10 +254,15 @@ interface MonitoredStreamRow {
 async function recoverInflightStreams(): Promise<void> {
   let rows: MonitoredStreamRow[]
   try {
+    // Live rows are always recoverable. Pending rows are only recoverable if
+    // they have no schedule, or the schedule has arrived — future-scheduled
+    // pending rows get picked up by the scheduled-row tick instead.
     const result = await pool.query<MonitoredStreamRow>(
       `SELECT id, event_id, stream_url, source, started_at, kind
          FROM monitored_streams
-        WHERE status IN ('pending', 'live') AND worker_pool = $1
+        WHERE status IN ('pending', 'live')
+          AND worker_pool = $1
+          AND (status = 'live' OR scheduled_start_at IS NULL OR scheduled_start_at <= NOW())
         ORDER BY created_at`,
       [env.workerPool],
     )
@@ -332,6 +382,7 @@ async function spawnStreamWorker(row: MonitoredStreamRow, words: MatchableWord[]
     words,
     maxHours: env.maxHours,
     maxSilentMinutes: env.maxSilentMinutes,
+    scheduledStreamWaitMinutes: env.scheduledStreamWaitMinutes,
     deepgramRotateMinutes: env.deepgramRotateMinutes,
     ffmpegRecycleMinutes: env.ffmpegRecycleMinutes,
     localAudio: env.localAudio ?? undefined,

@@ -30,6 +30,7 @@ import {
   type PipedPipeline,
   type StreamSource,
 } from './streamUrl'
+import { probeStreamLive } from './probeStreamLive'
 import { WordMatcher, type MatchableWord, type MatchHit } from './wordMatcher'
 
 // Cost rate: Nova-3 monolingual streaming is $0.0048/min → 0.48 cents/min.
@@ -50,6 +51,21 @@ const DEEPGRAM_STABLE_MS = 2 * 60_000
 // pending_resolution. Words must also be admin-opted-in (auto_lock_enabled).
 const AUTO_LOCK_MIN_CONFIDENCE = 0.9
 
+// Bounded PCM buffer kept while Deepgram opens on first audio. At 16 kHz mono
+// 16-bit, audio is ~32 KB/s; Deepgram typically opens in ~300 ms. 350 chunks
+// is ~10 s of audio (~320 KB), well within memory and far more than needed
+// even for a slow open.
+const MAX_PCM_BUFFER_CHUNKS = 350
+
+// Probe cadence + debounce. The probe is a cheap subprocess (streamlink
+// --json or yt-dlp --simulate); we skip it entirely when fresh audio is
+// flowing (no point asking the platform what we already know from PCM
+// activity). N consecutive 'offline' results required before ending — one
+// is too noisy.
+const PROBE_INTERVAL_MS = 60_000
+const PROBE_SKIP_IF_AUDIO_WITHIN_MS = 60_000
+const PROBE_OFFLINE_STREAK_TO_END = 2
+
 export type EndReason =
   | 'manual_cancel'
   | 'silence_watchdog'
@@ -57,6 +73,8 @@ export type EndReason =
   | 'fetcher_failed'
   | 'pipeline_error'
   | 'shutdown'
+  | 'never_started'
+  | 'platform_offline'
 
 export interface StreamWorkerConfig {
   streamId: number
@@ -70,6 +88,9 @@ export interface StreamWorkerConfig {
   words: MatchableWord[]
   maxHours: number
   maxSilentMinutes: number
+  /** Hard cap on how long the worker waits for the first PCM byte to arrive
+   *  before giving up with 'never_started'. Covers scheduled-start grace. */
+  scheduledStreamWaitMinutes: number
   deepgramRotateMinutes: number
   ffmpegRecycleMinutes: number
   /**
@@ -97,10 +118,23 @@ export class StreamWorker {
   private hardCapTimer: NodeJS.Timeout | null = null
   private silenceTimer: NodeJS.Timeout | null = null
   private minutesTimer: NodeJS.Timeout | null = null
+  private noAudioCapTimer: NodeJS.Timeout | null = null
+  private probeTimer: NodeJS.Timeout | null = null
+  private probeOfflineStreak = 0
+  private probeInFlight = false
 
   private lastFinalizedAt = Date.now()
   private startedAtMs: number
   private shutdownPromise: Promise<void> | null = null
+
+  // Deferred Deepgram open state. The pipeline runs immediately on start(),
+  // but Deepgram opens only when the first PCM chunk arrives — so a worker
+  // waiting for a late streamer doesn't pay for an idle WS. Audio that
+  // arrives before the open completes is buffered (bounded).
+  private dgOpening = false
+  private pcmBuffer: Buffer[] = []
+  /** ms timestamp of the first PCM byte we received; null until audio starts. */
+  private firstPcmReceivedAtMs: number | null = null
 
   /** Per-word threshold lookup, populated from cfg.words at construction. */
   private readonly thresholdByWordIndex: Map<number, number>
@@ -132,17 +166,18 @@ export class StreamWorker {
       eventId: this.cfg.eventId,
       source: this.cfg.source,
       words: this.cfg.words.length,
+      scheduledStreamWaitMinutes: this.cfg.scheduledStreamWaitMinutes,
     })
 
-    // Open Deepgram first. If it fails we don't bother spawning ffmpeg.
-    const dg = await this.openDeepgram()
-    this.activeDg = dg
-
-    // Spawn the audio pipe. Audio chunks route to `activeDg` which may swap
-    // during rotation; the pipe just calls into the dispatcher below.
+    // Spawn the audio pipe first. The fetcher's own infinite-retry behavior
+    // (streamlink --retry-max 0 / yt-dlp --wait-for-video) handles waiting
+    // for a late streamer. Deepgram opens only when the first PCM byte
+    // arrives — see dispatchAudio + openDeepgramOnFirstPcm. Cost stays $0
+    // while we wait.
     this.pipe = await this.spawnPipe()
 
-    // Background timers for long-stream maintenance + cost protection.
+    // Background timers for long-stream maintenance + cost protection,
+    // including the pre-audio hard cap that fires if no PCM ever arrives.
     this.scheduleTimers()
     this.lastFinalizedAt = Date.now()
   }
@@ -172,17 +207,104 @@ export class StreamWorker {
           streamId: this.cfg.streamId,
           err: err.message,
         })
-        void this.stop('fetcher_failed', err.message)
+        void this.classifyUnrecoverablePipeExit(err)
       },
     })
     await pipe.start()
     return pipe
   }
 
+  /**
+   * Called when the audio pipe has exhausted its restart attempts. The exit
+   * could be a real error (auth failure, geoblock, streamlink crash) OR a
+   * clean stream end — most notably yt-dlp's --match-filter=is_live
+   * rejecting once a YouTube live broadcast ends and the URL becomes a VOD.
+   * Run the same liveness probe the end-detection tick uses to decide:
+   * 'offline' → clean end (platform_offline / status='ended'); 'live' or
+   * 'unknown' → real error (fetcher_failed / status='error').
+   */
+  private async classifyUnrecoverablePipeExit(err: Error): Promise<void> {
+    if (this.shutdownPromise) return
+    if (this.cfg.source === 'local-audio') {
+      void this.stop('fetcher_failed', err.message)
+      return
+    }
+    let result: 'live' | 'offline' | 'unknown'
+    try {
+      result = await probeStreamLive(this.cfg.streamUrl, this.cfg.source)
+    } catch {
+      result = 'unknown'
+    }
+    if (this.shutdownPromise) return
+    if (result === 'offline') {
+      log.info('audio pipe exit classified as platform_offline', {
+        streamId: this.cfg.streamId,
+        pipeError: err.message,
+      })
+      void this.stop('platform_offline')
+      return
+    }
+    void this.stop('fetcher_failed', err.message)
+  }
+
   private dispatchAudio(chunk: Buffer): void {
-    const dg = this.activeDg
-    if (!dg) return
-    dg.send(chunk)
+    if (this.shutdownPromise) return
+    // First-PCM bookkeeping: cancel the pre-audio hard cap, start the
+    // silence-watchdog clock, and trigger the initial Deepgram open.
+    if (this.firstPcmReceivedAtMs == null) {
+      this.firstPcmReceivedAtMs = Date.now()
+      if (this.noAudioCapTimer) {
+        clearTimeout(this.noAudioCapTimer)
+        this.noAudioCapTimer = null
+      }
+      this.lastFinalizedAt = Date.now()
+      log.info('first PCM received', {
+        streamId: this.cfg.streamId,
+        waitedSec: ((this.firstPcmReceivedAtMs - this.startedAtMs) / 1000).toFixed(1),
+      })
+    }
+    if (this.activeDg) {
+      this.activeDg.send(chunk)
+      return
+    }
+    if (!this.dgOpening) {
+      void this.openDeepgramOnFirstPcm()
+    }
+    this.pcmBuffer.push(chunk)
+    if (this.pcmBuffer.length > MAX_PCM_BUFFER_CHUNKS) {
+      this.pcmBuffer.shift()
+    }
+  }
+
+  /**
+   * Open the initial Deepgram connection on first PCM arrival. Any chunks
+   * received during the open are buffered (bounded) and flushed once the
+   * connection is ready. Failure here is unrecoverable for this run — the
+   * worker stops with 'pipeline_error'.
+   */
+  private async openDeepgramOnFirstPcm(): Promise<void> {
+    if (this.activeDg || this.dgOpening || this.shutdownPromise) return
+    this.dgOpening = true
+    try {
+      const dg = await this.openDeepgram()
+      if (this.shutdownPromise) {
+        void dg.close()
+        return
+      }
+      this.activeDg = dg
+      // Flush anything buffered while the WS handshake was in flight.
+      for (const buf of this.pcmBuffer) dg.send(buf)
+      this.pcmBuffer = []
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('initial deepgram open failed', {
+        streamId: this.cfg.streamId,
+        err: msg,
+      })
+      void this.stop('pipeline_error', `deepgram open failed: ${msg}`)
+    } finally {
+      this.dgOpening = false
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -289,6 +411,10 @@ export class StreamWorker {
 
   private async rotateDeepgram(): Promise<void> {
     if (this.shutdownPromise) return
+    // No active Deepgram means we're still waiting for first PCM. Opening a
+    // replacement here would start billing a WS that has no audio to send.
+    // The next openDeepgramOnFirstPcm() will create one when audio arrives.
+    if (!this.activeDg) return
     log.info('deepgram rotation', { streamId: this.cfg.streamId })
     let next: DeepgramConnection
     try {
@@ -635,8 +761,11 @@ export class StreamWorker {
     }
     if (this.cfg.maxSilentMinutes > 0) {
       // Tick frequently enough to catch silence within ~30s of the threshold.
+      // The silence check is gated on firstPcmReceivedAtMs so a worker still
+      // waiting for its first audio byte isn't counted as "silent."
       this.silenceTimer = setInterval(() => {
         if (this.shutdownPromise) return
+        if (this.firstPcmReceivedAtMs == null) return
         const silentMs = Date.now() - this.lastFinalizedAt
         if (silentMs > this.cfg.maxSilentMinutes * 60_000) {
           log.warn('silence watchdog tripped', {
@@ -648,16 +777,92 @@ export class StreamWorker {
       }, 30_000)
       this.silenceTimer.unref()
     }
+    // Pre-audio hard cap. Bounded wait for the first PCM byte; if it never
+    // arrives, the worker gives up cleanly. Cancelled in dispatchAudio the
+    // moment audio actually starts flowing.
+    if (this.cfg.scheduledStreamWaitMinutes > 0) {
+      this.noAudioCapTimer = setTimeout(() => {
+        if (this.shutdownPromise) return
+        if (this.firstPcmReceivedAtMs != null) return
+        log.warn('pre-audio hard timeout: stream never produced audio', {
+          streamId: this.cfg.streamId,
+          waitMinutes: this.cfg.scheduledStreamWaitMinutes,
+        })
+        void this.stop(
+          'never_started',
+          `no audio within ${this.cfg.scheduledStreamWaitMinutes} minutes`,
+        )
+      }, this.cfg.scheduledStreamWaitMinutes * 60_000)
+      this.noAudioCapTimer.unref()
+    }
     // Update minutes_used + cost_cents every minute so the daily-cost
-    // dashboards stay roughly current even on long-running streams.
+    // dashboards stay roughly current even on long-running streams. The
+    // computation is gated on firstPcmReceivedAtMs in persistMinutesUsed so
+    // pre-audio wait time doesn't show as fake Deepgram spend.
     this.minutesTimer = setInterval(() => {
       void this.persistMinutesUsed().catch(() => {})
     }, 60_000)
     this.minutesTimer.unref()
+
+    // End-detection probe. Twitch + YouTube only; local-audio has nothing
+    // to probe. The fetcher's infinite-retry behavior means we no longer
+    // get fast 'fetcher_failed' signals on stream end (deliberate — it's
+    // what fixes the YouTube VOD-replay bug), so without the probe end
+    // detection lags by the silence watchdog window. The probe shortens
+    // that to ~2 min.
+    if (this.cfg.source === 'twitch' || this.cfg.source === 'youtube') {
+      this.probeTimer = setInterval(() => {
+        void this.runProbeTick().catch(() => {})
+      }, PROBE_INTERVAL_MS)
+      this.probeTimer.unref()
+    }
+  }
+
+  private async runProbeTick(): Promise<void> {
+    if (this.shutdownPromise || this.probeInFlight) return
+    // While we're still waiting for the first PCM byte, the pre-audio hard
+    // cap is the authoritative timeout. Probing during this window would
+    // see "channel offline" (correctly — the scheduled streamer hasn't gone
+    // live yet) and falsely declare the stream ended before it began.
+    if (this.firstPcmReceivedAtMs == null) return
+    // If audio has flowed recently, the stream is definitely live — skip
+    // the probe and reset the offline streak (a flaky probe earlier
+    // shouldn't be allowed to accumulate).
+    if (Date.now() - this.lastFinalizedAt < PROBE_SKIP_IF_AUDIO_WITHIN_MS) {
+      this.probeOfflineStreak = 0
+      return
+    }
+    this.probeInFlight = true
+    try {
+      const result = await probeStreamLive(this.cfg.streamUrl, this.cfg.source)
+      if (this.shutdownPromise) return
+      if (result === 'live') {
+        this.probeOfflineStreak = 0
+        return
+      }
+      if (result === 'unknown') {
+        // Flaky probe — neither confirms nor denies. Don't change streak.
+        return
+      }
+      this.probeOfflineStreak++
+      log.info('probe reports offline', {
+        streamId: this.cfg.streamId,
+        streak: this.probeOfflineStreak,
+        threshold: PROBE_OFFLINE_STREAK_TO_END,
+      })
+      if (this.probeOfflineStreak >= PROBE_OFFLINE_STREAK_TO_END) {
+        void this.stop('platform_offline')
+      }
+    } finally {
+      this.probeInFlight = false
+    }
   }
 
   private async persistMinutesUsed(): Promise<void> {
-    const minutes = (Date.now() - this.startedAtMs) / 60_000
+    // Don't count pre-audio wait time as Deepgram cost — the WS isn't open
+    // yet, so Deepgram isn't billing. Cost runs from the first PCM byte.
+    if (this.firstPcmReceivedAtMs == null) return
+    const minutes = (Date.now() - this.firstPcmReceivedAtMs) / 60_000
     const costCents = Math.round(minutes * COST_CENTS_PER_MINUTE)
     await pool.query(
       `UPDATE monitored_streams
@@ -702,7 +907,13 @@ export class StreamWorker {
     this.drainingDgs = []
     await Promise.allSettled(dgs.map((d) => d.close()))
 
-    const minutes = Math.max(0, (Date.now() - this.startedAtMs) / 60_000)
+    // Cost is measured from the first PCM byte received (when Deepgram
+    // actually started billing). Workers that ended without ever producing
+    // audio (never_started, manual_cancel before stream went live, etc.)
+    // have minutes=0 and cost=0.
+    const minutes = this.firstPcmReceivedAtMs == null
+      ? 0
+      : Math.max(0, (Date.now() - this.firstPcmReceivedAtMs) / 60_000)
     const costCents = Math.round(minutes * COST_CENTS_PER_MINUTE)
 
     // SIGTERM / Railway redeploy: tear down the local pipeline but leave the
@@ -722,8 +933,14 @@ export class StreamWorker {
       return
     }
 
+    // Clean ends map to 'ended'; failures (including never_started, which is
+    // operationally "the scheduled streamer never showed up") map to 'error'
+    // so admins notice and can investigate.
     const status =
-      reason === 'manual_cancel' || reason === 'silence_watchdog' || reason === 'hard_cap'
+      reason === 'manual_cancel' ||
+      reason === 'silence_watchdog' ||
+      reason === 'hard_cap' ||
+      reason === 'platform_offline'
         ? 'ended'
         : 'error'
 
@@ -785,11 +1002,15 @@ export class StreamWorker {
     if (this.silenceTimer) clearInterval(this.silenceTimer)
     if (this.minutesTimer) clearInterval(this.minutesTimer)
     if (this.hardCapTimer) clearTimeout(this.hardCapTimer)
+    if (this.noAudioCapTimer) clearTimeout(this.noAudioCapTimer)
+    if (this.probeTimer) clearInterval(this.probeTimer)
     this.rotationTimer = null
     this.recycleTimer = null
     this.silenceTimer = null
     this.minutesTimer = null
     this.hardCapTimer = null
+    this.noAudioCapTimer = null
+    this.probeTimer = null
   }
 }
 
