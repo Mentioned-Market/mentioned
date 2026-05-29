@@ -2443,6 +2443,47 @@ export async function getMarketResults(marketId: number): Promise<MarketResultEn
     .sort((a, b) => b.net_tokens - a.net_tokens)
 }
 
+export interface MarketLeaderboardDiscordEntry {
+  wallet: string
+  username: string | null
+  pfp_emoji: string | null
+  discord_id: string | null
+  net_tokens: number
+  total_spent: number
+}
+
+/**
+ * Ranked leaderboard for a resolved market, including discord_id so winners can be @-mentioned.
+ * Kept separate from getMarketResults so discord_id never leaks via the public results API.
+ */
+export async function getMarketLeaderboardForDiscord(
+  marketId: number,
+): Promise<MarketLeaderboardDiscordEntry[]> {
+  const result = await pool.query(
+    `SELECT
+       r.wallet,
+       up.username,
+       up.pfp_emoji,
+       up.discord_id,
+       SUM(r.net_tokens)::float AS net_tokens,
+       SUM(r.tokens_spent)::float AS total_spent
+     FROM custom_market_results r
+     LEFT JOIN user_profiles up ON up.wallet = r.wallet
+     WHERE r.market_id = $1
+     GROUP BY r.wallet, up.username, up.pfp_emoji, up.discord_id
+     ORDER BY net_tokens DESC`,
+    [marketId],
+  )
+  return result.rows.map(row => ({
+    wallet: row.wallet,
+    username: row.username ?? null,
+    pfp_emoji: row.pfp_emoji ?? null,
+    discord_id: row.discord_id ?? null,
+    net_tokens: Number(row.net_tokens),
+    total_spent: Number(row.total_spent),
+  }))
+}
+
 // -- Admin Audit Log --
 
 export async function logAdminAction(
