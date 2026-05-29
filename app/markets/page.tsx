@@ -96,6 +96,7 @@ interface PaidMarketSummary {
   words: { label: string; yesPrice: number; noPrice: number; outcome: boolean | null }[]
   locksAt: string
   eventStartTime: string | null
+  traderCount: number
 }
 
 type MarketFilter = 'all' | 'free' | 'paid'
@@ -749,28 +750,30 @@ function formatPaidMarketDate(isoOrTimestamp: string | null | undefined): string
   try {
     const d = new Date(isNaN(Number(isoOrTimestamp)) ? isoOrTimestamp : Number(isoOrTimestamp) * 1000)
     if (isNaN(d.getTime())) return null
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const weekday = d.toLocaleDateString('en-GB', { weekday: 'short' })
+    const day = d.getDate()
+    const month = d.toLocaleDateString('en-GB', { month: 'short' })
+    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    const tz = d.toLocaleTimeString('en-GB', { timeZoneName: 'short' }).split(' ').pop() ?? ''
+    return `${weekday} ${day} ${month}, ${time} ${tz}`.trim()
   } catch {
     return null
   }
 }
 
-function formatLocksAt(locksAtStr: string): string | null {
+function formatClosesIn(locksAtStr: string): string | null {
   try {
     const ts = Number(locksAtStr) * 1000
     if (!ts || ts <= 0) return null
-    const d = new Date(ts)
-    if (isNaN(d.getTime())) return null
-    const now = Date.now()
-    const diff = ts - now
-    if (diff > 0 && diff < 7 * 24 * 60 * 60 * 1000) {
-      // within 7 days: show relative time
-      const h = Math.floor(diff / 3600000)
-      const m = Math.floor((diff % 3600000) / 60000)
-      if (h > 0) return `Locks in ${h}h`
-      return `Locks in ${m}m`
-    }
-    return `Locks ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    const diff = ts - Date.now()
+    if (diff <= 0) return null
+    const totalHours = Math.floor(diff / 3600000)
+    const days = Math.floor(totalHours / 24)
+    const hours = totalHours % 24
+    if (days > 0) return `Closes ${days}d ${hours}h`
+    const mins = Math.floor((diff % 3600000) / 60000)
+    if (totalHours > 0) return `Closes ${totalHours}h ${mins}m`
+    return `Closes ${mins}m`
   } catch {
     return null
   }
@@ -782,7 +785,7 @@ function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; 
   const url = market.slug ? `/paid/${market.slug}` : `/market/${market.marketId}`
   const topWords = market.words.slice(0, 5)
   const eventDate = formatPaidMarketDate(market.eventStartTime)
-  const lockLabel = formatLocksAt(market.locksAt)
+  const closesLabel = formatClosesIn(market.locksAt)
 
   return (
     <div className="group relative block overflow-hidden rounded-2xl transition-all duration-300 hover-lift" style={{ background: 'rgba(10,10,10,0.75)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
@@ -820,9 +823,12 @@ function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; 
 
       <div className="p-4 flex flex-col gap-3">
         <Link href={url}>
-          <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 h-[2.5rem] hover:text-neutral-200 transition-colors">
+          <h3 className="text-white text-sm font-semibold leading-tight line-clamp-2 hover:text-neutral-200 transition-colors">
             {market.title}
           </h3>
+          {eventDate && (
+            <p className="mt-1 text-neutral-500 text-[11px]">{eventDate}</p>
+          )}
         </Link>
 
         {topWords.length > 0 && (
@@ -849,30 +855,22 @@ function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; 
           </div>
         )}
 
-        <Link href={url} className="flex items-center flex-wrap gap-2 pt-2 border-t border-white/5">
-          {eventDate && (
-            <>
-              <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
-                {eventDate}
-              </span>
-              <span className="text-neutral-600 text-[10px]">·</span>
-            </>
-          )}
-          {lockLabel && market.status !== 2 && (
-            <>
-              <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 text-[10px] font-medium">
-                {lockLabel}
-              </span>
-              <span className="text-neutral-600 text-[10px]">·</span>
-            </>
-          )}
+        <Link href={url} className="flex items-center flex-wrap gap-x-2 gap-y-1 pt-2 border-t border-white/5">
+          <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+            {market.traderCount} trader{market.traderCount !== 1 ? 's' : ''}
+          </span>
+          <span className="text-neutral-600 text-[10px]">·</span>
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {market.wordCount} words
           </span>
-          <span className="text-neutral-600 text-[10px]">·</span>
-          <span className="px-2 py-0.5 rounded-full bg-apple-blue/10 text-apple-blue text-[10px] font-medium">
-            USDC
-          </span>
+          {closesLabel && market.status !== 2 && (
+            <>
+              <span className="text-neutral-600 text-[10px]">·</span>
+              <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+                {closesLabel}
+              </span>
+            </>
+          )}
         </Link>
       </div>
     </div>
@@ -1053,30 +1051,51 @@ export default function MarketsPage() {
   const pageReady = !customLoading && !sidebarLoading && !paidLoading
   const featuredMarket = customMarkets.find(m => m.is_featured) ?? null
 
+  const FAR_FUTURE = 9999999999999
+
+  // Returns lock/event timestamp in ms for sorting — null/zero treated as far future
+  function lockMs(item: BlendedItem): number {
+    if (item.kind === 'paid') {
+      const ts = Number(item.market.locksAt) * 1000
+      return ts > 0 ? ts : FAR_FUTURE
+    }
+    const ts = item.market.lock_time ? new Date(item.market.lock_time).getTime() : 0
+    return ts > 0 ? ts : FAR_FUTURE
+  }
+
   const sortedPaidMarkets = [...paidMarkets].sort((a, b) =>
-    (a.status === 2 ? 1 : 0) - (b.status === 2 ? 1 : 0)
+    (a.status === 2 ? 1 : 0) - (b.status === 2 ? 1 : 0) ||
+    Number(BigInt(a.locksAt) - BigInt(b.locksAt))
   )
   const sortedFreeMarkets = customMarkets
     .filter(m => featuredMarket ? m.id !== featuredMarket.id : true)
-    .sort((a, b) => (a.status === 'resolved' ? 1 : 0) - (b.status === 'resolved' ? 1 : 0))
+    .sort((a, b) => {
+      const aRes = a.status === 'resolved' ? 1 : 0
+      const bRes = b.status === 'resolved' ? 1 : 0
+      if (aRes !== bRes) return aRes - bRes
+      const aTs = a.lock_time ? new Date(a.lock_time).getTime() : FAR_FUTURE
+      const bTs = b.lock_time ? new Date(b.lock_time).getTime() : FAR_FUTURE
+      return aTs - bTs
+    })
 
   const showFree = marketFilter === 'all' || marketFilter === 'free'
   const showPaid = marketFilter === 'all' || marketFilter === 'paid'
   const showFeatured = showFree && featuredMarket
   const showTypeBadge = marketFilter === 'all'
 
-  // Blended list for "All" view — interleave paid + free, resolved last
+  // Blended list for "All" view — true interleave sorted by soonest lock, resolved last
   type BlendedItem =
     | { kind: 'paid'; market: PaidMarketSummary }
     | { kind: 'free'; market: CustomMarketSummary }
   const blendedMarkets: BlendedItem[] = marketFilter === 'all'
     ? [
-        ...sortedPaidMarkets.map(m => ({ kind: 'paid' as const, market: m })),
-        ...sortedFreeMarkets.map(m => ({ kind: 'free' as const, market: m })),
+        ...paidMarkets.map(m => ({ kind: 'paid' as const, market: m })),
+        ...customMarkets.filter(m => featuredMarket ? m.id !== featuredMarket.id : true).map(m => ({ kind: 'free' as const, market: m })),
       ].sort((a, b) => {
-        const aResolved = (a.kind === 'paid' ? a.market.status === 2 : a.market.status === 'resolved') ? 1 : 0
-        const bResolved = (b.kind === 'paid' ? b.market.status === 2 : b.market.status === 'resolved') ? 1 : 0
-        return aResolved - bResolved
+        const aResolved = a.kind === 'paid' ? a.market.status === 2 : a.market.status === 'resolved'
+        const bResolved = b.kind === 'paid' ? b.market.status === 2 : b.market.status === 'resolved'
+        if (aResolved !== bResolved) return aResolved ? 1 : -1
+        return lockMs(a) - lockMs(b)
       })
     : []
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { fetchAllMarketsWithFallback, impliedYesPrice, MarketStatus } from '@/lib/mentionMarketUsdc'
-import { getAllPaidMarketMetadata } from '@/lib/db'
+import { getAllPaidMarketMetadata, getPaidMarketTraderCounts } from '@/lib/db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,11 +15,15 @@ export interface PaidMarketSummary {
   words: { label: string; yesPrice: number; noPrice: number; outcome: boolean | null }[]
   locksAt: string  // Unix seconds as string (bigint serialized)
   eventStartTime: string | null
+  traderCount: number
 }
 
 export async function GET() {
   const allMetadata = await getAllPaidMarketMetadata()
-  const markets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
+  const [markets, traderCounts] = await Promise.all([
+    fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id)),
+    getPaidMarketTraderCounts(allMetadata.map(m => m.market_id)),
+  ])
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
 
@@ -39,6 +43,7 @@ export async function GET() {
       }),
       locksAt: mkt.locksAt.toString(),
       eventStartTime: meta?.event_start_time ?? null,
+      traderCount: traderCounts.get(mkt.marketId.toString()) ?? 0,
     }
   }).filter(m => m.status !== MarketStatus.Resolved || m.words.some(w => w.outcome !== null))
 

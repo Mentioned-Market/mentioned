@@ -3173,6 +3173,22 @@ export async function getAllPaidMarketMetadata(): Promise<PaidMarketMetadata[]> 
   return result.rows
 }
 
+export async function getPaidMarketTraderCounts(marketIds: string[]): Promise<Map<string, number>> {
+  if (marketIds.length === 0) return new Map()
+  const result = await pool.query<{ market_id: string; trader_count: string }>(
+    `SELECT market_id, COUNT(DISTINCT trader)::text AS trader_count
+     FROM trade_events
+     WHERE market_id = ANY($1)
+     GROUP BY market_id`,
+    [marketIds],
+  )
+  const map = new Map<string, number>()
+  for (const row of result.rows) {
+    map.set(row.market_id, parseInt(row.trader_count, 10))
+  }
+  return map
+}
+
 // ── Feedback ─────────────────────────────────────────────────────────────────
 
 export interface FeedbackData {
