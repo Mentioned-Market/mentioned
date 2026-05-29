@@ -51,8 +51,10 @@ export default function PaidCustomAdminPage() {
   const [description, setDescription] = useState('')
   const [coverImageUrl, setCoverImageUrl] = useState('')
   const [streamUrl, setStreamUrl] = useState('')
+  const [urlPrefix, setUrlPrefix] = useState('')
   const [wordsInput, setWordsInput] = useState('')
-  const [resolvesAt, setResolvesAt] = useState('')
+  const [eventStartTime, setEventStartTime] = useState('')
+  const [locksAt, setLocksAt] = useState('')
   const [tradeFeeBps, setTradeFeeBps] = useState('50')
   const [initialB, setInitialB] = useState('100000000')
   const [baseBPerUsdc, setBaseBPerUsdc] = useState('500000')
@@ -72,6 +74,20 @@ export default function PaidCustomAdminPage() {
 
   // Resolution state: marketId -> wordIndex -> outcome
   const [resolutions, setResolutions] = useState<Record<string, Record<number, boolean | null>>>({})
+
+  // Edit metadata state per market
+  interface EditState {
+    title: string
+    description: string
+    coverImageUrl: string
+    streamUrl: string
+    eventStartTime: string
+    urlPrefix: string
+    existingSlug: string | null
+    saving: boolean
+    saveMsg: { type: 'success' | 'error'; text: string } | null
+  }
+  const [editStates, setEditStates] = useState<Record<string, EditState>>({})
 
   const show = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ type, text })
@@ -117,7 +133,7 @@ export default function PaidCustomAdminPage() {
     if (isAdmin) fetchMarkets()
   }, [isAdmin, fetchMarkets])
 
-  function toggleExpand(pubkey: string, account: UsdcMarketAccount) {
+  async function toggleExpand(pubkey: string, account: UsdcMarketAccount) {
     if (expandedId === pubkey) {
       setExpandedId(null)
       return
@@ -128,6 +144,49 @@ export default function PaidCustomAdminPage() {
       if (w.outcome === null) res[w.wordIndex] = null
     })
     setResolutions(prev => ({ ...prev, [pubkey]: res }))
+
+    // Fetch and populate edit state with existing metadata
+    if (!editStates[pubkey]) {
+      try {
+        const r = await fetch(`/api/paid-markets/metadata?id=${account.marketId.toString()}`)
+        const meta = r.ok ? await r.json() : null
+        const toDatetimeLocal = (val: string | null | undefined) => {
+          if (!val) return ''
+          const d = new Date(val)
+          if (isNaN(d.getTime())) return ''
+          return d.toISOString().slice(0, 16)
+        }
+        setEditStates(prev => ({
+          ...prev,
+          [pubkey]: {
+            title: meta?.title ?? account.label,
+            description: meta?.description ?? '',
+            coverImageUrl: meta?.cover_image_url ?? '',
+            streamUrl: meta?.stream_url ?? '',
+            eventStartTime: toDatetimeLocal(meta?.event_start_time),
+            urlPrefix: '',
+            existingSlug: meta?.slug ?? null,
+            saving: false,
+            saveMsg: null,
+          },
+        }))
+      } catch {
+        setEditStates(prev => ({
+          ...prev,
+          [pubkey]: {
+            title: account.label,
+            description: '',
+            coverImageUrl: '',
+            streamUrl: '',
+            eventStartTime: '',
+            urlPrefix: '',
+            existingSlug: null,
+            saving: false,
+            saveMsg: null,
+          },
+        }))
+      }
+    }
   }
 
   async function handleCreate() {
@@ -145,15 +204,15 @@ export default function PaidCustomAdminPage() {
       return
     }
 
-    if (!resolvesAt) {
-      show('Resolution time is required', 'error')
+    if (!locksAt) {
+      show('Trading lock time is required', 'error')
       return
     }
 
     setCreating(true)
     try {
       const marketId = BigInt(Date.now())
-      const resolvesAtTs = BigInt(Math.floor(new Date(resolvesAt).getTime() / 1000))
+      const locksAtTs = BigInt(Math.floor(new Date(locksAt).getTime() / 1000))
       const feeBps = parseInt(tradeFeeBps) || 50
       const initB = BigInt(initialB || '1000000')
       const bPerUsdc = BigInt(baseBPerUsdc || '100')
@@ -163,7 +222,7 @@ export default function PaidCustomAdminPage() {
         marketId,
         label.trim(),
         words,
-        resolvesAtTs,
+        locksAtTs,
         publicKey as Address, // resolver = authority
         feeBps,
         initB,
@@ -183,6 +242,8 @@ export default function PaidCustomAdminPage() {
           description: description.trim() || undefined,
           coverImageUrl: coverImageUrl.trim() || undefined,
           streamUrl: streamUrl.trim() || undefined,
+          urlPrefix: urlPrefix.trim() || undefined,
+          eventStartTime: eventStartTime.trim() || undefined,
         }),
       })
 
@@ -191,8 +252,10 @@ export default function PaidCustomAdminPage() {
       setDescription('')
       setCoverImageUrl('')
       setStreamUrl('')
+      setUrlPrefix('')
+      setEventStartTime('')
+      setLocksAt('')
       setWordsInput('')
-      setResolvesAt('')
       setTradeFeeBps('50')
       setInitialB('1000000')
       setBaseBPerUsdc('100')
@@ -220,14 +283,17 @@ export default function PaidCustomAdminPage() {
   }
 
   async function handleResolveWords(market: MarketWithMeta) {
-    if (!publicKey || !signer) return
+    if (!publicKey || !signer || !signOnly) {
+      show('Wallet not ready — connect Phantom and try again', 'error')
+      return
+    }
     const wordResolutions = resolutions[market.pubkey] || {}
     const toResolve = Object.entries(wordResolutions)
       .filter(([, outcome]) => outcome !== null)
       .map(([idx, outcome]) => ({ wordIndex: parseInt(idx), outcome: outcome! }))
 
     if (toResolve.length === 0) {
-      show('Select outcomes for at least one word', 'error')
+      show('Select YES or NO for at least one word first', 'error')
       return
     }
 
@@ -238,7 +304,7 @@ export default function PaidCustomAdminPage() {
           createResolveWordIx(publicKey as Address, market.account.marketId, wordIndex, outcome)
         )
       )
-      await sendInstructions(signer, signOnly!, ixs)
+      await sendInstructions(signer, signOnly, ixs)
       show(`Resolved ${toResolve.length} word(s)`)
       await fetchMarkets()
     } catch (err: any) {
@@ -335,6 +401,53 @@ export default function PaidCustomAdminPage() {
     setResolutions(prev => ({ ...prev, [market.pubkey]: res }))
   }
 
+  function updateEditState(pubkey: string, patch: Partial<EditState>) {
+    setEditStates(prev => ({ ...prev, [pubkey]: { ...prev[pubkey], ...patch } }))
+  }
+
+  async function handleSaveMetadata(market: MarketWithMeta) {
+    const es = editStates[market.pubkey]
+    if (!es || !publicKey) return
+    if (!es.title.trim()) {
+      updateEditState(market.pubkey, { saveMsg: { type: 'error', text: 'Title is required' } })
+      return
+    }
+    updateEditState(market.pubkey, { saving: true, saveMsg: null })
+    try {
+      const res = await fetch('/api/paid-markets/metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey,
+          marketId: market.account.marketId.toString(),
+          title: es.title.trim(),
+          description: es.description.trim() || undefined,
+          coverImageUrl: es.coverImageUrl.trim() || undefined,
+          streamUrl: es.streamUrl.trim() || undefined,
+          eventStartTime: es.eventStartTime || undefined,
+          urlPrefix: es.urlPrefix.trim() || undefined,
+        }),
+      })
+      if (!res.ok) {
+        let errMsg = 'Save failed'
+        try {
+          const json = await res.json()
+          errMsg = json.error || errMsg
+        } catch {}
+        throw new Error(errMsg)
+      }
+      const saved = await res.json()
+      updateEditState(market.pubkey, {
+        saving: false,
+        urlPrefix: '',
+        existingSlug: saved.slug ?? es.existingSlug,
+        saveMsg: { type: 'success', text: 'Market details saved' },
+      })
+    } catch (err: any) {
+      updateEditState(market.pubkey, { saving: false, saveMsg: { type: 'error', text: err?.message || 'Save failed' } })
+    }
+  }
+
   if (!authChecked) {
     return (
       <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-black">
@@ -412,15 +525,26 @@ export default function PaidCustomAdminPage() {
                     <p className="text-[10px] text-neutral-600 mt-1 px-1">Max 64 chars</p>
                   </div>
                   <div>
+                    <label className="block text-xs font-medium text-neutral-400 mb-1.5">Event Start Time</label>
+                    <input
+                      type="datetime-local"
+                      value={eventStartTime}
+                      onChange={e => setEventStartTime(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                    />
+                    <p className="text-[10px] text-neutral-600 mt-1 px-1">Optional — when the event starts</p>
+                  </div>
+                  <div>
                     <label className="block text-xs font-medium text-neutral-400 mb-1.5">
-                      Resolves At <span className="text-apple-red">*</span>
+                      Trading Locks At <span className="text-apple-red">*</span>
                     </label>
                     <input
                       type="datetime-local"
-                      value={resolvesAt}
-                      onChange={e => setResolvesAt(e.target.value)}
+                      value={locksAt}
+                      onChange={e => setLocksAt(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
                     />
+                    <p className="text-[10px] text-neutral-600 mt-1 px-1">Trading freezes at this time on-chain</p>
                   </div>
                 </div>
 
@@ -453,6 +577,16 @@ export default function PaidCustomAdminPage() {
                       placeholder="YouTube or Twitch URL"
                       value={streamUrl}
                       onChange={e => setStreamUrl(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-400 mb-1.5">URL Prefix</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. COSTCO → /paid/COSTCO-a1b2c3"
+                      value={urlPrefix}
+                      onChange={e => setUrlPrefix(e.target.value.replace(/[^a-zA-Z0-9-]/g, ''))}
                       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
                     />
                   </div>
@@ -613,8 +747,8 @@ export default function PaidCustomAdminPage() {
                                     <p className="text-white">{mk.tradeFeeBps / 100}%</p>
                                   </div>
                                   <div>
-                                    <p className="text-neutral-500 mb-0.5">Resolves At</p>
-                                    <p className="text-white">{new Date(Number(mk.resolvesAt) * 1000).toLocaleString()}</p>
+                                    <p className="text-neutral-500 mb-0.5">Trading Locks At</p>
+                                    <p className="text-white">{new Date(Number(mk.locksAt) * 1000).toLocaleString()}</p>
                                   </div>
                                 </div>
                               </div>
@@ -792,8 +926,108 @@ export default function PaidCustomAdminPage() {
                                       {txPending ? 'Sending...' : 'Resolve Selected'}
                                     </button>
                                   </div>
+                                  {message && (
+                                    <div className={`mt-2 px-3 py-2 rounded-lg text-xs font-mono break-all ${message.type === 'success' ? 'bg-apple-green/10 text-apple-green' : 'bg-apple-red/10 text-apple-red'}`}>
+                                      {message.text}
+                                    </div>
+                                  )}
                                 </div>
                               )}
+
+                              {/* Edit Market Metadata */}
+                              <div className="pt-1 border-t border-white/5">
+                                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Edit Market</h3>
+                                {editStates[market.pubkey] ? (
+                                  <div className="space-y-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="block text-[10px] font-medium text-neutral-500 mb-1">Title <span className="text-apple-red">*</span></label>
+                                        <input
+                                          type="text"
+                                          value={editStates[market.pubkey].title}
+                                          onChange={e => updateEditState(market.pubkey, { title: e.target.value })}
+                                          maxLength={64}
+                                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-medium text-neutral-500 mb-1">Event Start Time</label>
+                                        <input
+                                          type="datetime-local"
+                                          value={editStates[market.pubkey].eventStartTime}
+                                          onChange={e => updateEditState(market.pubkey, { eventStartTime: e.target.value })}
+                                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-medium text-neutral-500 mb-1">Cover Image URL</label>
+                                        <input
+                                          type="url"
+                                          placeholder="https://..."
+                                          value={editStates[market.pubkey].coverImageUrl}
+                                          onChange={e => updateEditState(market.pubkey, { coverImageUrl: e.target.value })}
+                                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-medium text-neutral-500 mb-1">Stream URL</label>
+                                        <input
+                                          type="url"
+                                          placeholder="YouTube or Twitch URL"
+                                          value={editStates[market.pubkey].streamUrl}
+                                          onChange={e => updateEditState(market.pubkey, { streamUrl: e.target.value })}
+                                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-medium text-neutral-500 mb-1">URL Slug</label>
+                                        {editStates[market.pubkey].existingSlug ? (
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs font-mono text-apple-green">/paid/{editStates[market.pubkey].existingSlug}</span>
+                                          </div>
+                                        ) : (
+                                          <div>
+                                            <input
+                                              type="text"
+                                              placeholder="e.g. COSTCO → /paid/COSTCO-a1b2c3"
+                                              value={editStates[market.pubkey].urlPrefix}
+                                              onChange={e => updateEditState(market.pubkey, { urlPrefix: e.target.value.replace(/[^a-zA-Z0-9-]/g, '') })}
+                                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                            />
+                                            <p className="text-[10px] text-neutral-600 mt-1">Set once — cannot be changed after saving</p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-medium text-neutral-500 mb-1">Description</label>
+                                      <textarea
+                                        placeholder="Optional description shown to users"
+                                        value={editStates[market.pubkey].description}
+                                        onChange={e => updateEditState(market.pubkey, { description: e.target.value })}
+                                        rows={2}
+                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 resize-none"
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <button
+                                        onClick={() => handleSaveMetadata(market)}
+                                        disabled={editStates[market.pubkey].saving}
+                                        className="px-4 py-2 bg-apple-blue text-white text-xs font-semibold rounded-lg hover:bg-apple-blue/80 transition-colors disabled:opacity-50"
+                                      >
+                                        {editStates[market.pubkey].saving ? 'Saving...' : 'Save Changes'}
+                                      </button>
+                                      {editStates[market.pubkey].saveMsg && (
+                                        <span className={`text-xs font-mono ${editStates[market.pubkey].saveMsg!.type === 'success' ? 'text-apple-green' : 'text-apple-red'}`}>
+                                          {editStates[market.pubkey].saveMsg!.text}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-neutral-600">Loading metadata...</p>
+                                )}
+                              </div>
 
                               {/* Actions */}
                               <div className="pt-1 border-t border-white/5">

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { pool, getAllPaidMarketMetadata } from '@/lib/db'
-import { fetchAllMarkets } from '@/lib/mentionMarketUsdc'
+import { fetchAllMarketsWithFallback } from '@/lib/mentionMarketUsdc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'wallet required' }, { status: 400 })
   }
 
-  const [rows, allMetadata, allMarkets] = await Promise.all([
+  const [rows, allMetadata] = await Promise.all([
     pool.query(
       `SELECT
          te.signature,
@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
       [wallet],
     ),
     getAllPaidMarketMetadata(),
-    fetchAllMarkets(),
   ])
+  const allMarkets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
   const wordsByMarketId = new Map(

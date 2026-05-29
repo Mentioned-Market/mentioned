@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin } from '@/lib/adminAuth'
-import { upsertPaidMarketMetadata, getPaidMarketMetadata, getAllPaidMarketMetadata } from '@/lib/db'
+import { upsertPaidMarketMetadata, getPaidMarketMetadata, getAllPaidMarketMetadata, getPaidMarketMetadataBySlug } from '@/lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
+  const slug = searchParams.get('slug')
 
   if (id) {
     if (!/^\d+$/.test(id)) {
@@ -15,13 +16,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(meta)
   }
 
+  if (slug) {
+    const meta = await getPaidMarketMetadataBySlug(slug)
+    if (!meta) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json(meta)
+  }
+
   const all = await getAllPaidMarketMetadata()
   return NextResponse.json(all)
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { wallet, marketId, title, description, coverImageUrl, streamUrl } = body
+  const { wallet, marketId, title, description, coverImageUrl, streamUrl, urlPrefix, eventStartTime } = body
 
   if (!wallet || !isAdmin(wallet)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
@@ -33,12 +40,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'title is required' }, { status: 400 })
   }
 
-  const meta = await upsertPaidMarketMetadata(BigInt(marketId), {
-    title: title.trim(),
-    description: description?.trim() || null,
-    coverImageUrl: coverImageUrl?.trim() || null,
-    streamUrl: streamUrl?.trim() || null,
-  })
-
-  return NextResponse.json(meta)
+  try {
+    const meta = await upsertPaidMarketMetadata(BigInt(marketId), {
+      title: title.trim(),
+      description: description?.trim() || null,
+      coverImageUrl: coverImageUrl?.trim() || null,
+      streamUrl: streamUrl?.trim() || null,
+      urlPrefix: urlPrefix?.trim() || null,
+      eventStartTime: eventStartTime?.trim() || null,
+    })
+    return NextResponse.json(meta)
+  } catch (err: any) {
+    console.error('upsertPaidMarketMetadata error:', err)
+    return NextResponse.json({ error: err?.message || 'Database error' }, { status: 500 })
+  }
 }

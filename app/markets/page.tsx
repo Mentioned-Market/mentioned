@@ -91,8 +91,11 @@ interface PaidMarketSummary {
   title: string
   coverImageUrl: string | null
   status: number  // 0=Open 1=Paused 2=Resolved
+  slug: string | null
   wordCount: number
   words: { label: string; yesPrice: number; noPrice: number; outcome: boolean | null }[]
+  locksAt: string
+  eventStartTime: string | null
 }
 
 type MarketFilter = 'all' | 'free' | 'paid'
@@ -741,11 +744,45 @@ const PAID_STATUS_CLASSES: Record<number, string> = {
   2: 'bg-white/10 text-neutral-400',
 }
 
+function formatPaidMarketDate(isoOrTimestamp: string | null | undefined): string | null {
+  if (!isoOrTimestamp) return null
+  try {
+    const d = new Date(isNaN(Number(isoOrTimestamp)) ? isoOrTimestamp : Number(isoOrTimestamp) * 1000)
+    if (isNaN(d.getTime())) return null
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return null
+  }
+}
+
+function formatLocksAt(locksAtStr: string): string | null {
+  try {
+    const ts = Number(locksAtStr) * 1000
+    if (!ts || ts <= 0) return null
+    const d = new Date(ts)
+    if (isNaN(d.getTime())) return null
+    const now = Date.now()
+    const diff = ts - now
+    if (diff > 0 && diff < 7 * 24 * 60 * 60 * 1000) {
+      // within 7 days: show relative time
+      const h = Math.floor(diff / 3600000)
+      const m = Math.floor((diff % 3600000) / 60000)
+      if (h > 0) return `Locks in ${h}h`
+      return `Locks in ${m}m`
+    }
+    return `Locks ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+  } catch {
+    return null
+  }
+}
+
 function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; showTypeBadge?: boolean }) {
   const [imgError, setImgError] = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
-  const url = `/market/${market.marketId}`
+  const url = market.slug ? `/paid/${market.slug}` : `/market/${market.marketId}`
   const topWords = market.words.slice(0, 5)
+  const eventDate = formatPaidMarketDate(market.eventStartTime)
+  const lockLabel = formatLocksAt(market.locksAt)
 
   return (
     <div className="group relative block overflow-hidden rounded-2xl transition-all duration-300 hover-lift" style={{ background: 'rgba(10,10,10,0.75)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
@@ -812,7 +849,23 @@ function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; 
           </div>
         )}
 
-        <Link href={url} className="flex items-center gap-2 pt-2 border-t border-white/5">
+        <Link href={url} className="flex items-center flex-wrap gap-2 pt-2 border-t border-white/5">
+          {eventDate && (
+            <>
+              <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
+                {eventDate}
+              </span>
+              <span className="text-neutral-600 text-[10px]">·</span>
+            </>
+          )}
+          {lockLabel && market.status !== 2 && (
+            <>
+              <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 text-[10px] font-medium">
+                {lockLabel}
+              </span>
+              <span className="text-neutral-600 text-[10px]">·</span>
+            </>
+          )}
           <span className="px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 text-[10px] font-medium">
             {market.wordCount} words
           </span>

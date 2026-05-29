@@ -4,9 +4,10 @@ import {
   USDC_MINT,
   DEVNET_URL,
   getAssociatedTokenAddress,
-  fetchAllMarkets,
+  fetchAllMarketsWithFallback,
   estimateSellReturn,
 } from '@/lib/mentionMarketUsdc'
+import { getAllPaidMarketMetadata } from '@/lib/db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,10 +43,11 @@ export async function GET(req: NextRequest) {
   const walletAddr = wallet as Address
 
   // USDC cash balance + portfolio value in parallel
-  const [usdcAta, markets] = await Promise.all([
+  const [usdcAta, allMetadata] = await Promise.all([
     getAssociatedTokenAddress(USDC_MINT, walletAddr),
-    fetchAllMarkets(),
+    getAllPaidMarketMetadata(),
   ])
+  const markets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
 
   // Batch-fetch all position ATAs + the USDC wallet ATA
   type AtaRef = { marketId: bigint; wordIndex: number; side: 'YES' | 'NO'; ata: Address }

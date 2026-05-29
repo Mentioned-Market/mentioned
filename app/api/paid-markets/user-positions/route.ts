@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { type Address } from '@solana/kit'
 import {
-  fetchAllMarkets,
+  fetchAllMarketsWithFallback,
   getAssociatedTokenAddress,
   impliedYesPrice,
   estimateSellReturn,
@@ -41,10 +41,8 @@ export async function GET(req: NextRequest) {
   }
   const walletAddr = wallet as Address
 
-  const [markets, allMetadata] = await Promise.all([
-    fetchAllMarkets(),
-    getAllPaidMarketMetadata(),
-  ])
+  const allMetadata = await getAllPaidMarketMetadata()
+  const markets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
 

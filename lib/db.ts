@@ -115,6 +115,38 @@ export async function insertTradeEvent(
 }
 
 /**
+ * For a set of market+word keys, return the most recent new_yes_qty / new_no_qty from trade_events.
+ * Used to seed buy/sell detection in the webhook handler.
+ */
+export async function getLatestPoolQtys(
+  keys: { marketId: string; wordIndex: number }[]
+): Promise<Map<string, { yes: number; no: number }>> {
+  if (keys.length === 0) return new Map()
+
+  // Build a VALUES list for the IN filter
+  const conditions = keys.map((k, i) => `(market_id = $${i * 2 + 1} AND word_index = $${i * 2 + 2})`).join(' OR ')
+  const params = keys.flatMap(k => [k.marketId, k.wordIndex])
+
+  const result = await pool.query<{ market_id: string; word_index: number; new_yes_qty: string; new_no_qty: string }>(
+    `SELECT DISTINCT ON (market_id, word_index)
+       market_id, word_index, new_yes_qty, new_no_qty
+     FROM trade_events
+     WHERE ${conditions}
+     ORDER BY market_id, word_index, block_time DESC`,
+    params,
+  )
+
+  const map = new Map<string, { yes: number; no: number }>()
+  for (const row of result.rows) {
+    map.set(`${row.market_id}-${row.word_index}`, {
+      yes: Number(row.new_yes_qty),
+      no: Number(row.new_no_qty),
+    })
+  }
+  return map
+}
+
+/**
  * Fetch trades for a market, ordered by time descending.
  */
 export async function getTradesByMarket(
@@ -3083,6 +3115,8 @@ export interface PaidMarketMetadata {
   description: string | null
   cover_image_url: string | null
   stream_url: string | null
+  slug: string | null
+  event_start_time: string | null
   created_at: string
   updated_at: string
 }
@@ -3094,19 +3128,24 @@ export async function upsertPaidMarketMetadata(
     description?: string | null
     coverImageUrl?: string | null
     streamUrl?: string | null
+    urlPrefix?: string | null
+    eventStartTime?: string | null
   },
 ): Promise<PaidMarketMetadata> {
+  const slug = data.urlPrefix?.trim() ? generateSlug(data.urlPrefix.trim().toUpperCase()) : null
   const result = await pool.query<PaidMarketMetadata>(
-    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, updated_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
+    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, slug, event_start_time, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
      ON CONFLICT (market_id) DO UPDATE SET
-       title           = EXCLUDED.title,
-       description     = EXCLUDED.description,
-       cover_image_url = EXCLUDED.cover_image_url,
-       stream_url      = EXCLUDED.stream_url,
-       updated_at      = NOW()
+       title            = EXCLUDED.title,
+       description      = EXCLUDED.description,
+       cover_image_url  = EXCLUDED.cover_image_url,
+       stream_url       = EXCLUDED.stream_url,
+       slug             = COALESCE(paid_market_metadata.slug, EXCLUDED.slug),
+       event_start_time = EXCLUDED.event_start_time,
+       updated_at       = NOW()
      RETURNING *`,
-    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null],
+    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null, slug, data.eventStartTime ?? null],
   )
   return result.rows[0]
 }
@@ -3115,6 +3154,14 @@ export async function getPaidMarketMetadata(marketId: bigint): Promise<PaidMarke
   const result = await pool.query<PaidMarketMetadata>(
     `SELECT * FROM paid_market_metadata WHERE market_id = $1`,
     [marketId.toString()],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getPaidMarketMetadataBySlug(slug: string): Promise<PaidMarketMetadata | null> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `SELECT * FROM paid_market_metadata WHERE slug = $1`,
+    [slug],
   )
   return result.rows[0] ?? null
 }

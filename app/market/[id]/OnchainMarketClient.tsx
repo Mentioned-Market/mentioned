@@ -111,6 +111,7 @@ interface PaidMarketMetadata {
   description: string | null
   cover_image_url: string | null
   stream_url: string | null
+  event_start_time: string | null
 }
 
 function toEmbedUrl(url: string): string {
@@ -649,7 +650,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
         </button>
       ) : wordLocked ? (
         <button disabled className="w-full py-4 bg-yellow-500/10 text-yellow-400/60 font-bold text-base rounded-2xl cursor-not-allowed border border-yellow-500/20">
-          Locked for Resolution
+          Pending Resolution
         </button>
       ) : !connected ? (
         <button
@@ -811,7 +812,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
   // ── Full render ────────────────────────────────────────────
 
-  const isResolvingSoon = market.status === MarketStatus.Open && (Number(market.resolvesAt) * 1000 - Date.now()) > 0
+  const isResolvingSoon = market.status === MarketStatus.Open && (Number(market.locksAt) * 1000 - Date.now()) > 0
 
   return (
     <div
@@ -849,6 +850,14 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
               {/* Meta bar */}
               <div className="flex items-center flex-wrap gap-3 mb-4 text-xs md:text-sm text-neutral-400">
+                {metadata?.event_start_time && (
+                  <>
+                    <span>
+                      {new Date(metadata.event_start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                    <span className="text-neutral-700">·</span>
+                  </>
+                )}
                 <span>${formatUsdc(market.tradeFeeBps > 0 ? market.accumulatedFees * 10000n / BigInt(market.tradeFeeBps) : 0n)} volume</span>
                 <span className="text-neutral-700">·</span>
                 <span>{market.words.length} word{market.words.length !== 1 ? 's' : ''}</span>
@@ -856,14 +865,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${statusPillClasses(market.status)}`}>
                   {statusLabel(market.status)}
                 </span>
-                <span className="text-neutral-700">·</span>
-                <span>{(market.tradeFeeBps / 100).toFixed(1)}% fee</span>
                 {isResolvingSoon && (
                   <>
                     <span className="text-neutral-700">·</span>
-                    <span>Resolves {formatResolveTime(market.resolvesAt)}</span>
+                    <span>Locks {formatResolveTime(market.locksAt)}</span>
                     <span className="text-neutral-700">·</span>
-                    <span>{timeUntil(market.resolvesAt)} left</span>
+                    <span>{timeUntil(market.locksAt)} left</span>
                   </>
                 )}
               </div>
@@ -962,7 +969,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
                               <span className="text-white font-semibold text-sm md:text-[15px] text-left">{w.label}</span>
                               {w.locked && !isResolved && (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase flex-shrink-0 bg-yellow-500/15 text-yellow-400">
-                                  Locked
+                                  Pending
                                 </span>
                               )}
                               {isResolved && (

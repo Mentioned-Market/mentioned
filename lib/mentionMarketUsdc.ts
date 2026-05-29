@@ -116,7 +116,7 @@ export interface UsdcMarketAccount {
   words: WordState[]
   status: MarketStatus
   createdAt: bigint
-  resolvesAt: bigint
+  locksAt: bigint
   resolvedAt: bigint | null
   tradeFeeBps: number
   protocolFeeBps: number
@@ -266,7 +266,7 @@ export async function createCreateMarketIx(
   marketId: bigint,
   label: string,
   wordLabels: string[],
-  resolvesAt: bigint,
+  locksAt: bigint,
   resolver: Address,
   tradeFeeBps: number,
   initialB: bigint,
@@ -307,7 +307,7 @@ export async function createCreateMarketIx(
       u64LE(marketId),
       encodeString(label),
       encodedWordLabels,
-      i64LE(resolvesAt),
+      i64LE(locksAt),
       new Uint8Array(addrEncoder.encode(resolver)),
       u16LE(tradeFeeBps),
       u64LE(initialB),
@@ -964,7 +964,7 @@ export function deserializeMarketAccount(data: Uint8Array): UsdcMarketAccount | 
 
   const status = data[off] as MarketStatus; off += 1
   const createdAt = readI64(data, off); off += 8
-  const resolvesAt = readI64(data, off); off += 8
+  const locksAt = readI64(data, off); off += 8
   let resolvedAt: bigint | null
   ;[resolvedAt, off] = readOptionI64(data, off)
   const tradeFeeBps = readU16(data, off); off += 2
@@ -975,7 +975,7 @@ export function deserializeMarketAccount(data: Uint8Array): UsdcMarketAccount | 
     version, bump, marketId, label, authority, resolver, usdcMint,
     totalLpShares, liquidityParamB, baseBPerUsdc,
     numWords, words: words.slice(0, numWords),
-    status, createdAt, resolvesAt, resolvedAt,
+    status, createdAt, locksAt, resolvedAt,
     tradeFeeBps, protocolFeeBps, accumulatedFees,
   }
 }
@@ -1044,6 +1044,36 @@ export async function fetchAllMarkets(): Promise<
   return markets.sort((a, b) =>
     Number(b.account.createdAt - a.account.createdAt)
   )
+}
+
+/**
+ * Like fetchAllMarkets but supplements with individually-fetched accounts for any
+ * DB-known market IDs that getProgramAccounts missed (RPC caching gap on devnet).
+ */
+export async function fetchAllMarketsWithFallback(
+  knownMarketIds: string[]
+): Promise<Array<{ pubkey: Address; account: UsdcMarketAccount }>> {
+  const markets = await fetchAllMarkets()
+  const seenIds = new Set(markets.map(m => m.account.marketId.toString()))
+  const missingIds = knownMarketIds.filter(id => !seenIds.has(id))
+
+  if (missingIds.length > 0) {
+    const extras = await Promise.all(
+      missingIds.map(async id => {
+        try {
+          const account = await fetchMarket(BigInt(id))
+          return account ? { pubkey: id as Address, account } : null
+        } catch {
+          return null
+        }
+      })
+    )
+    for (const m of extras) {
+      if (m) markets.push(m)
+    }
+  }
+
+  return markets
 }
 
 export async function fetchLpPosition(

@@ -434,6 +434,9 @@ CREATE TABLE IF NOT EXISTS paid_market_metadata (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS slug TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paid_market_metadata_slug ON paid_market_metadata(slug);
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS event_start_time TIMESTAMPTZ;
 
 -- User feedback submissions
 CREATE TABLE IF NOT EXISTS feedback_submissions (
