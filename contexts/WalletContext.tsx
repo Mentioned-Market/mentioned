@@ -16,7 +16,6 @@ import {
   address as toAddress,
   type TransactionSendingSigner,
   createSolanaRpc,
-  mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
 import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth'
@@ -26,9 +25,8 @@ import {
   useCreateWallet as useCreateSolanaWallet,
 } from '@privy-io/react-auth/solana'
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
+import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
 
-const MAINNET_URL =
-  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const SOLANA_CHAIN = 'solana:mainnet-beta'       // Wallet Standard (Phantom)
 const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
 const RPC_SEND_PROXY = '/api/rpc/send'
@@ -138,7 +136,7 @@ function findPhantomWallet(wallets: readonly Wallet[]): Wallet | null {
 
 async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
   const base64Tx = btoa(String.fromCharCode(...txBytes))
-  const res = await fetch(MAINNET_URL, {
+  const res = await fetch(MAINNET_RPC_PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -260,7 +258,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const walletRef = useRef<Wallet | null>(null)
   const walletTypeRef = useRef<'phantom' | 'privy' | null>(null)
   const walletAccountRef = useRef<WalletAccount | null>(null)
-  const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
+  const rpc = useRef(createSolanaRpc(MAINNET_RPC_PROXY))
   const disconnectingRef = useRef(false)
 
   // Privy hooks
