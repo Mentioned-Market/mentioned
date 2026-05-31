@@ -26,6 +26,7 @@ import {
 } from '@privy-io/react-auth/solana'
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
 import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 
 const SOLANA_CHAIN = 'solana:mainnet-beta'       // Wallet Standard (Phantom)
 const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
@@ -508,23 +509,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // ── Balance polling ────────────────────────────────────
 
-  useEffect(() => {
+  const fetchBalance = useCallback(async () => {
     if (!pubkey) return
-
-    const addr = toAddress(pubkey)
-    const fetchBalance = async () => {
-      try {
-        const result = await rpc.current.getBalance(addr).send()
-        setBalance(Number(result.value) / LAMPORTS_PER_SOL)
-      } catch (e) {
-        console.error('Error fetching balance:', e)
-      }
+    try {
+      const result = await rpc.current.getBalance(toAddress(pubkey)).send()
+      setBalance(Number(result.value) / LAMPORTS_PER_SOL)
+    } catch (e) {
+      console.error('Error fetching balance:', e)
     }
-
-    fetchBalance()
-    const interval = setInterval(fetchBalance, 10_000)
-    return () => clearInterval(interval)
   }, [pubkey])
+
+  // Poll the balance only while the tab is visible — a backgrounded/minimized tab
+  // burns RPC credits for a balance the user can't see. The hook pauses on hidden
+  // and resumes (with an immediate fetch) when the tab is shown again.
+  useVisibleInterval(fetchBalance, 10_000)
+
+  // Fetch immediately on connect / account switch rather than waiting for the next
+  // poll tick — useVisibleInterval only re-fires on visibility change, not on pubkey.
+  useEffect(() => {
+    fetchBalance()
+  }, [fetchBalance])
 
   // ── Profile cache ─────────────────────────────────────
 
