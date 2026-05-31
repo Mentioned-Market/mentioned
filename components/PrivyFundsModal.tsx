@@ -9,7 +9,6 @@ import {
   getProgramDerivedAddress,
   getAddressEncoder,
   createSolanaRpc,
-  mainnet,
 } from '@solana/kit'
 import {
   sendIxs,
@@ -17,11 +16,9 @@ import {
   TOKEN_PROGRAM,
   ASSOCIATED_TOKEN_PROGRAM,
 } from '@/lib/mentionMarket'
+import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
 
 // ── Token config ─────────────────────────────────────────
-
-const MAINNET_URL =
-  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
 const TOKENS = {
   SOL: { symbol: 'SOL', name: 'Solana', decimals: 9, mint: null as null },
@@ -142,7 +139,7 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
     if (!publicKey) return
     setBalancesLoading(true)
     try {
-      const rpc = createSolanaRpc(mainnet(MAINNET_URL))
+      const rpc = createSolanaRpc(MAINNET_RPC_PROXY)
       const result = await rpc
         .getTokenAccountsByOwner(
           toAddress(publicKey),
@@ -261,7 +258,7 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
         ixs.push(buildSplTransferIx(sourceAta, destAta, publicKey, rawAmount))
       }
 
-      await sendIxs(signer, ixs, MAINNET_URL)
+      await sendIxs(signer, ixs, MAINNET_RPC_PROXY)
       await fetchTokenBalances()
 
       setSuccess(`Sent ${qty} ${selectedToken} successfully`)

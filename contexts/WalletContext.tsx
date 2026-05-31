@@ -16,7 +16,6 @@ import {
   address as toAddress,
   type TransactionSendingSigner,
   createSolanaRpc,
-  mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
 import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth'
@@ -27,9 +26,9 @@ import {
   useCreateWallet as useCreateSolanaWallet,
 } from '@privy-io/react-auth/solana'
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
+import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 
-const MAINNET_URL =
-  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const SOLANA_CHAIN = 'solana:mainnet-beta'       // Wallet Standard (Phantom)
 const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
 const RPC_SEND_PROXY = '/api/rpc/send'
@@ -150,7 +149,7 @@ function findPhantomWallet(wallets: readonly Wallet[]): Wallet | null {
 
 async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
   const base64Tx = btoa(String.fromCharCode(...txBytes))
-  const res = await fetch(MAINNET_URL, {
+  const res = await fetch(MAINNET_RPC_PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -272,7 +271,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const walletRef = useRef<Wallet | null>(null)
   const walletTypeRef = useRef<'phantom' | 'privy' | null>(null)
   const walletAccountRef = useRef<WalletAccount | null>(null)
-  const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
+  const rpc = useRef(createSolanaRpc(MAINNET_RPC_PROXY))
   const disconnectingRef = useRef(false)
 
   // Privy hooks
@@ -526,23 +525,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // ── Balance polling ────────────────────────────────────
 
-  useEffect(() => {
+  const fetchBalance = useCallback(async () => {
     if (!pubkey) return
-
-    const addr = toAddress(pubkey)
-    const fetchBalance = async () => {
-      try {
-        const result = await rpc.current.getBalance(addr).send()
-        setBalance(Number(result.value) / LAMPORTS_PER_SOL)
-      } catch (e) {
-        console.error('Error fetching balance:', e)
-      }
+    try {
+      const result = await rpc.current.getBalance(toAddress(pubkey)).send()
+      setBalance(Number(result.value) / LAMPORTS_PER_SOL)
+    } catch (e) {
+      console.error('Error fetching balance:', e)
     }
-
-    fetchBalance()
-    const interval = setInterval(fetchBalance, 10_000)
-    return () => clearInterval(interval)
   }, [pubkey])
+
+  // Poll the balance only while the tab is visible — a backgrounded/minimized tab
+  // burns RPC credits for a balance the user can't see. The hook pauses on hidden
+  // and resumes (with an immediate fetch) when the tab is shown again.
+  useVisibleInterval(fetchBalance, 10_000)
+
+  // Fetch immediately on connect / account switch rather than waiting for the next
+  // poll tick — useVisibleInterval only re-fires on visibility change, not on pubkey.
+  useEffect(() => {
+    fetchBalance()
+  }, [fetchBalance])
 
   // ── Profile cache ─────────────────────────────────────
 

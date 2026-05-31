@@ -7,6 +7,7 @@ import {
   getCustomMarket,
   countMarketWinsThisWeek,
   hasContrarianWinTrade,
+  getMarketLeaderboardForDiscord,
 } from './db'
 import { tryUnlockAchievement } from './achievements'
 
@@ -88,4 +89,101 @@ export async function resolveAndScoreVirtualMarket(marketId: number): Promise<vo
         .catch(err => console.error(`Achievement error (contrarian) for ${wallet}:`, err))
     }
   }
+
+  await postMarketResolvedDiscord(marketId).catch(err =>
+    console.error(`Discord results post failed for market ${marketId}:`, err),
+  )
+}
+
+function formatNetTokens(n: number): string {
+  const rounded = Math.round(n)
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : ''
+  return `${sign}${Math.abs(rounded).toLocaleString('en-US')}`
+}
+
+function formatPnlPct(net: number, spent: number): string {
+  if (spent <= 0) return ''
+  const pct = (net / spent) * 100
+  const rounded = Math.round(pct)
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : ''
+  return ` (${sign}${Math.abs(rounded)}%)`
+}
+
+function shortWallet(wallet: string): string {
+  return `${wallet.slice(0, 4)}…${wallet.slice(-4)}`
+}
+
+/**
+ * Post a ranked leaderboard to the Discord market-results channel.
+ * Winners (net > 0) with a linked Discord ID are @-mentioned in the message content
+ * so they receive a notification; the embed mirrors the on-site leaderboard layout.
+ */
+async function postMarketResolvedDiscord(marketId: number): Promise<void> {
+  const webhookUrl = process.env.DISCORD_MARKET_RESULTS_WEBHOOK_URL
+  if (!webhookUrl) return
+
+  const [market, leaderboard] = await Promise.all([
+    getCustomMarket(marketId),
+    getMarketLeaderboardForDiscord(marketId),
+  ])
+  if (!market || leaderboard.length === 0) return
+
+  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'https://mentioned.market').replace(/\/$/, '')
+  const marketUrl = `${baseUrl}/free/${market.slug}`
+
+  const rows = leaderboard.map((entry, i) => {
+    const rank = `\`${String(i + 1).padStart(2, ' ')}.\``
+    const emoji = entry.pfp_emoji ? `${entry.pfp_emoji} ` : ''
+    const isWinner = entry.net_tokens > 0
+    const display = isWinner && entry.discord_id
+      ? `<@${entry.discord_id}>`
+      : entry.username ?? shortWallet(entry.wallet)
+    return `${rank} ${emoji}${display} — \`${formatNetTokens(entry.net_tokens)} tokens${formatPnlPct(entry.net_tokens, entry.total_spent)}\``
+  })
+
+  // Embed description limit is 4096 chars; trim conservatively and surface overflow count.
+  let description = rows.join('\n')
+  if (description.length > 4000) {
+    const kept: string[] = []
+    let total = 0
+    for (const row of rows) {
+      if (total + row.length + 1 > 3900) break
+      kept.push(row)
+      total += row.length + 1
+    }
+    kept.push(`_…and ${rows.length - kept.length} more_`)
+    description = kept.join('\n')
+  }
+
+  // Build winner pings for the content field (embed mentions don't fire notifications).
+  // Content limit is 2000 chars; truncate if a market has an unusually large winner set.
+  const winnerPings: string[] = []
+  let pingLen = 0
+  for (const entry of leaderboard) {
+    if (entry.net_tokens <= 0 || !entry.discord_id) continue
+    const tag = `<@${entry.discord_id}>`
+    if (pingLen + tag.length + 1 > 1900) break
+    winnerPings.push(tag)
+    pingLen += tag.length + 1
+  }
+  const content = winnerPings.length > 0 ? `Winners: ${winnerPings.join(' ')}` : undefined
+
+  const embed = {
+    title: `🏆 Market Resolved: ${market.title}`,
+    url: marketUrl,
+    description,
+    color: 0x10b981,
+    timestamp: new Date().toISOString(),
+  }
+
+  await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(5000),
+    body: JSON.stringify({
+      content,
+      embeds: [embed],
+      allowed_mentions: { parse: ['users'] },
+    }),
+  })
 }

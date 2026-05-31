@@ -250,12 +250,24 @@ export default function EventPriceChart({
       const color = colorMap.get(s.marketId) || COLORS[0]
       const isSelected = s.marketId === selectedMarketId
 
-      const data = s.data
+      const sorted = s.data
         .map(p => ({
           time: p.t as any,
           value: p.p * 100, // show as percentage
         }))
         .sort((a: any, b: any) => a.time - b.time)
+
+      // lightweight-charts requires strictly ascending timestamps. Trades within the
+      // same epoch-second (or a current-price point colliding with the latest history
+      // point) would otherwise crash setData. Keep the latest value at each timestamp.
+      const data: typeof sorted = []
+      for (const point of sorted) {
+        if (data.length > 0 && data[data.length - 1].time === point.time) {
+          data[data.length - 1] = point
+        } else {
+          data.push(point)
+        }
+      }
 
       if (data.length < 2) return
 

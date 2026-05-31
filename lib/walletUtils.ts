@@ -1,10 +1,9 @@
 'use client'
 
 import { getWallets } from '@wallet-standard/app'
+import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
 
 const SOLANA_CHAIN = 'solana:mainnet-beta'
-const MAINNET_URL =
-  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
 interface SignAndSendFeature {
   signAndSendTransaction(
@@ -94,7 +93,7 @@ function restoreSignatures(
  */
 async function preSimulate(txBytes: Uint8Array): Promise<void> {
   const base64Tx = btoa(String.fromCharCode(...txBytes))
-  const res = await fetch(MAINNET_URL, {
+  const res = await fetch(MAINNET_RPC_PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
