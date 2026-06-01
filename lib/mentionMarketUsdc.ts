@@ -43,10 +43,20 @@ export const TOKEN_METADATA_PROGRAM = toAddress(
   'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
 )
 // Dedicated devnet RPC to avoid "base64 encoded too large" on the public endpoint.
-// Set NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL in .env to your Helius devnet URL:
-//   https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+//
+// Two env vars, picked by where this module runs:
+//   - HELIUS_DEVNET_RPC_URL (server-only, no NEXT_PUBLIC_) — used by the
+//     /api/paid-markets/* server routes. Must be an UNRESTRICTED key: server
+//     requests carry no Origin header, so a domain-locked key returns 401 here.
+//   - NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL (bundled) — used in the browser
+//     (OnchainMarketClient, positions/admin pages). Safe to domain-lock, since
+//     browser requests send an allowed Origin.
+// The server var wins when set; in the browser it is undefined (Next.js only inlines
+// NEXT_PUBLIC_*), so the client bundle falls back to the public var and the
+// unrestricted server key never ships to the browser.
 export const DEVNET_URL =
-  (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL) ||
+  (typeof process !== 'undefined' &&
+    (process.env.HELIUS_DEVNET_RPC_URL || process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL)) ||
   'https://api.devnet.solana.com'
 
 // USDC has 6 decimals; 1 USDC = 1_000_000 base units
