@@ -2484,6 +2484,369 @@ export async function getMarketLeaderboardForDiscord(
   }))
 }
 
+// -- Knowledge (market-series analytics) --
+
+// Slug format is `<prefix>-<6 hex chars>` per generateSlug().
+// Stripping the suffix collapses markets sharing the same prefix into a "series."
+// LOWER() so admin-entered prefixes group case-insensitively (DISCORD == discord).
+const SERIES_SLUG_EXPR = "LOWER(regexp_replace(slug, '-[0-9a-f]{6}$', ''))"
+
+export interface MarketSeriesRow {
+  series_slug: string
+  market_count: number
+  resolved_word_count: number
+  last_resolved_at: string
+  first_resolved_at: string
+  latest_title: string
+  latest_cover_image_url: string | null
+  total_volume_tokens: number
+  total_trades: number
+  top_words: Array<{ word: string; appearances: number; yes_count: number; yes_rate: number }>
+}
+
+export interface SeriesWordStat {
+  word: string
+  appearances: number
+  yes_count: number
+  no_count: number
+  yes_rate: number
+  avg_close_yes_price: number
+  total_volume_tokens: number
+  total_trades: number
+}
+
+export interface SeriesMarketWord {
+  word_id: number
+  word: string
+  outcome: 'YES' | 'NO'
+  close_yes_price: number
+  volume_tokens: number
+  trade_count: number
+}
+
+export interface SeriesMarketSummary {
+  market_id: number
+  title: string
+  slug: string
+  cover_image_url: string | null
+  resolved_at: string
+  yes_words: number
+  no_words: number
+  volume_tokens: number
+  trade_count: number
+  words: SeriesMarketWord[]
+}
+
+export interface SeriesDetail {
+  series_slug: string
+  market_count: number
+  last_resolved_at: string
+  first_resolved_at: string
+  latest_title: string
+  latest_cover_image_url: string | null
+  total_volume_tokens: number
+  total_trades: number
+  resolved_word_count: number
+  word_stats: SeriesWordStat[]
+  markets: SeriesMarketSummary[]
+}
+
+export interface ListMarketSeriesFilters {
+  q?: string
+  sort?: 'recent' | 'markets' | 'volume'
+  limit?: number
+}
+
+export async function listMarketSeries(filters: ListMarketSeriesFilters = {}): Promise<MarketSeriesRow[]> {
+  const limit = Math.min(Math.max(filters.limit ?? 100, 1), 300)
+  const params: any[] = []
+  let whereSeries = ''
+  if (filters.q && filters.q.trim()) {
+    params.push(`%${filters.q.trim().toLowerCase()}%`)
+    whereSeries = `WHERE ss.series_slug LIKE $${params.length}`
+  }
+  let orderBy = 'ss.last_resolved_at DESC NULLS LAST'
+  if (filters.sort === 'markets') orderBy = 'ss.market_count DESC, ss.last_resolved_at DESC'
+  else if (filters.sort === 'volume') orderBy = 'sv.total_volume_tokens DESC NULLS LAST, ss.last_resolved_at DESC'
+
+  params.push(limit)
+  const sql = `
+    WITH resolved_markets AS (
+      SELECT id, title, cover_image_url, resolved_at,
+             ${SERIES_SLUG_EXPR} AS series_slug
+      FROM custom_markets
+      WHERE status = 'resolved' AND resolved_at IS NOT NULL
+    ),
+    series_stats AS (
+      SELECT
+        rm.series_slug,
+        COUNT(*)::int AS market_count,
+        MAX(rm.resolved_at) AS last_resolved_at,
+        MIN(rm.resolved_at) AS first_resolved_at,
+        (array_agg(rm.title ORDER BY rm.resolved_at DESC))[1] AS latest_title,
+        (array_agg(rm.cover_image_url ORDER BY rm.resolved_at DESC))[1] AS latest_cover_image_url
+      FROM resolved_markets rm
+      GROUP BY rm.series_slug
+    ),
+    series_volume AS (
+      SELECT
+        rm.series_slug,
+        SUM(ABS(t.cost))::float AS total_volume_tokens,
+        COUNT(*)::int AS total_trades
+      FROM custom_market_trades t
+      JOIN resolved_markets rm ON rm.id = t.market_id
+      GROUP BY rm.series_slug
+    ),
+    series_word_count AS (
+      SELECT
+        rm.series_slug,
+        COUNT(*)::int AS resolved_word_count
+      FROM custom_market_words w
+      JOIN resolved_markets rm ON rm.id = w.market_id
+      WHERE w.resolved_outcome IS NOT NULL
+      GROUP BY rm.series_slug
+    )
+    SELECT
+      ss.series_slug,
+      ss.market_count,
+      ss.last_resolved_at,
+      ss.first_resolved_at,
+      ss.latest_title,
+      ss.latest_cover_image_url,
+      COALESCE(sv.total_volume_tokens, 0)::float AS total_volume_tokens,
+      COALESCE(sv.total_trades, 0)::int AS total_trades,
+      COALESCE(swc.resolved_word_count, 0)::int AS resolved_word_count
+    FROM series_stats ss
+    LEFT JOIN series_volume sv ON sv.series_slug = ss.series_slug
+    LEFT JOIN series_word_count swc ON swc.series_slug = ss.series_slug
+    ${whereSeries}
+    ORDER BY ${orderBy}
+    LIMIT $${params.length}
+  `
+  const result = await pool.query(sql, params)
+  const seriesSlugs = result.rows.map((r: any) => r.series_slug)
+  let topWordsBySeries = new Map<string, MarketSeriesRow['top_words']>()
+  if (seriesSlugs.length > 0) {
+    const topWordsResult = await pool.query(
+      `WITH word_stats AS (
+         SELECT
+           ${SERIES_SLUG_EXPR.replace('slug', 'm.slug')} AS series_slug,
+           LOWER(w.word) AS word_lc,
+           MIN(w.word) AS word,
+           COUNT(*)::int AS appearances,
+           SUM(CASE WHEN w.resolved_outcome THEN 1 ELSE 0 END)::int AS yes_count
+         FROM custom_market_words w
+         JOIN custom_markets m ON m.id = w.market_id
+         WHERE m.status = 'resolved'
+           AND w.resolved_outcome IS NOT NULL
+           AND ${SERIES_SLUG_EXPR.replace('slug', 'm.slug')} = ANY($1::text[])
+         GROUP BY series_slug, LOWER(w.word)
+       ),
+       ranked AS (
+         SELECT *, ROW_NUMBER() OVER (
+           PARTITION BY series_slug
+           ORDER BY appearances DESC, yes_count DESC, word
+         ) AS rn
+         FROM word_stats
+       )
+       SELECT series_slug, word, appearances, yes_count
+       FROM ranked
+       WHERE rn <= 3`,
+      [seriesSlugs],
+    )
+    for (const r of topWordsResult.rows) {
+      const apps = Number(r.appearances) || 0
+      const yes = Number(r.yes_count) || 0
+      const entry = {
+        word: r.word,
+        appearances: apps,
+        yes_count: yes,
+        yes_rate: apps > 0 ? yes / apps : 0,
+      }
+      const arr = topWordsBySeries.get(r.series_slug) || []
+      arr.push(entry)
+      topWordsBySeries.set(r.series_slug, arr)
+    }
+  }
+  return result.rows.map((r: any) => ({
+    series_slug: r.series_slug,
+    market_count: Number(r.market_count) || 0,
+    resolved_word_count: Number(r.resolved_word_count) || 0,
+    last_resolved_at: typeof r.last_resolved_at === 'string' ? r.last_resolved_at : r.last_resolved_at?.toISOString?.() ?? String(r.last_resolved_at),
+    first_resolved_at: typeof r.first_resolved_at === 'string' ? r.first_resolved_at : r.first_resolved_at?.toISOString?.() ?? String(r.first_resolved_at),
+    latest_title: r.latest_title,
+    latest_cover_image_url: r.latest_cover_image_url,
+    total_volume_tokens: Number(r.total_volume_tokens) || 0,
+    total_trades: Number(r.total_trades) || 0,
+    top_words: topWordsBySeries.get(r.series_slug) || [],
+  }))
+}
+
+const SERIES_SLUG_PATTERN = /^[a-z0-9-]{1,64}$/
+
+export async function getSeriesDetail(seriesSlug: string): Promise<SeriesDetail | null> {
+  const normalized = seriesSlug.trim().toLowerCase()
+  if (!SERIES_SLUG_PATTERN.test(normalized)) return null
+
+  // Single pass: every resolved word in this series, with the market it belongs to,
+  // the last YES price before resolution, and trade aggregates per word.
+  const sql = `
+    SELECT
+      m.id                                  AS market_id,
+      m.title                               AS market_title,
+      m.slug                                AS market_slug,
+      m.cover_image_url                     AS market_cover_image_url,
+      m.resolved_at                         AS market_resolved_at,
+      w.id                                  AS word_id,
+      w.word                                AS word,
+      w.resolved_outcome                    AS resolved_outcome,
+      ph.yes_price                          AS close_yes_price,
+      COALESCE(ts.volume, 0)::float         AS volume_tokens,
+      COALESCE(ts.trade_count, 0)::int      AS trade_count
+    FROM custom_market_words w
+    JOIN custom_markets m ON m.id = w.market_id
+    LEFT JOIN LATERAL (
+      SELECT yes_price
+      FROM custom_market_price_history
+      WHERE word_id = w.id AND recorded_at <= m.resolved_at
+      ORDER BY recorded_at DESC
+      LIMIT 1
+    ) ph ON TRUE
+    LEFT JOIN (
+      SELECT word_id, SUM(ABS(cost))::float AS volume, COUNT(*)::int AS trade_count
+      FROM custom_market_trades
+      GROUP BY word_id
+    ) ts ON ts.word_id = w.id
+    WHERE m.status = 'resolved'
+      AND m.resolved_at IS NOT NULL
+      AND w.resolved_outcome IS NOT NULL
+      AND ${SERIES_SLUG_EXPR.replace('slug', 'm.slug')} = $1
+    ORDER BY m.resolved_at DESC, w.id
+  `
+  const result = await pool.query(sql, [normalized])
+  if (result.rows.length === 0) return null
+
+  // Aggregate by market
+  const marketsMap = new Map<number, SeriesMarketSummary>()
+  // Aggregate by word (case-insensitive)
+  const wordMap = new Map<string, {
+    word: string
+    appearances: number
+    yes_count: number
+    no_count: number
+    close_price_sum: number
+    close_price_count: number
+    volume: number
+    trades: number
+  }>()
+
+  let totalVolume = 0
+  let totalTrades = 0
+  let firstResolvedAt: string = result.rows[result.rows.length - 1].market_resolved_at
+  let lastResolvedAt: string = result.rows[0].market_resolved_at
+  let latestTitle: string = result.rows[0].market_title
+  let latestCover: string | null = result.rows[0].market_cover_image_url
+
+  for (const r of result.rows) {
+    const resolvedAtStr = typeof r.market_resolved_at === 'string' ? r.market_resolved_at : r.market_resolved_at?.toISOString?.() ?? String(r.market_resolved_at)
+    const outcome: 'YES' | 'NO' = r.resolved_outcome ? 'YES' : 'NO'
+    const closeYes = r.close_yes_price !== null && r.close_yes_price !== undefined
+      ? Number(r.close_yes_price)
+      : (r.resolved_outcome ? 1 : 0)
+    const volume = Number(r.volume_tokens) || 0
+    const trades = Number(r.trade_count) || 0
+
+    // Market aggregate
+    let market = marketsMap.get(r.market_id)
+    if (!market) {
+      market = {
+        market_id: r.market_id,
+        title: r.market_title,
+        slug: r.market_slug,
+        cover_image_url: r.market_cover_image_url,
+        resolved_at: resolvedAtStr,
+        yes_words: 0,
+        no_words: 0,
+        volume_tokens: 0,
+        trade_count: 0,
+        words: [],
+      }
+      marketsMap.set(r.market_id, market)
+    }
+    market.words.push({
+      word_id: r.word_id,
+      word: r.word,
+      outcome,
+      close_yes_price: closeYes,
+      volume_tokens: volume,
+      trade_count: trades,
+    })
+    if (outcome === 'YES') market.yes_words++
+    else market.no_words++
+    market.volume_tokens += volume
+    market.trade_count += trades
+
+    // Word aggregate
+    const key = r.word.toLowerCase()
+    let ws = wordMap.get(key)
+    if (!ws) {
+      ws = {
+        word: r.word,
+        appearances: 0,
+        yes_count: 0,
+        no_count: 0,
+        close_price_sum: 0,
+        close_price_count: 0,
+        volume: 0,
+        trades: 0,
+      }
+      wordMap.set(key, ws)
+    }
+    ws.appearances++
+    if (outcome === 'YES') ws.yes_count++
+    else ws.no_count++
+    if (Number.isFinite(closeYes)) {
+      ws.close_price_sum += closeYes
+      ws.close_price_count++
+    }
+    ws.volume += volume
+    ws.trades += trades
+
+    totalVolume += volume
+    totalTrades += trades
+  }
+
+  const word_stats: SeriesWordStat[] = Array.from(wordMap.values())
+    .map(w => ({
+      word: w.word,
+      appearances: w.appearances,
+      yes_count: w.yes_count,
+      no_count: w.no_count,
+      yes_rate: w.appearances > 0 ? w.yes_count / w.appearances : 0,
+      avg_close_yes_price: w.close_price_count > 0 ? w.close_price_sum / w.close_price_count : 0,
+      total_volume_tokens: w.volume,
+      total_trades: w.trades,
+    }))
+    .sort((a, b) => b.appearances - a.appearances || b.yes_count - a.yes_count || a.word.localeCompare(b.word))
+
+  const markets: SeriesMarketSummary[] = Array.from(marketsMap.values())
+    .sort((a, b) => new Date(b.resolved_at).getTime() - new Date(a.resolved_at).getTime())
+
+  return {
+    series_slug: normalized,
+    market_count: markets.length,
+    last_resolved_at: lastResolvedAt,
+    first_resolved_at: firstResolvedAt,
+    latest_title: latestTitle,
+    latest_cover_image_url: latestCover,
+    total_volume_tokens: totalVolume,
+    total_trades: totalTrades,
+    resolved_word_count: result.rows.length,
+    word_stats,
+    markets,
+  }
+}
+
 // -- Admin Audit Log --
 
 export async function logAdminAction(

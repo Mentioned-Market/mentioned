@@ -102,6 +102,7 @@ export default function Header() {
           <Link href="/leaderboard" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Leaderboard</Link>
           <Link href="/positions" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Positions</Link>
           <Link href="/arena" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Arena</Link>
+          <Link href="/knowledge" className="hidden md:block text-sm font-medium text-neutral-400 hover:text-white transition-colors duration-200">Knowledge</Link>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           <UserSearch />
@@ -281,6 +282,7 @@ export default function Header() {
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Leaderboard</Link>
                 <Link href="/positions" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Positions</Link>
                 <Link href="/arena" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Arena</Link>
+                <Link href="/knowledge" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Knowledge</Link>
                 <Link href="/points" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-[#F2B71F] text-sm font-semibold hover:bg-white/10 transition-colors duration-200">Points & Prizes</Link>
                 <div className="border-t border-white/10" />
                 <button
