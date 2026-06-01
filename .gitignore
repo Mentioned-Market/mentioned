@@ -39,8 +39,8 @@ next-env.d.ts
 
 scratch
 
-# Internal-only docs that shouldn't be in the public repo.
-specs/scale_and_security_plan.md
+# Internal-only specs and design docs. Kept locally, not in the public repo.
+specs/
 
 # Analytics / pitch-deck scratch files
 scripts/alt-detection.sql

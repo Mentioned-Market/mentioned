@@ -38,7 +38,6 @@ services/
                            (own package.json, own Railway deploy)
 solana_contracts/      Anchor workspace
   └─ programs/mention-market-usdc-amm/   Active program (devnet)
-specs/                 Feature specifications
 ```
 
 ## On-chain program
@@ -104,11 +103,7 @@ anchor test
 - **Webhook-driven indexing.** On-chain trades index via Helius → `/api/webhook` → `tradeParser.ts` → `trade_events`.
 - **Two-step admin actions.** Admin checks happen via `ADMIN_WALLETS` env var (lib/adminAuth.ts). Sensitive admin actions log to `admin_audit_log`.
 
-For deeper context on specific subsystems:
-
-- `specs/custom_free_market_spec.md` — free markets (LMSR math, scoring, resolution)
-- `specs/live_transcription_spec.md` — transcript worker (pipelines, NOTIFY contracts, cost guards)
-- `CLAUDE.md` — architectural reference written for both humans and AI assistants
+For more architectural detail, see `CLAUDE.md` at the repo root.
 
 ## Status
 

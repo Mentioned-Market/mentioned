@@ -1,5 +1,4 @@
-// Builds + posts the per-stream Discord summary at end of stream. Format
-// follows specs/live_transcription_spec.md → "Discord webhook on stream end".
+// Builds + posts the per-stream Discord summary at end of stream.
 //
 // v1 supports free markets only (event_id 'custom_<id>'). Other event_id
 // shapes get a minimal summary without per-word breakdown.
