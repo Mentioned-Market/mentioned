@@ -244,6 +244,27 @@ CREATE TABLE IF NOT EXISTS custom_market_trades (
 CREATE INDEX IF NOT EXISTS idx_cmt_market ON custom_market_trades(market_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cmt_wallet ON custom_market_trades(wallet, created_at DESC);
 
+-- User-set price alerts on free-market words. One-shot: fires once via Discord DM,
+-- then status flips to 'triggered'. Direction is derived from the price at creation time.
+CREATE TABLE IF NOT EXISTS custom_market_price_alerts (
+  id            SERIAL PRIMARY KEY,
+  wallet        TEXT NOT NULL,
+  market_id     INTEGER NOT NULL REFERENCES custom_markets(id) ON DELETE CASCADE,
+  word_id       INTEGER NOT NULL REFERENCES custom_market_words(id) ON DELETE CASCADE,
+  side          TEXT NOT NULL CHECK (side IN ('YES', 'NO')),
+  target_price  NUMERIC(6,4) NOT NULL CHECK (target_price > 0 AND target_price < 1),
+  direction     TEXT NOT NULL CHECK (direction IN ('above', 'below')),
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'triggered', 'canceled')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  triggered_at  TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_cmpa_word_active ON custom_market_price_alerts(word_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_cmpa_wallet ON custom_market_price_alerts(wallet);
+-- Block duplicate identical active alerts for the same wallet/word/side/target.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cmpa_unique_active
+  ON custom_market_price_alerts(wallet, word_id, side, target_price) WHERE status = 'active';
+
 -- Profile picture emoji (from unlocked achievements)
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS pfp_emoji TEXT;
 

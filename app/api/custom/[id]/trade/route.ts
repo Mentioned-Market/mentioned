@@ -3,6 +3,7 @@ import { getCustomMarket, getCustomMarketWords, executeVirtualTrade, lockCustomM
 import { isMarketOpen } from '@/lib/customMarketUtils'
 import { tryUnlockAchievement } from '@/lib/achievements'
 import { getVerifiedWallet } from '@/lib/walletAuth'
+import { processPriceAlertsForWord } from '@/lib/priceAlerts'
 
 // Per-request rate limit: 2 seconds between trades per wallet
 const RATE_LIMIT_MS = 2000
@@ -149,6 +150,8 @@ export async function POST(
     )
     // Mark trade timestamp only after successful execution
     lastTrade.set(wallet, Date.now())
+    // Price alerts: fire-and-forget DM to anyone whose target the new price crossed.
+    processPriceAlertsForWord(word_id, result.newYesPrice).catch(() => {})
     // Trade achievements (fire-and-forget)
     const newAchievements: { id: string; emoji: string; title: string; points: number }[] = []
     try {

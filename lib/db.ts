@@ -3054,6 +3054,167 @@ export async function executeVirtualTrade(
   }
 }
 
+// ── Free-market price alerts ─────────────────────────────
+// Users set a target price on a word; when a trade pushes the price across it,
+// they get a one-shot Discord DM. Prices only move on trades, so detection lives
+// in the trade path (lib/priceAlerts.ts → claimTriggeredPriceAlerts).
+
+export interface PriceAlertRow {
+  id: number
+  wallet: string
+  market_id: number
+  word_id: number
+  word: string
+  side: 'YES' | 'NO'
+  target_price: number
+  direction: 'above' | 'below'
+  status: 'active' | 'triggered' | 'canceled'
+  created_at: string
+  triggered_at: string | null
+}
+
+export interface TriggeredAlert {
+  id: number
+  wallet: string
+  word: string
+  side: 'YES' | 'NO'
+  target_price: number
+  direction: 'above' | 'below'
+  market_title: string
+  market_slug: string | null
+  discord_id: string | null
+  side_price: number
+}
+
+const MAX_ACTIVE_ALERTS_PER_WALLET = 50
+const ALERT_PRICE_EPSILON = 0.005 // ~0.5%: target must differ from current price by at least this
+
+export class PriceAlertError extends Error {}
+
+/**
+ * Create a one-shot price alert. Direction is derived from the word's current price:
+ * a target above the current side price fires when the price rises to it, below fires
+ * when it falls to it. Returns null if an identical active alert already exists.
+ */
+export async function createPriceAlert(
+  wallet: string,
+  marketId: number,
+  wordId: number,
+  side: 'YES' | 'NO',
+  targetPrice: number,
+): Promise<PriceAlertRow | null> {
+  // Read current pool + market b to compute the live price for this side.
+  const stateResult = await pool.query(
+    `SELECT p.yes_qty, p.no_qty, m.b_parameter, w.resolved_outcome, w.word
+       FROM custom_market_word_pools p
+       JOIN custom_market_words w ON w.id = p.word_id
+       JOIN custom_markets m ON m.id = w.market_id
+      WHERE p.word_id = $1 AND w.market_id = $2`,
+    [wordId, marketId],
+  )
+  const state = stateResult.rows[0]
+  if (!state) throw new PriceAlertError('Word not found in this market')
+  if (state.resolved_outcome !== null) throw new PriceAlertError('Word is already resolved')
+
+  const prices = virtualImpliedPrice(
+    parseFloat(state.yes_qty), parseFloat(state.no_qty), parseFloat(state.b_parameter),
+  )
+  const currentSidePrice = side === 'YES' ? prices.yes : prices.no
+  if (Math.abs(targetPrice - currentSidePrice) < ALERT_PRICE_EPSILON) {
+    throw new PriceAlertError('Target is too close to the current price — pick a price further away')
+  }
+  const direction: 'above' | 'below' = targetPrice > currentSidePrice ? 'above' : 'below'
+
+  // Bound abuse: cap active alerts per wallet.
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM custom_market_price_alerts WHERE wallet = $1 AND status = 'active'`,
+    [wallet],
+  )
+  if (countResult.rows[0].n >= MAX_ACTIVE_ALERTS_PER_WALLET) {
+    throw new PriceAlertError(`You can have at most ${MAX_ACTIVE_ALERTS_PER_WALLET} active alerts`)
+  }
+
+  const result = await pool.query(
+    `INSERT INTO custom_market_price_alerts (wallet, market_id, word_id, side, target_price, direction)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (wallet, word_id, side, target_price) WHERE status = 'active' DO NOTHING
+     RETURNING id, wallet, market_id, word_id, side, target_price, direction, status, created_at, triggered_at`,
+    [wallet, marketId, wordId, side, targetPrice, direction],
+  )
+  const row = result.rows[0]
+  if (!row) return null // identical active alert already exists
+  return { ...row, word: state.word, target_price: parseFloat(row.target_price) }
+}
+
+/** List a wallet's active alerts for a market (newest first), with word text. */
+export async function getActivePriceAlertsForWallet(
+  wallet: string,
+  marketId: number,
+): Promise<PriceAlertRow[]> {
+  const result = await pool.query(
+    `SELECT a.id, a.wallet, a.market_id, a.word_id, w.word, a.side, a.target_price,
+            a.direction, a.status, a.created_at, a.triggered_at
+       FROM custom_market_price_alerts a
+       JOIN custom_market_words w ON w.id = a.word_id
+      WHERE a.wallet = $1 AND a.market_id = $2 AND a.status = 'active'
+      ORDER BY a.created_at DESC`,
+    [wallet, marketId],
+  )
+  return result.rows.map(r => ({ ...r, target_price: parseFloat(r.target_price) }))
+}
+
+/** Cancel an active alert (ownership-checked). Returns true if a row was canceled. */
+export async function cancelPriceAlert(id: number, wallet: string): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE custom_market_price_alerts SET status = 'canceled'
+      WHERE id = $1 AND wallet = $2 AND status = 'active'`,
+    [id, wallet],
+  )
+  return (result.rowCount ?? 0) > 0
+}
+
+/**
+ * Atomically detect and claim alerts triggered by a new YES price for a word.
+ * The UPDATE flips each matching active alert to 'triggered' in one statement so
+ * concurrent trades can't double-fire. Returns enriched rows for DM delivery.
+ */
+export async function claimTriggeredPriceAlerts(
+  wordId: number,
+  newYesPrice: number,
+): Promise<TriggeredAlert[]> {
+  const result = await pool.query(
+    `WITH claimed AS (
+       UPDATE custom_market_price_alerts a
+          SET status = 'triggered', triggered_at = NOW()
+        WHERE a.word_id = $1 AND a.status = 'active'
+          AND ( (a.side = 'YES' AND ((a.direction = 'above' AND $2 >= a.target_price)
+                                  OR (a.direction = 'below' AND $2 <= a.target_price)))
+             OR (a.side = 'NO'  AND ((a.direction = 'above' AND (1 - $2) >= a.target_price)
+                                  OR (a.direction = 'below' AND (1 - $2) <= a.target_price))) )
+        RETURNING id, wallet, word_id, market_id, side, target_price, direction
+     )
+     SELECT c.id, c.wallet, c.side, c.target_price, c.direction,
+            w.word, m.title AS market_title, m.slug AS market_slug, up.discord_id
+       FROM claimed c
+       JOIN custom_market_words w ON w.id = c.word_id
+       JOIN custom_markets m ON m.id = c.market_id
+       LEFT JOIN user_profiles up ON up.wallet = c.wallet`,
+    [wordId, newYesPrice],
+  )
+  return result.rows.map(r => ({
+    id: r.id,
+    wallet: r.wallet,
+    word: r.word,
+    side: r.side,
+    target_price: parseFloat(r.target_price),
+    direction: r.direction,
+    market_title: r.market_title,
+    market_slug: r.market_slug,
+    discord_id: r.discord_id,
+    side_price: r.side === 'YES' ? newYesPrice : 1 - newYesPrice,
+  }))
+}
+
 // ── Visit tracking ───────────────────────────────────────
 
 /**
