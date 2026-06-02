@@ -81,6 +81,15 @@ interface ChartWord {
   history: { t: string; yes: number; no: number }[]
 }
 
+interface PriceAlert {
+  id: number
+  word_id: number
+  word: string
+  side: 'YES' | 'NO'
+  target_price: number
+  direction: 'above' | 'below'
+}
+
 interface TraderResult {
   wallet: string
   username: string | null
@@ -281,6 +290,14 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
   const [descExpanded, setDescExpanded] = useState(false)
 
+  // Price alerts
+  const [alerts, setAlerts] = useState<PriceAlert[]>([])
+  const [alertWordId, setAlertWordId] = useState<number | null>(null)
+  const [alertSide, setAlertSide] = useState<'YES' | 'NO'>('YES')
+  const [alertPct, setAlertPct] = useState('')
+  const [alertSubmitting, setAlertSubmitting] = useState(false)
+  const [alertStatus, setAlertStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
   const DESC_LIMIT = 160
 
   const [showTutorial, setShowTutorial] = useState(false)
@@ -397,6 +414,57 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
     } catch { /* ignore */ }
   }, [marketId, publicKey])
 
+  const fetchAlerts = useCallback(async () => {
+    if (!publicKey || discordLinked !== true) { setAlerts([]); return }
+    try {
+      const res = await fetch(`/api/custom/${marketId}/alerts`)
+      if (!res.ok) return
+      const data = await res.json()
+      setAlerts(data.alerts || [])
+    } catch { /* ignore */ }
+  }, [marketId, publicKey, discordLinked])
+
+  const openAlertModal = (wordId: number, side: 'YES' | 'NO' = 'YES') => {
+    setAlertWordId(wordId)
+    setAlertSide(side)
+    setAlertPct('')
+    setAlertStatus(null)
+  }
+
+  const createAlert = async () => {
+    if (alertWordId === null) return
+    const pctNum = parseFloat(alertPct)
+    if (!Number.isFinite(pctNum) || pctNum < 1 || pctNum > 99) {
+      setAlertStatus({ msg: 'Enter a target between 1 and 99%', error: true })
+      return
+    }
+    setAlertSubmitting(true)
+    setAlertStatus(null)
+    try {
+      const res = await fetch(`/api/custom/${marketId}/alerts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word_id: alertWordId, side: alertSide, target_price: pctNum / 100 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to set alert')
+      setAlertPct('')
+      setAlertStatus({ msg: `Alert set — we'll DM you on Discord when ${alertSide} hits ${pctNum}%`, error: false })
+      fetchAlerts()
+    } catch (err: any) {
+      setAlertStatus({ msg: err.message, error: true })
+    } finally {
+      setAlertSubmitting(false)
+    }
+  }
+
+  const deleteAlert = async (alertId: number) => {
+    try {
+      const res = await fetch(`/api/custom/${marketId}/alerts/${alertId}`, { method: 'DELETE' })
+      if (res.ok) fetchAlerts()
+    } catch { /* ignore */ }
+  }
+
   const fetchPrices = useCallback(async () => {
     try {
       const res = await fetch(`/api/custom/${marketId}/sentiment`)
@@ -441,6 +509,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
   useEffect(() => { fetchPositions() }, [fetchPositions])
   useEffect(() => { fetchTrades() }, [fetchTrades])
   useEffect(() => { fetchChart() }, [fetchChart])
+  useEffect(() => { fetchAlerts() }, [fetchAlerts])
 
   // Fetch results leaderboard when market is resolved
   useEffect(() => {
@@ -934,13 +1003,26 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
           </div>
           <div className="space-y-2">
             {positions.map(pos => {
-              const pnl = pos.tokens_received - pos.tokens_spent
               // Require at least 1 share — anything less is unsellable dust from rounding
               const hasShares = pos.yes_shares >= 1 || pos.no_shares >= 1
               if (!hasShares) return null
               const posWord = words.find(w => w.id === pos.word_id)
               const wordResolved = posWord ? posWord.resolved_outcome !== null : false
+              const isResolvedPos = market?.status === 'resolved' || wordResolved
               const isClickable = isOpen && hasShares && !wordResolved
+
+              // Current value of held shares at the live LMSR price (what they'd fetch if sold now).
+              let currentValue = 0
+              if (posWord) {
+                if (pos.yes_shares > 0) currentValue += virtualSellReturn(posWord.yes_qty, posWord.no_qty, 'YES', pos.yes_shares, b)
+                if (pos.no_shares > 0) currentValue += virtualSellReturn(posWord.yes_qty, posWord.no_qty, 'NO', pos.no_shares, b)
+              }
+              // Resolved: realised P&L from actual payouts. Open: mark-to-market (value + sells - spent).
+              const pnl = isResolvedPos
+                ? pos.tokens_received - pos.tokens_spent
+                : pos.tokens_received + currentValue - pos.tokens_spent
+              const pointsProfit = pnl > 0 ? Math.floor(pnl * VIRTUAL_MARKET_POINTS_MULTIPLIER) : 0
+
               return (
                 <div
                   key={pos.word_id}
@@ -949,13 +1031,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-white font-medium text-xs truncate max-w-[140px]">{pos.word}</span>
-                    {market?.status === 'resolved' || wordResolved ? (
-                      <span className={`text-xs font-semibold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}
-                      </span>
-                    ) : isClickable && (
-                      <span className="text-[10px] text-neutral-600">sell →</span>
-                    )}
+                    {isClickable && <span className="text-[10px] text-neutral-600">sell →</span>}
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-neutral-400">
                     <span>
@@ -964,6 +1040,31 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                       {pos.no_shares >= 1 && <span className="text-apple-red">{pos.no_shares.toFixed(1)} NO</span>}
                     </span>
                     <span>spent {pos.tokens_spent.toFixed(1)}</span>
+                  </div>
+
+                  {/* P&L + points: clear current return and points-on-profit */}
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                    <span
+                      className="flex items-baseline gap-1.5"
+                      title={isResolvedPos
+                        ? 'Your final profit or loss on this position.'
+                        : 'Current value of your shares (at the live price) minus what you spent.'}
+                    >
+                      <span className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider">
+                        {isResolvedPos ? 'P&L' : 'P&L now'}
+                      </span>
+                      <span className={`text-xs font-bold ${pnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                        {pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}
+                      </span>
+                    </span>
+                    <span
+                      className={`text-[11px] font-medium ${pointsProfit > 0 ? 'text-apple-blue' : 'text-neutral-600'}`}
+                      title={isResolvedPos
+                        ? 'Platform points earned from this position (0.5 per token of profit).'
+                        : 'Points you would earn if you sold at the current price (0.5 per token of profit).'}
+                    >
+                      +{pointsProfit} pts{isResolvedPos ? '' : ' if sold'}
+                    </span>
                   </div>
                 </div>
               )
@@ -1227,6 +1328,7 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                         : Math.round(word.yes_price * 100)
                       const wordNoCents = 100 - wordYesCents
                       const isSelected = word.id === selectedWordId
+                      const wordAlertCount = alerts.filter(a => a.word_id === word.id).length
 
                       return (
                         <button
@@ -1240,6 +1342,29 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
                         >
                           <div className="flex items-center gap-2 md:gap-3 w-2/5">
                             <span className="text-white font-semibold text-sm md:text-[15px]">{word.word}</span>
+                            {!isResolved && (
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                title="Set a price alert"
+                                aria-label={`Set a price alert for ${word.word}`}
+                                onClick={e => { e.stopPropagation(); openAlertModal(word.id, side) }}
+                                className={`relative flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors ${
+                                  wordAlertCount > 0
+                                    ? 'text-apple-green hover:text-apple-green/80'
+                                    : 'text-neutral-500 hover:text-white'
+                                }`}
+                              >
+                                <svg className="w-3.5 h-3.5" fill={wordAlertCount > 0 ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                                {wordAlertCount > 0 && (
+                                  <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-apple-green text-black text-[9px] font-bold leading-[14px] text-center">
+                                    {wordAlertCount}
+                                  </span>
+                                )}
+                              </span>
+                            )}
                             {isResolved && (
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
                                 word.resolved_outcome ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'
@@ -1520,6 +1645,115 @@ export default function CustomMarketPageContent({ marketId, onLoaded }: { market
           </div>
         )}
       </div>
+
+      {/* Price alert modal */}
+      {alertWordId !== null && (() => {
+        const alertWord = words.find(w => w.id === alertWordId)
+        if (!alertWord) return null
+        const currentSidePct = Math.round((alertSide === 'YES' ? alertWord.yes_price : 1 - alertWord.yes_price) * 100)
+        const wordAlerts = alerts.filter(a => a.word_id === alertWordId)
+        const close = () => { setAlertWordId(null); setAlertStatus(null); setAlertPct('') }
+        return (
+          <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
+            <div className="relative z-10 w-full sm:max-w-md bg-neutral-900 border border-white/10 rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto animate-slide-up">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-base font-semibold text-white">Price alert</span>
+                <button onClick={close} className="text-neutral-400 hover:text-white" aria-label="Close">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-neutral-400 mb-4">
+                Get a Discord DM when <span className="text-white font-medium">{alertWord.word}</span> reaches your target price.
+              </p>
+
+              {discordLinked !== true ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <p className="font-medium text-amber-200 mb-1">Discord required</p>
+                  <p className="text-amber-300/70 text-sm mb-3">Link your Discord account so we can DM you when your price hits.</p>
+                  <button
+                    onClick={() => publicKey && window.open(`/api/discord/link?wallet=${publicKey}`, '_blank', 'width=500,height=700')}
+                    className="px-4 py-2 rounded-lg bg-[#5865F2] text-white text-sm font-semibold hover:bg-[#4752c4] transition-colors"
+                  >
+                    Link Discord
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Side toggle */}
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setAlertSide('YES')}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                        alertSide === 'YES' ? 'bg-apple-green text-white' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                      }`}
+                    >Yes</button>
+                    <button
+                      onClick={() => setAlertSide('NO')}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                        alertSide === 'NO' ? 'bg-apple-red text-white' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                      }`}
+                    >No</button>
+                  </div>
+
+                  <p className="text-xs text-neutral-500 mb-1.5">
+                    {alertSide} is currently <span className="text-white font-semibold">{currentSidePct}%</span>
+                  </p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={alertPct}
+                      onChange={e => setAlertPct(e.target.value.replace(/[^0-9.]/g, ''))}
+                      onKeyDown={e => { if (e.key === 'Enter') createAlert() }}
+                      placeholder="Target %"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-white/30"
+                    />
+                    <button
+                      onClick={createAlert}
+                      disabled={alertSubmitting}
+                      className="px-4 py-2.5 rounded-xl bg-white text-black text-sm font-semibold hover:bg-neutral-200 transition-colors disabled:opacity-50"
+                    >
+                      {alertSubmitting ? 'Setting…' : 'Set alert'}
+                    </button>
+                  </div>
+
+                  {alertStatus && (
+                    <p className={`text-xs mt-2 ${alertStatus.error ? 'text-apple-red' : 'text-apple-green'}`}>{alertStatus.msg}</p>
+                  )}
+
+                  {/* Existing alerts for this word */}
+                  {wordAlerts.length > 0 && (
+                    <div className="mt-5 pt-4 border-t border-white/10">
+                      <p className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-2">Your alerts</p>
+                      <div className="space-y-2">
+                        {wordAlerts.map(a => (
+                          <div key={a.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+                            <span className={`text-sm font-semibold ${a.side === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+                              {a.side} {Math.round(a.target_price * 100)}%
+                            </span>
+                            <button
+                              onClick={() => deleteAlert(a.id)}
+                              className="text-neutral-500 hover:text-apple-red transition-colors"
+                              aria-label="Remove alert"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       <SharePnLModal
         shareData={shareData ? { type: 'market', data: shareData } : null}
