@@ -59,6 +59,8 @@ lib/
 ├── mentionStream.ts      # Shared Postgres LISTEN singleton for SSE word-mention streaming
 ├── achievements.ts       # Achievement definitions + unlock logic
 ├── points.ts             # Point system (trades, holds, chat, achievements)
+├── discordBot.ts         # Rate-limited Discord bot DM sender (shared 25/s scheduler, 429-aware, per-user DM-channel cache)
+├── priceAlerts.ts        # Free-market price-alert detection + DM dispatch (trade-path hook)
 └── ...
 
 solana_contracts/         # Anchor programs (Rust)
@@ -139,6 +141,7 @@ services/                 # Sibling Node services (own package.json, own Railway
 | `custom_market_balances` | User play token balance per market |
 | `custom_market_trades` | Individual trade log (buy/sell, shares, cost, price after) |
 | `custom_market_price_history` | Implied price per word after each trade (for chart) |
+| `custom_market_price_alerts` | User-set price alerts per word (side, target_price, derived direction, status). One-shot Discord DM. |
 
 ### Live Transcription (transcript-worker)
 | Table | Purpose |
@@ -286,6 +289,26 @@ Sibling Node service in `services/transcript-worker/` (own `package.json`, own R
 - Mentions API + UI scope by `stream_id` (the latest run), not `event_id` — aggregating across runs would pollute the live counter. No historical-run picker yet.
 - VOD jobs deliberately skip per-mention NOTIFY (would batch-spam SSE); Discord summary at completion is the signal.
 - **Pending resolution.** A word can be flagged `pending_resolution=true` (admin acts after seeing a Discord ping). Trading on that word is fully frozen by `POST /api/custom/[id]/trade` until either resolved or unmarked. Reversible until a final outcome is set; resolution is terminal. Admin toggles live in `MentionsPanel` (per word card) and `WordEditorRow` (full word list).
+
+## Price Alerts (Free Markets)
+
+Users set a target price on any free-market word and get a one-shot Discord DM when the price reaches it. Discord must be linked (the DM needs `user_profiles.discord_id`); enforced server-side in the create route and client-side in the alert UI.
+
+**Surfaces:**
+- UI: per-word bell + modal in `components/CustomMarketPageContent.tsx` (pick side + target %, view/remove your active alerts).
+- API: `app/api/custom/[id]/alerts` (POST create, GET list-own) and `.../alerts/[alertId]` (DELETE cancel). Auth via `getVerifiedWallet`.
+- DB helpers in `lib/db.ts`: `createPriceAlert` (derives `above`/`below` from the live price, caps active alerts per wallet), `getActivePriceAlertsForWallet`, `cancelPriceAlert`, `claimTriggeredPriceAlerts`.
+- Table: `custom_market_price_alerts` (partial unique index blocks duplicate active alerts; partial index `idx_cmpa_word_active` keeps the per-word scan cheap).
+
+**Detection model (why no cron/worker today):**
+- Free-market prices only move on trades, so the trade route is the single chokepoint. After `executeVirtualTrade` commits, `POST /api/custom/[id]/trade` calls `processPriceAlertsForWord` (`lib/priceAlerts.ts`) **fire-and-forget** (not awaited), so it never adds latency to the trade response.
+- `claimTriggeredPriceAlerts` is one atomic `UPDATE ... RETURNING` filtered by `word_id AND status='active'` (indexed, scoped to the traded word, never a full-table scan). It flips matched alerts to `triggered` so each fires exactly once even under concurrent trades. It runs **after** the trade COMMIT and locks a **different** table, so it never extends the per-word pool lock that serializes trades.
+- DM delivery (`lib/discordBot.ts` `sendDiscordDM`) is rate-limited: Discord's global limit is 50 req/s per bot and a first-contact DM is 2 requests (open channel + send), so all requests funnel through one shared, evenly-spaced scheduler capped at 25/s with `Retry-After`-aware 429 backoff. The limiter lives on `globalThis` (same convention as `chatStream`/`mentionStream`). The DM channel id is cached per user (also on `globalThis`, bounded), so repeat alerts to the same user skip the open-channel call and cost a single request.
+
+**Scaling this up (current design assumes a SINGLE web instance):**
+- The rate limiter is **per process**. One Railway web instance is safe with margin. Adding a second web replica gives each its own 25/s budget, so the global 50/s guarantee breaks.
+- It is a rate limiter, not a durable queue: queued DMs are in-memory, so a restart mid-burst drops the not-yet-sent alerts (already marked `triggered`, so no resend).
+- **To scale (multi-instance and/or guaranteed delivery):** move delivery off the web process. Have the trade write triggered alerts to an outbox table (or `NOTIFY`) and let a **single** background worker drain it at a controlled rate, mirroring the `services/transcript-worker/` pattern (Postgres-only boundary, own Railway deploy). That gives one true global rate limiter plus restart-durable delivery.
 
 ## Maintaining This File
 
