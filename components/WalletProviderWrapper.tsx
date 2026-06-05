@@ -6,22 +6,28 @@ import { WalletProvider } from '@/contexts/WalletContext'
 import { AchievementProvider } from '@/contexts/AchievementContext'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? ''
 const MAINNET_HTTP = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const MAINNET_WSS = MAINNET_HTTP.replace(/^https?:\/\//, 'wss://')
-const DEVNET_HTTP = process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL || 'https://api.devnet.solana.com'
-const DEVNET_WSS = DEVNET_HTTP.replace(/^https?:\/\//, 'wss://')
 
-// Pre-built RPC clients for Privy's embedded wallet transaction signing UI
+// Pre-built RPC clients for Privy's embedded wallet transaction signing UI.
 const solanaMainnetRpc = {
   rpc: createSolanaRpc(MAINNET_HTTP),
   rpcSubscriptions: createSolanaRpcSubscriptions(MAINNET_WSS),
 }
-const solanaDevnetRpc = {
-  rpc: createSolanaRpc(DEVNET_HTTP),
-  rpcSubscriptions: createSolanaRpcSubscriptions(DEVNET_WSS),
-}
+
+// Only register a devnet RPC when the paid stack is actually on devnet — keeps
+// devnet out of the bundle on mainnet while staying one env-flag away.
+const solanaDevnetRpc = (() => {
+  if (SOLANA_CLUSTER !== 'devnet') return null
+  const http = process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL || 'https://api.devnet.solana.com'
+  return {
+    rpc: createSolanaRpc(http),
+    rpcSubscriptions: createSolanaRpcSubscriptions(http.replace(/^https?:\/\//, 'wss://')),
+  }
+})()
 
 export default function WalletProviderWrapper({
   children,
@@ -52,7 +58,7 @@ export default function WalletProviderWrapper({
         solana: {
           rpcs: {
             'solana:mainnet': solanaMainnetRpc,
-            'solana:devnet': solanaDevnetRpc,
+            ...(solanaDevnetRpc ? { 'solana:devnet': solanaDevnetRpc } : {}),
           },
         },
       }}

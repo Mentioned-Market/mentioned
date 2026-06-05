@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { pool, getAllPaidMarketMetadata } from '@/lib/db'
 import { fetchAllMarketsWithFallback } from '@/lib/mentionMarketUsdc'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,10 +44,10 @@ export async function GET(req: NextRequest) {
          te.implied_price AS "impliedPrice",
          te.block_time   AS "blockTime"
        FROM trade_events te
-       WHERE te.trader = $1
+       WHERE te.trader = $1 AND te.cluster = $2
        ORDER BY te.block_time DESC
        LIMIT 5000`,
-      [wallet],
+      [wallet, SOLANA_CLUSTER],
     ),
     getAllPaidMarketMetadata(),
   ])
@@ -121,7 +122,10 @@ export async function GET(req: NextRequest) {
   const closedPositions: ClosedPosition[] = []
   for (const a of aggMap.values()) {
     const words = wordsByMarketId.get(a.marketId)
-    const word = words?.[a.wordIndex]
+    // Skip trades for markets not on the active cluster (e.g. leftover devnet
+    // rows after a mainnet switch) — they don't resolve against on-chain state.
+    if (!words) continue
+    const word = words[a.wordIndex]
     const outcome: boolean | null = word?.outcome ?? null
     const meta = metaByMarketId.get(a.marketId)
 

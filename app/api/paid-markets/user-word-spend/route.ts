@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,9 +29,9 @@ export async function GET(req: NextRequest) {
             direction,
             SUM(CASE WHEN is_buy THEN cost ELSE -cost END) AS net
        FROM trade_events
-      WHERE trader = $1 AND market_id = $2
+      WHERE trader = $1 AND market_id = $2 AND cluster = $3
       GROUP BY word_index, direction`,
-    [wallet, marketId],
+    [wallet, marketId, SOLANA_CLUSTER],
   )
 
   const spend: Record<string, number> = {}

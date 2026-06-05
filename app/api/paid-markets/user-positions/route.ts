@@ -9,6 +9,7 @@ import {
   MarketStatus,
 } from '@/lib/mentionMarketUsdc'
 import { getAllPaidMarketMetadata, pool } from '@/lib/db'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,9 +50,9 @@ export async function GET(req: NextRequest) {
       `SELECT market_id AS "marketId", word_index AS "wordIndex", direction,
               SUM(quantity) AS qty, SUM(cost) AS cost
          FROM trade_events
-        WHERE trader = $1 AND is_buy = true
+        WHERE trader = $1 AND is_buy = true AND cluster = $2
         GROUP BY market_id, word_index, direction`,
-      [wallet],
+      [wallet, SOLANA_CLUSTER],
     ),
   ])
 

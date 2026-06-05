@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import pg from 'pg'
 import type { ParsedTradeEvent } from './tradeParser'
 import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from './virtualLmsr'
+import { SOLANA_CLUSTER } from './solanaConfig'
 
 const dbUrl = process.env.DATABASE_URL ?? ''
 const sslDisabled = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')
@@ -88,12 +89,13 @@ export async function insertTradeEvent(
   event: ParsedTradeEvent,
   signature: string,
   isBuy: boolean,
+  cluster: string,
 ): Promise<boolean> {
   const result = await pool.query(
     `INSERT INTO trade_events
        (signature, market_id, word_index, direction, is_buy, quantity, cost, fee,
-        new_yes_qty, new_no_qty, implied_price, trader, block_time)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13))
+        new_yes_qty, new_no_qty, implied_price, trader, block_time, cluster)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14)
      ON CONFLICT (signature, market_id, word_index, trader) DO NOTHING`,
     [
       signature,
@@ -109,6 +111,7 @@ export async function insertTradeEvent(
       event.impliedPrice,
       event.trader,
       event.timestamp,
+      cluster,
     ],
   )
   return (result.rowCount ?? 0) > 0
@@ -119,19 +122,20 @@ export async function insertTradeEvent(
  * Used to seed buy/sell detection in the webhook handler.
  */
 export async function getLatestPoolQtys(
-  keys: { marketId: string; wordIndex: number }[]
+  keys: { marketId: string; wordIndex: number }[],
+  cluster: string,
 ): Promise<Map<string, { yes: number; no: number }>> {
   if (keys.length === 0) return new Map()
 
-  // Build a VALUES list for the IN filter
-  const conditions = keys.map((k, i) => `(market_id = $${i * 2 + 1} AND word_index = $${i * 2 + 2})`).join(' OR ')
-  const params = keys.flatMap(k => [k.marketId, k.wordIndex])
+  // $1 is the cluster; market/word params follow.
+  const conditions = keys.map((k, i) => `(market_id = $${i * 2 + 2} AND word_index = $${i * 2 + 3})`).join(' OR ')
+  const params = [cluster, ...keys.flatMap(k => [k.marketId, k.wordIndex])]
 
   const result = await pool.query<{ market_id: string; word_index: number; new_yes_qty: string; new_no_qty: string }>(
     `SELECT DISTINCT ON (market_id, word_index)
        market_id, word_index, new_yes_qty, new_no_qty
      FROM trade_events
-     WHERE ${conditions}
+     WHERE cluster = $1 AND (${conditions})
      ORDER BY market_id, word_index, block_time DESC`,
     params,
   )
@@ -3699,8 +3703,8 @@ export async function upsertPaidMarketMetadata(
 ): Promise<PaidMarketMetadata> {
   const slug = data.urlPrefix?.trim() ? generateSlug(data.urlPrefix.trim().toUpperCase()) : null
   const result = await pool.query<PaidMarketMetadata>(
-    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, slug, event_start_time, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, slug, event_start_time, cluster, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
      ON CONFLICT (market_id) DO UPDATE SET
        title            = EXCLUDED.title,
        description      = EXCLUDED.description,
@@ -3710,30 +3714,31 @@ export async function upsertPaidMarketMetadata(
        event_start_time = EXCLUDED.event_start_time,
        updated_at       = NOW()
      RETURNING *`,
-    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null, slug, data.eventStartTime ?? null],
+    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null, slug, data.eventStartTime ?? null, SOLANA_CLUSTER],
   )
   return result.rows[0]
 }
 
 export async function getPaidMarketMetadata(marketId: bigint): Promise<PaidMarketMetadata | null> {
   const result = await pool.query<PaidMarketMetadata>(
-    `SELECT * FROM paid_market_metadata WHERE market_id = $1`,
-    [marketId.toString()],
+    `SELECT * FROM paid_market_metadata WHERE market_id = $1 AND cluster = $2`,
+    [marketId.toString(), SOLANA_CLUSTER],
   )
   return result.rows[0] ?? null
 }
 
 export async function getPaidMarketMetadataBySlug(slug: string): Promise<PaidMarketMetadata | null> {
   const result = await pool.query<PaidMarketMetadata>(
-    `SELECT * FROM paid_market_metadata WHERE slug = $1`,
-    [slug],
+    `SELECT * FROM paid_market_metadata WHERE slug = $1 AND cluster = $2`,
+    [slug, SOLANA_CLUSTER],
   )
   return result.rows[0] ?? null
 }
 
 export async function getAllPaidMarketMetadata(): Promise<PaidMarketMetadata[]> {
   const result = await pool.query<PaidMarketMetadata>(
-    `SELECT * FROM paid_market_metadata ORDER BY created_at DESC`,
+    `SELECT * FROM paid_market_metadata WHERE cluster = $1 ORDER BY created_at DESC`,
+    [SOLANA_CLUSTER],
   )
   return result.rows
 }
@@ -3743,9 +3748,9 @@ export async function getPaidMarketTraderCounts(marketIds: string[]): Promise<Ma
   const result = await pool.query<{ market_id: string; trader_count: string }>(
     `SELECT market_id, COUNT(DISTINCT trader)::text AS trader_count
      FROM trade_events
-     WHERE market_id = ANY($1)
+     WHERE market_id = ANY($1) AND cluster = $2
      GROUP BY market_id`,
-    [marketIds],
+    [marketIds, SOLANA_CLUSTER],
   )
   const map = new Map<string, number>()
   for (const row of result.rows) {

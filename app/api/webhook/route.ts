@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractTradeEvents } from '@/lib/tradeParser'
 import { insertTradeEvent, getLatestPoolQtys } from '@/lib/db'
+import { PAID_PROGRAM_ID, SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 export async function POST(req: NextRequest) {
   const secret = process.env.HELIUS_WEBHOOK_SECRET
@@ -23,7 +24,9 @@ export async function POST(req: NextRequest) {
 
   for (const tx of transactions) {
     console.log('Webhook tx keys:', Object.keys(tx), 'signature:', tx.signature ?? 'MISSING')
-    const events = extractTradeEvents(tx)
+    // Only index events from the active cluster's program, so a single endpoint
+    // can serve both the devnet and mainnet Helius webhooks (config picks which).
+    const events = extractTradeEvents(tx, PAID_PROGRAM_ID)
     allEvents.push(...events)
   }
 
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
   const uniqueKeys = [...new Map(
     allEvents.map(({ event }) => [`${event.marketId}-${event.wordIndex}`, { marketId: event.marketId.toString(), wordIndex: event.wordIndex }])
   ).values()]
-  const prevQty = await getLatestPoolQtys(uniqueKeys)
+  const prevQty = await getLatestPoolQtys(uniqueKeys, SOLANA_CLUSTER)
 
   for (const { event, signature } of allEvents) {
     const wordKey = `${event.marketId}-${event.wordIndex}`
@@ -48,11 +51,11 @@ export async function POST(req: NextRequest) {
     // Update tracked quantities for subsequent events in this batch
     prevQty.set(wordKey, { yes: event.newYesQty, no: event.newNoQty })
 
-    const wasInserted = await insertTradeEvent(event, signature, isBuy)
+    const wasInserted = await insertTradeEvent(event, signature, isBuy, SOLANA_CLUSTER)
     if (wasInserted) inserted++
     else skipped++
   }
 
-  console.log(`Webhook: ${transactions.length} tx(s), ${inserted} inserted, ${skipped} skipped`)
+  console.log(`Webhook [${SOLANA_CLUSTER}]: ${transactions.length} tx(s), ${inserted} inserted, ${skipped} skipped`)
   return NextResponse.json({ ok: true, inserted, skipped })
 }

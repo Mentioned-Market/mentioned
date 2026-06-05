@@ -27,6 +27,7 @@ import {
   type UsdcMarketAccount,
   type LpPosition,
 } from '@/lib/mentionMarketUsdc'
+import { CLUSTER_LABEL } from '@/lib/solanaConfig'
 import type { Address } from '@solana/kit'
 
 interface MarketWithMeta {
@@ -78,6 +79,17 @@ function approxMovePct(bUsdc: number): number {
   return (1 / (1 + Math.exp(-2 / bUsdc)) - 0.5) * 100
 }
 
+/**
+ * LMSR worst-case LP loss (USDC) for a dynamic-b market: numWords × b × ln(2),
+ * where b = base_b_per_usdc × deposit / 1e6. Illustrative for a sole LP funding
+ * the vault with `depositUsdc`.
+ */
+function worstCaseLpLossUsdc(baseBPerUsdc: number, numWords: number, depositUsdc: number): number {
+  // b (base units) = base_b_per_usdc × deposit(base units) / 1e6 = base_b_per_usdc × depositUsdc
+  const bBaseUnits = baseBPerUsdc * depositUsdc
+  return (numWords * bBaseUnits * 0.693147) / 1_000_000
+}
+
 export default function PaidCustomAdminPage() {
   const { publicKey, signer, signOnly } = useWallet()
 
@@ -98,7 +110,7 @@ export default function PaidCustomAdminPage() {
   const [wordsInput, setWordsInput] = useState('')
   const [eventStartTime, setEventStartTime] = useState('')
   const [locksAt, setLocksAt] = useState('')
-  const [tradeFeeBps, setTradeFeeBps] = useState('50')
+  const [tradeFeeBps, setTradeFeeBps] = useState('100')
   const [initialB, setInitialB] = useState('0')
   const [baseBPerUsdc, setBaseBPerUsdc] = useState(String(recommendedBaseB(0)))
   const [baseBManual, setBaseBManual] = useState(false)
@@ -156,9 +168,9 @@ export default function PaidCustomAdminPage() {
     setLoading(true)
     setLoadError(null)
     try {
-      // getProgramAccounts is flaky on devnet Helius, so seed the fetch with the
-      // DB-known market IDs — fetchAllMarketsWithFallback backfills any that
-      // getProgramAccounts misses via the reliable getAccountInfo path.
+      // getProgramAccounts is flaky / rate-limited on Helius, so seed the fetch
+      // with the DB-known market IDs — fetchAllMarketsWithFallback backfills any
+      // that getProgramAccounts misses via the reliable getAccountInfo path.
       let knownIds: string[] = []
       try {
         const metaRes = await fetch('/api/paid-markets/metadata')
@@ -188,7 +200,7 @@ export default function PaidCustomAdminPage() {
       )
       setMarkets(enriched)
       if (enriched.length === 0 && knownIds.length > 0) {
-        setLoadError(`Loaded 0 of ${knownIds.length} known markets — the devnet RPC returned no account data. Check the browser console / network tab for the failing request.`)
+        setLoadError(`Loaded 0 of ${knownIds.length} known markets — the RPC returned no account data. Check the browser console / network tab for the failing request.`)
       }
     } catch (err) {
       console.error('Failed to fetch on-chain markets', err)
@@ -350,7 +362,7 @@ export default function PaidCustomAdminPage() {
       setEventStartTime('')
       setLocksAt('')
       setWordsInput('')
-      setTradeFeeBps('50')
+      setTradeFeeBps('100')
       setInitialB('0')
       setBaseBManual(false)
       setBaseBPerUsdc(String(recommendedBaseB(0)))
@@ -590,7 +602,7 @@ export default function PaidCustomAdminPage() {
             <Header />
             <main className="py-4 md:py-6 animate-fade-in">
               <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">On-Chain Markets Admin</h1>
-              <p className="text-neutral-400 text-sm mb-6">Create and manage USDC prediction markets on Solana devnet</p>
+              <p className="text-neutral-400 text-sm mb-6">Create and manage USDC prediction markets on Solana {CLUSTER_LABEL}</p>
 
               {message && (
                 <div className={`mb-4 px-4 py-2 rounded-lg text-sm font-mono break-all ${message.type === 'success' ? 'bg-apple-green/10 text-apple-green' : 'bg-apple-red/10 text-apple-red'}`}>
@@ -715,7 +727,7 @@ export default function PaidCustomAdminPage() {
                       min="0"
                       max="1000"
                     />
-                    <p className="text-[10px] text-neutral-600 mt-1 px-1">50 = 0.5%</p>
+                    <p className="text-[10px] text-neutral-600 mt-1 px-1">100 = 1%</p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-400 mb-1.5">Initial b (USDC base units)</label>
@@ -899,26 +911,38 @@ export default function PaidCustomAdminPage() {
                                 <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Liquidity</h3>
                                 <div className="flex flex-col sm:flex-row gap-4">
                                   {mk.status !== MarketStatus.Resolved && (
-                                    <div className="flex gap-2 items-end">
-                                      <div>
-                                        <label className="block text-[10px] font-medium text-neutral-500 mb-1">Deposit (USDC)</label>
-                                        <input
-                                          type="number"
-                                          placeholder="10.00"
-                                          value={depositAmounts[market.pubkey] || ''}
-                                          onChange={e => setDepositAmounts(prev => ({ ...prev, [market.pubkey]: e.target.value }))}
-                                          className="w-28 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
-                                          min="0"
-                                          step="0.01"
-                                        />
+                                    <div>
+                                      <div className="flex gap-2 items-end">
+                                        <div>
+                                          <label className="block text-[10px] font-medium text-neutral-500 mb-1">Deposit (USDC)</label>
+                                          <input
+                                            type="number"
+                                            placeholder="10.00"
+                                            value={depositAmounts[market.pubkey] || ''}
+                                            onChange={e => setDepositAmounts(prev => ({ ...prev, [market.pubkey]: e.target.value }))}
+                                            className="w-28 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                                            min="0"
+                                            step="0.01"
+                                          />
+                                        </div>
+                                        <button
+                                          onClick={() => handleDepositLiquidity(market)}
+                                          disabled={txPending}
+                                          className="px-4 py-2 bg-apple-green/20 text-apple-green text-xs font-semibold rounded-lg hover:bg-apple-green/30 transition-colors disabled:opacity-50"
+                                        >
+                                          Deposit
+                                        </button>
                                       </div>
-                                      <button
-                                        onClick={() => handleDepositLiquidity(market)}
-                                        disabled={txPending}
-                                        className="px-4 py-2 bg-apple-green/20 text-apple-green text-xs font-semibold rounded-lg hover:bg-apple-green/30 transition-colors disabled:opacity-50"
-                                      >
-                                        Deposit
-                                      </button>
+                                      {(() => {
+                                        const dep = parseFloat(depositAmounts[market.pubkey] || '')
+                                        if (!dep || dep <= 0) return null
+                                        const loss = worstCaseLpLossUsdc(Number(mk.baseBPerUsdc), mk.numWords, dep)
+                                        return (
+                                          <p className="text-[10px] text-yellow-500/80 mt-2 max-w-xs leading-relaxed">
+                                            Worst-case LP loss ≈ <span className="font-semibold">${loss.toFixed(2)}</span> of your ${dep.toFixed(2)} deposit ({mk.numWords} word{mk.numWords === 1 ? '' : 's'}). Only if every word&apos;s volume runs against you and the crowd is right; trade fees partially offset.
+                                          </p>
+                                        )
+                                      })()}
                                     </div>
                                   )}
 

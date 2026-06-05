@@ -29,10 +29,17 @@ CREATE TABLE IF NOT EXISTS trade_events (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Solana cluster a trade was indexed from. DEFAULT 'devnet' backfills the
+-- existing test rows; the webhook stamps new rows with the active cluster
+-- (lib/solanaConfig). Reads filter by the active cluster so devnet + mainnet
+-- trades coexist cleanly in one table across network switches.
+ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS cluster TEXT NOT NULL DEFAULT 'devnet';
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_sig_unique ON trade_events(signature, market_id, word_index, trader);
 CREATE INDEX IF NOT EXISTS idx_trade_market ON trade_events(market_id, block_time);
 CREATE INDEX IF NOT EXISTS idx_trade_trader ON trade_events(trader, block_time);
 CREATE INDEX IF NOT EXISTS idx_trade_word   ON trade_events(market_id, word_index);
+CREATE INDEX IF NOT EXISTS idx_trade_cluster ON trade_events(cluster, trader);
 
 CREATE TABLE IF NOT EXISTS market_transcripts (
   id            SERIAL PRIMARY KEY,
@@ -458,6 +465,12 @@ CREATE TABLE IF NOT EXISTS paid_market_metadata (
 ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS slug TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_paid_market_metadata_slug ON paid_market_metadata(slug);
 ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS event_start_time TIMESTAMPTZ;
+-- Cluster the market was created on. DEFAULT 'devnet' backfills existing test
+-- markets; new markets are stamped with the active cluster (lib/solanaConfig).
+-- Reads filter by the active cluster so devnet metadata doesn't bleed into the
+-- mainnet admin/market list, mirroring trade_events.
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS cluster TEXT NOT NULL DEFAULT 'devnet';
+CREATE INDEX IF NOT EXISTS idx_paid_market_metadata_cluster ON paid_market_metadata(cluster);
 
 -- User feedback submissions
 CREATE TABLE IF NOT EXISTS feedback_submissions (

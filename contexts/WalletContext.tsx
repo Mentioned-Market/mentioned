@@ -28,9 +28,16 @@ import {
 import { setPrivySolanaProvider } from '@/lib/walletUtils'
 import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 const SOLANA_CHAIN = 'solana:mainnet-beta'       // Wallet Standard (Phantom)
 const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
+
+// Chain the paid-markets raw-sign path declares to the wallet. Follows the paid
+// cluster (lib/solanaConfig) so flipping to devnet re-points paid signing without
+// disturbing the app's other (always-mainnet) flows.
+const PAID_PHANTOM_CHAIN = SOLANA_CLUSTER === 'devnet' ? 'solana:devnet' : SOLANA_CHAIN
+const PAID_PRIVY_CHAIN = SOLANA_CLUSTER === 'devnet' ? 'solana:devnet' : PRIVY_SOLANA_CHAIN
 const RPC_SEND_PROXY = '/api/rpc/send'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
@@ -83,7 +90,7 @@ interface WalletContextType {
   disconnect: () => void
   connected: boolean
   signer: TransactionSendingSigner | null
-  /** Sign raw transaction bytes via Phantom without simulate or send. For devnet use. */
+  /** Sign raw transaction bytes via the wallet without simulate or send (paid-cluster broadcast). */
   signOnly: ((txBytes: Uint8Array) => Promise<Uint8Array>) | null
   mode: 'normal' | 'pro'
   setMode: (mode: 'normal' | 'pro') => void
@@ -807,16 +814,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [walletType, clearState, privyLogout])
 
-  // Sign raw tx bytes via Phantom's signTransaction feature — no simulate, no send.
-  // Sign raw tx bytes without sending — used for devnet on-chain markets so we can
-  // broadcast directly to the devnet RPC instead of going through the mainnet proxy.
+  // Sign raw tx bytes via the wallet's signTransaction feature — no simulate, no
+  // send. Used for the paid on-chain markets so we can broadcast straight to the
+  // paid-cluster RPC instead of going through the mainnet proxy. The declared
+  // chain follows the paid cluster (mainnet by default, devnet when configured).
   const signOnly = useCallback(async (txBytes: Uint8Array): Promise<Uint8Array> => {
     // Privy embedded wallet path
     if (walletTypeRef.current === 'privy') {
       const result = await privySignTxRef.current({
         transaction: txBytes,
         wallet: privyWalletRef.current,
-        chain: 'solana:devnet' as any,
+        chain: PAID_PRIVY_CHAIN as any,
       })
       return result.signedTransaction as Uint8Array
     }
@@ -828,7 +836,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const signFeature = wallet.features[FEAT_SIGN] as {
       signTransaction(...inputs: Array<{ transaction: Uint8Array; account: WalletAccount; chain?: string }>): Promise<Array<{ signedTransaction: Uint8Array }>>
     }
-    const [result] = await signFeature.signTransaction({ transaction: txBytes, account, chain: 'solana:devnet' })
+    const [result] = await signFeature.signTransaction({ transaction: txBytes, account, chain: PAID_PHANTOM_CHAIN })
     return result.signedTransaction
   }, [])
 

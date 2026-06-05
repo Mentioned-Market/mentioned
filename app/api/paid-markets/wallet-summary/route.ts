@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { type Address } from '@solana/kit'
 import {
   USDC_MINT,
-  DEVNET_URL,
+  RPC_URL,
   getAssociatedTokenAddress,
   fetchAllMarketsWithFallback,
   estimateSellReturn,
@@ -19,7 +19,7 @@ function readU64LE(buf: Buffer, offset: number): bigint {
 }
 
 async function getTokenBalance(ata: Address): Promise<bigint> {
-  const res = await fetch(DEVNET_URL, {
+  const res = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   for (let i = 0; i < allAddresses.length; i += BATCH) {
     const batch = allAddresses.slice(i, i + BATCH)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await fetch(DEVNET_URL, {
+    const res = await fetch(RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

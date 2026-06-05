@@ -8,7 +8,6 @@ import {
   getProgramDerivedAddress,
   getAddressEncoder,
   createSolanaRpc,
-  devnet,
   pipe,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
@@ -18,15 +17,14 @@ import {
   compileTransaction,
   getTransactionEncoder,
 } from '@solana/kit'
+import { PAID_PROGRAM_ID, PAID_USDC_MINT, PAID_RPC_URL } from './solanaConfig'
 
 // ── Constants ────────────────────────────────────────────
 
-export const PROGRAM_ID = toAddress(
-  '9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk'
-)
-export const USDC_MINT = toAddress(
-  '6duUhxsjpsRasCSmvejAad4hH7aSyuBba99iZvsCsDum'
-)
+// Program ID + USDC mint are cluster-selected in lib/solanaConfig.ts (mainnet by
+// default; flip NEXT_PUBLIC_SOLANA_CLUSTER=devnet to target the devnet program).
+export const PROGRAM_ID = toAddress(PAID_PROGRAM_ID)
+export const USDC_MINT = toAddress(PAID_USDC_MINT)
 export const TOKEN_PROGRAM = toAddress(
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 )
@@ -42,22 +40,10 @@ export const ASSOCIATED_TOKEN_PROGRAM = toAddress(
 export const TOKEN_METADATA_PROGRAM = toAddress(
   'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
 )
-// Dedicated devnet RPC to avoid "base64 encoded too large" on the public endpoint.
-//
-// Two env vars, picked by where this module runs:
-//   - HELIUS_DEVNET_RPC_URL (server-only, no NEXT_PUBLIC_) — used by the
-//     /api/paid-markets/* server routes. Must be an UNRESTRICTED key: server
-//     requests carry no Origin header, so a domain-locked key returns 401 here.
-//   - NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL (bundled) — used in the browser
-//     (OnchainMarketClient, positions/admin pages). Safe to domain-lock, since
-//     browser requests send an allowed Origin.
-// The server var wins when set; in the browser it is undefined (Next.js only inlines
-// NEXT_PUBLIC_*), so the client bundle falls back to the public var and the
-// unrestricted server key never ships to the browser.
-export const DEVNET_URL =
-  (typeof process !== 'undefined' &&
-    (process.env.HELIUS_DEVNET_RPC_URL || process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL)) ||
-  'https://api.devnet.solana.com'
+// RPC endpoint for the active cluster. Resolved (server key → browser key →
+// public fallback) in lib/solanaConfig.ts so the server's unrestricted key never
+// ships to the browser and the network is switchable via one env var.
+export const RPC_URL = PAID_RPC_URL
 
 // USDC has 6 decimals; 1 USDC = 1_000_000 base units
 export const USDC_DECIMALS = 6
@@ -770,18 +756,18 @@ export function sharesForUsdc(
 // ── Transaction sending ──────────────────────────────────
 
 /**
- * Build, sign, and send a set of instructions to devnet.
+ * Build, sign, and send a set of instructions to the configured cluster.
  *
  * Uses `signOnly` (Phantom's raw signTransaction, no simulate) to avoid the
  * "base64 encoded too large" error from the mainnet preSimulate in the normal
- * signing flow. Broadcasts directly to the Helius devnet RPC.
+ * signing flow. Broadcasts directly to the configured cluster RPC.
  */
 export async function sendInstructions(
   signer: TransactionSendingSigner,
   signOnly: (txBytes: Uint8Array) => Promise<Uint8Array>,
   instructions: Instruction[]
 ): Promise<void> {
-  const rpc = createSolanaRpc(devnet(DEVNET_URL))
+  const rpc = createSolanaRpc(RPC_URL)
   const { value: blockhash } = await rpc.getLatestBlockhash().send()
 
   const txMsg = pipe(
@@ -793,13 +779,13 @@ export async function sendInstructions(
   )
 
   // Compile to bytes (signatures empty), sign via raw Phantom signTransaction,
-  // then broadcast directly to devnet — bypasses the mainnet preSimulate proxy.
+  // then broadcast directly to the cluster RPC — bypasses the app mainnet proxy.
   const compiled = compileTransaction(txMsg)
   const txBytes = new Uint8Array(getTransactionEncoder().encode(compiled))
 
   // Simulate first with unsigned tx to surface program logs on failure.
   const unsignedBase64 = btoa(String.fromCharCode(...txBytes))
-  const simRes = await fetch(DEVNET_URL, {
+  const simRes = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -825,7 +811,7 @@ export async function sendInstructions(
   const signedBytes = await signOnly(txBytes)
 
   const base64Tx = btoa(String.fromCharCode(...signedBytes))
-  const res = await fetch(DEVNET_URL, {
+  const res = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -845,7 +831,7 @@ export async function sendInstructions(
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 1_500))
-    const statusRes = await fetch(DEVNET_URL, {
+    const statusRes = await fetch(RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1006,7 +992,7 @@ export function deserializeLpPosition(data: Uint8Array): LpPosition | null {
 }
 
 export function createRpc() {
-  return createSolanaRpc(devnet(DEVNET_URL))
+  return createSolanaRpc(RPC_URL)
 }
 
 function decodeBase64(raw: unknown): Uint8Array {
@@ -1032,7 +1018,7 @@ export async function fetchAllMarkets(): Promise<
 
   const discB64 = btoa(String.fromCharCode(...ACCT_DISC.marketAccount))
 
-  // getProgramAccounts is heavily rate-limited and has caching gaps on devnet
+  // getProgramAccounts is heavily rate-limited and can have caching gaps on
   // Helius — a transient failure must NOT wipe the whole market list. Return []
   // on error so callers that pass known market IDs (fetchAllMarketsWithFallback)
   // can backfill every market via the far-more-reliable getAccountInfo path.
@@ -1068,7 +1054,7 @@ export async function fetchAllMarkets(): Promise<
 
 /**
  * Like fetchAllMarkets but supplements with individually-fetched accounts for any
- * DB-known market IDs that getProgramAccounts missed (RPC caching gap on devnet).
+ * DB-known market IDs that getProgramAccounts missed (RPC caching gap).
  */
 export async function fetchAllMarketsWithFallback(
   knownMarketIds: string[]

@@ -82,19 +82,37 @@ export function parseTradeEvent(base64Data: string): ParsedTradeEvent | null {
 
 /**
  * Extract all TradeEvents from a Helius webhook transaction payload.
+ *
+ * `expectedProgramId` (optional): only keep events emitted by that program. We
+ * track the program-invocation stack from the log stream and attribute each
+ * `Program data:` line to the program currently executing. This lets a single
+ * /api/webhook endpoint serve BOTH a devnet and a mainnet Helius webhook — only
+ * the active cluster's program (from lib/solanaConfig) is indexed; the other
+ * cluster's posts are parsed and dropped. If the emitter can't be determined
+ * (e.g. a payload without invoke lines), the event is kept (fail-open, no
+ * regression).
  */
 export function extractTradeEvents(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tx: Record<string, any>
+  tx: Record<string, any>,
+  expectedProgramId?: string
 ): { event: ParsedTradeEvent; signature: string }[] {
   const results: { event: ParsedTradeEvent; signature: string }[] = []
   const sig = tx.signature ?? tx.transaction?.signatures?.[0] ?? ''
   const logs = tx.meta?.logMessages ?? tx.transaction?.meta?.logMessages ?? []
 
+  const programStack: string[] = []
   for (const log of logs) {
+    const invoke = /^Program (\S+) invoke \[\d+\]/.exec(log)
+    if (invoke) { programStack.push(invoke[1]); continue }
+    if (/^Program \S+ (?:success|failed)/.test(log)) { programStack.pop(); continue }
     if (!log.startsWith('Program data: ')) continue
-    const b64 = log.slice('Program data: '.length)
-    const event = parseTradeEvent(b64)
+
+    const emitter = programStack[programStack.length - 1]
+    // Drop only when we positively identified a different program as the emitter.
+    if (expectedProgramId && emitter && emitter !== expectedProgramId) continue
+
+    const event = parseTradeEvent(log.slice('Program data: '.length))
     if (event) {
       results.push({ event, signature: sig })
     }
