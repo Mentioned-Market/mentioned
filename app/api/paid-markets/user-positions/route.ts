@@ -8,7 +8,7 @@ import {
   createRpc,
   MarketStatus,
 } from '@/lib/mentionMarketUsdc'
-import { getAllPaidMarketMetadata } from '@/lib/db'
+import { getAllPaidMarketMetadata, pool } from '@/lib/db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,6 +32,7 @@ export interface OnchainPosition {
   noPrice: number
   outcome: boolean | null   // true = YES won, false = NO won, null = unresolved
   estValueUsdc: string      // LMSR sell return in base units, stringified bigint
+  costBasisUsdc: string     // avg-cost basis of the currently-held shares, base units
 }
 
 export async function GET(req: NextRequest) {
@@ -42,9 +43,28 @@ export async function GET(req: NextRequest) {
   const walletAddr = wallet as Address
 
   const allMetadata = await getAllPaidMarketMetadata()
-  const markets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
+  const [markets, buyRows] = await Promise.all([
+    fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id)),
+    pool.query(
+      `SELECT market_id AS "marketId", word_index AS "wordIndex", direction,
+              SUM(quantity) AS qty, SUM(cost) AS cost
+         FROM trade_events
+        WHERE trader = $1 AND is_buy = true
+        GROUP BY market_id, word_index, direction`,
+      [wallet],
+    ),
+  ])
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
+
+  // Average buy cost per (marketId:wordIndex:direction) — used to value the
+  // cost basis of the shares the wallet still holds (average-cost method).
+  const buyAgg = new Map<string, { qty: number; cost: number }>()
+  for (const r of buyRows.rows) {
+    buyAgg.set(`${r.marketId}:${r.wordIndex}:${r.direction}`, {
+      qty: parseFloat(r.qty), cost: parseFloat(r.cost),
+    })
+  }
 
   // Collect all ATA addresses we need to check in one batch
   type AtaRef = {
@@ -113,6 +133,7 @@ export async function GET(req: NextRequest) {
         noPrice: 1 - yesPrice,
         outcome: word.outcome,
         estValueUsdc: '0',
+        costBasisUsdc: '0',
       })
     }
     const pos = posMap.get(key)!
@@ -135,6 +156,14 @@ export async function GET(req: NextRequest) {
     } catch {
       pos.estValueUsdc = '0'
     }
+
+    // Cost basis of the currently-held shares (average buy cost × held shares).
+    const yesBuy = buyAgg.get(`${pos.marketId}:${pos.wordIndex}:0`)
+    const noBuy  = buyAgg.get(`${pos.marketId}:${pos.wordIndex}:1`)
+    let basis = 0
+    if (yesBuy && yesBuy.qty > 0) basis += (yesBuy.cost / yesBuy.qty) * Number(yes)
+    if (noBuy  && noBuy.qty  > 0) basis += (noBuy.cost  / noBuy.qty)  * Number(no)
+    pos.costBasisUsdc = Math.round(basis).toString()
   }
 
   // 10_000 base units = 0.01 shares — filter out dust left after selling

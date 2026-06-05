@@ -6,7 +6,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import {
-  fetchAllMarkets,
+  fetchAllMarketsWithFallback,
   fetchLpPosition,
   fetchVaultBalance,
   createCreateMarketIx,
@@ -36,6 +36,48 @@ interface MarketWithMeta {
   lpPosition?: LpPosition | null
 }
 
+// --- LMSR liquidity-parameter helpers (F-03 solvency cap + dynamic defaults) ---
+//
+// On-chain create_market enforces, for dynamic-b markets (errors.rs: InvalidBParameter):
+//   base_b_per_usdc * num_words * ln(2)*1e6 <= 1e12
+//   → base_b_per_usdc <= 1e12 / (num_words * 693_148)
+// The cap tightens as word count grows because every word shares one vault.
+//
+// We run pure dynamic-b (initial_b = 0): b is rewritten on each deposit to
+//   b = base_b_per_usdc * vault / 1e6
+// so base_b_per_usdc is "USDC of b gained per USDC of LP". Targeting b = 10 USDC at a
+// 50 USDC reference vault → base_b = 10 * 1e6 / 50 = 200_000, which keeps 1-2 USDC
+// trades meaningfully swingy (~±5% per 1 USDC) without whiplash.
+const LMSR_LN2_SCALED = 693_148          // ln(2) * 1e6 — matches the contract constant
+const F03_NUMERATOR = 1_000_000_000_000  // 1e12 = PRECISION^2
+const F03_SAFETY_MARGIN = 0.99           // stay 1% under the hard cap
+const TARGET_B_USDC = 10                 // desired b at the reference vault
+const REFERENCE_LP_USDC = 50             // reference vault size for the target
+const TARGET_BASE_B = Math.round((TARGET_B_USDC * 1_000_000) / REFERENCE_LP_USDC) // 200_000
+
+/** Hard on-chain cap on base_b_per_usdc for a given word count (F-03 solvency). */
+function f03BaseBCap(numWords: number): number {
+  if (numWords <= 0) return TARGET_BASE_B
+  return Math.floor(F03_NUMERATOR / (numWords * LMSR_LN2_SCALED))
+}
+
+/** Recommended base_b_per_usdc: the target, stepped down to fit the F-03 cap. */
+function recommendedBaseB(numWords: number): number {
+  const safeCap = Math.floor(f03BaseBCap(Math.max(1, numWords)) * F03_SAFETY_MARGIN)
+  return Math.min(TARGET_BASE_B, safeCap)
+}
+
+/** Effective b (in USDC) a base_b_per_usdc yields at a given vault size. */
+function bAtVault(baseBPerUsdc: number, vaultUsdc: number): number {
+  return (baseBPerUsdc * vaultUsdc) / 1_000_000
+}
+
+/** Rough YES-price move for a 1 USDC trade from 0.5, given b in USDC (~sigmoid(2/b)). */
+function approxMovePct(bUsdc: number): number {
+  if (bUsdc <= 0) return 0
+  return (1 / (1 + Math.exp(-2 / bUsdc)) - 0.5) * 100
+}
+
 export default function PaidCustomAdminPage() {
   const { publicKey, signer, signOnly } = useWallet()
 
@@ -43,6 +85,7 @@ export default function PaidCustomAdminPage() {
   const [authChecked, setAuthChecked] = useState(false)
   const [markets, setMarkets] = useState<MarketWithMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [txPending, setTxPending] = useState(false)
 
@@ -56,14 +99,28 @@ export default function PaidCustomAdminPage() {
   const [eventStartTime, setEventStartTime] = useState('')
   const [locksAt, setLocksAt] = useState('')
   const [tradeFeeBps, setTradeFeeBps] = useState('50')
-  const [initialB, setInitialB] = useState('100000000')
-  const [baseBPerUsdc, setBaseBPerUsdc] = useState('500000')
+  const [initialB, setInitialB] = useState('0')
+  const [baseBPerUsdc, setBaseBPerUsdc] = useState(String(recommendedBaseB(0)))
+  const [baseBManual, setBaseBManual] = useState(false)
   const [creating, setCreating] = useState(false)
 
   const parsedWords = useMemo(
     () => wordsInput.split(/[,\n]+/).map(w => w.trim()).filter(Boolean),
     [wordsInput]
   )
+
+  // Auto-fill base_b_per_usdc from the live word count until the admin overrides it.
+  useEffect(() => {
+    if (baseBManual) return
+    setBaseBPerUsdc(String(recommendedBaseB(parsedWords.length)))
+  }, [parsedWords.length, baseBManual])
+
+  // Live LMSR liquidity hints for the create form.
+  const numWords = parsedWords.length
+  const baseBNum = Number(baseBPerUsdc) || 0
+  const baseBCap = f03BaseBCap(Math.max(1, numWords))
+  const baseBOverCap = baseBNum > baseBCap
+  const bUsdcAt50 = bAtVault(baseBNum, REFERENCE_LP_USDC)
 
   // Expanded market
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -97,20 +154,45 @@ export default function PaidCustomAdminPage() {
   const fetchMarkets = useCallback(async () => {
     if (!publicKey) return
     setLoading(true)
+    setLoadError(null)
     try {
-      const all = await fetchAllMarkets()
+      // getProgramAccounts is flaky on devnet Helius, so seed the fetch with the
+      // DB-known market IDs — fetchAllMarketsWithFallback backfills any that
+      // getProgramAccounts misses via the reliable getAccountInfo path.
+      let knownIds: string[] = []
+      try {
+        const metaRes = await fetch('/api/paid-markets/metadata')
+        if (metaRes.ok) {
+          const allMeta = await metaRes.json()
+          knownIds = Array.isArray(allMeta) ? allMeta.map((m: { market_id: string }) => m.market_id) : []
+        }
+      } catch { /* fall back to getProgramAccounts-only */ }
+      const all = await fetchAllMarketsWithFallback(knownIds)
+      // Enrich each market independently: a transient vault/LP RPC failure on one
+      // market must NOT reject the whole batch and wipe the list. fetchLpPosition
+      // in particular has no internal catch, so guard per-market here.
       const enriched = await Promise.all(
         all.map(async ({ pubkey, account }) => {
-          const [vaultBalance, lpPosition] = await Promise.all([
-            fetchVaultBalance(account.marketId),
-            fetchLpPosition(account.marketId, publicKey as Address),
-          ])
+          let vaultBalance = 0n
+          let lpPosition: LpPosition | null = null
+          try {
+            ;[vaultBalance, lpPosition] = await Promise.all([
+              fetchVaultBalance(account.marketId),
+              fetchLpPosition(account.marketId, publicKey as Address),
+            ])
+          } catch (e) {
+            console.warn('vault/LP fetch failed for market', account.marketId.toString(), e)
+          }
           return { pubkey, account, vaultBalance, lpPosition }
         })
       )
       setMarkets(enriched)
+      if (enriched.length === 0 && knownIds.length > 0) {
+        setLoadError(`Loaded 0 of ${knownIds.length} known markets — the devnet RPC returned no account data. Check the browser console / network tab for the failing request.`)
+      }
     } catch (err) {
       console.error('Failed to fetch on-chain markets', err)
+      setLoadError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -213,9 +295,21 @@ export default function PaidCustomAdminPage() {
     try {
       const marketId = BigInt(Date.now())
       const locksAtTs = BigInt(Math.floor(new Date(locksAt).getTime() / 1000))
-      const feeBps = parseInt(tradeFeeBps) || 50
-      const initB = BigInt(initialB || '1000000')
-      const bPerUsdc = BigInt(baseBPerUsdc || '100')
+      // NB: `parseInt('0') || 50` would coerce a real 0 fee back to 50 (0 is falsy).
+      const parsedFee = parseInt(tradeFeeBps, 10)
+      const feeBps = Number.isNaN(parsedFee) ? 50 : Math.max(0, Math.min(1000, parsedFee))
+      const initB = BigInt(initialB || '0')
+      const requestedBaseB = Number(baseBPerUsdc)
+      const baseBCapForWords = f03BaseBCap(words.length)
+      if (!Number.isFinite(requestedBaseB) || requestedBaseB <= 0) {
+        show('b per USDC must be a positive number', 'error')
+        return
+      }
+      if (requestedBaseB > baseBCapForWords) {
+        show(`b per USDC ${requestedBaseB.toLocaleString()} exceeds the F-03 solvency cap (${baseBCapForWords.toLocaleString()}) for ${words.length} word${words.length === 1 ? '' : 's'}. Lower it to ≤ ${Math.floor(baseBCapForWords * F03_SAFETY_MARGIN).toLocaleString()}.`, 'error')
+        return
+      }
+      const bPerUsdc = BigInt(requestedBaseB)
 
       const ix = await createCreateMarketIx(
         publicKey as Address,
@@ -257,8 +351,9 @@ export default function PaidCustomAdminPage() {
       setLocksAt('')
       setWordsInput('')
       setTradeFeeBps('50')
-      setInitialB('1000000')
-      setBaseBPerUsdc('100')
+      setInitialB('0')
+      setBaseBManual(false)
+      setBaseBPerUsdc(String(recommendedBaseB(0)))
       await fetchMarkets()
     } catch (err: any) {
       show(err?.message || 'Failed to create market', 'error')
@@ -626,25 +721,45 @@ export default function PaidCustomAdminPage() {
                     <label className="block text-xs font-medium text-neutral-400 mb-1.5">Initial b (USDC base units)</label>
                     <input
                       type="number"
-                      placeholder="100000000"
+                      placeholder="0"
                       value={initialB}
                       onChange={e => setInitialB(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
-                      min="100000"
+                      min="0"
                     />
-                    <p className="text-[10px] text-neutral-600 mt-1 px-1">1_000_000 = 1 USDC. Higher = less volatile</p>
+                    <p className="text-[10px] text-neutral-600 mt-1 px-1">0 = pure dynamic-b (recommended): b scales with LP deposits. Set &gt;0 only for a fixed floor.</p>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-400 mb-1.5">b per USDC (scaled 1e6)</label>
+                    <label className="flex items-center justify-between text-xs font-medium text-neutral-400 mb-1.5">
+                      <span>b per USDC (scaled 1e6)</span>
+                      {baseBManual && (
+                        <button
+                          type="button"
+                          onClick={() => { setBaseBManual(false); setBaseBPerUsdc(String(recommendedBaseB(numWords))) }}
+                          className="text-[10px] text-apple-blue hover:underline"
+                        >
+                          use recommended
+                        </button>
+                      )}
+                    </label>
                     <input
                       type="number"
-                      placeholder="500000"
+                      placeholder={String(recommendedBaseB(numWords))}
                       value={baseBPerUsdc}
-                      onChange={e => setBaseBPerUsdc(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20"
+                      onChange={e => { setBaseBPerUsdc(e.target.value); setBaseBManual(true) }}
+                      className={`w-full bg-white/5 border rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none transition-colors ${baseBOverCap ? 'border-apple-red/60 focus:border-apple-red' : 'border-white/10 focus:border-white/20'}`}
                       min="1"
                     />
-                    <p className="text-[10px] text-neutral-600 mt-1 px-1">How much b grows per USDC deposited</p>
+                    <div className="mt-1 px-1 space-y-0.5">
+                      <p className="text-[10px] text-neutral-600">
+                        {numWords > 0 ? `${numWords} word${numWords === 1 ? '' : 's'} · ` : ''}cap {baseBCap.toLocaleString()} · b ≈ {bUsdcAt50.toFixed(1)} USDC at 50 USDC LP (~±{approxMovePct(bUsdcAt50).toFixed(1)}% / 1 USDC trade)
+                      </p>
+                      {baseBOverCap ? (
+                        <p className="text-[10px] text-apple-red">Exceeds the F-03 solvency cap for {numWords} word{numWords === 1 ? '' : 's'} — on-chain create will reject.</p>
+                      ) : !baseBManual && recommendedBaseB(numWords) < TARGET_BASE_B ? (
+                        <p className="text-[10px] text-yellow-500">Stepped down from {TARGET_BASE_B.toLocaleString()} to fit the F-03 cap at {numWords} words.</p>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
@@ -674,7 +789,13 @@ export default function PaidCustomAdminPage() {
 
                 {loading && <MentionedSpinner />}
 
-                {!loading && markets.length === 0 && (
+                {!loading && loadError && (
+                  <p className="text-apple-red text-xs py-3 text-center break-words px-4">
+                    Failed to load markets: {loadError}
+                  </p>
+                )}
+
+                {!loading && markets.length === 0 && !loadError && (
                   <p className="text-neutral-500 text-sm py-8 text-center">No on-chain markets found</p>
                 )}
 
@@ -1052,7 +1173,9 @@ export default function PaidCustomAdminPage() {
                                     </button>
                                   )}
                                   <a
-                                    href={`/market/${mk.marketId.toString()}`}
+                                    href={editStates[market.pubkey]?.existingSlug
+                                      ? `/paid/${editStates[market.pubkey]?.existingSlug}`
+                                      : `/market/${mk.marketId.toString()}`}
                                     target="_blank"
                                     className="px-4 py-2 bg-white/5 text-neutral-300 text-xs font-semibold rounded-lg hover:bg-white/10 transition-colors"
                                   >

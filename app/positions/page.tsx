@@ -108,22 +108,21 @@ interface OnchainPosition {
   noPrice: number
   outcome: boolean | null
   estValueUsdc: string   // LMSR sell return in base units, stringified bigint
+  costBasisUsdc: string  // avg-cost basis of currently-held shares, base units
 }
 
-interface OnchainTrade {
-  signature: string
+// Realized P&L summary for a closed/resolved Mention Market position.
+interface ClosedPosition {
   marketId: string
   marketTitle: string
   coverImageUrl: string | null
   wordIndex: number
   wordLabel: string
-  direction: 'YES' | 'NO'
-  isBuy: boolean
-  quantity: number
-  cost: number
-  fee: number
-  impliedPrice: number
-  blockTime: string
+  outcomeLabel: 'Won' | 'Lost' | 'Sold'
+  costBasisUsdc: number
+  proceedsUsdc: number
+  realizedPnlUsdc: number
+  closedAt: string
 }
 
 interface FreePosition {
@@ -271,7 +270,7 @@ export default function PositionsPage() {
   // On-chain mention market data
   const [onchainPositions, setOnchainPositions] = useState<OnchainPosition[]>([])
   const [loadingOnchain, setLoadingOnchain] = useState(false)
-  const [onchainHistory, setOnchainHistory] = useState<OnchainTrade[]>([])
+  const [onchainHistory, setOnchainHistory] = useState<ClosedPosition[]>([])
   const [loadingOnchainHistory, setLoadingOnchainHistory] = useState(false)
 
   // Close position modal
@@ -396,7 +395,7 @@ export default function PositionsPage() {
       const res = await fetch(`/api/paid-markets/user-history?wallet=${publicKey}`)
       if (res.ok) {
         const json = await res.json()
-        setOnchainHistory(json.trades || [])
+        setOnchainHistory(json.closedPositions || [])
       }
     } catch { /* ignore */ }
     setLoadingOnchainHistory(false)
@@ -907,12 +906,13 @@ export default function PositionsPage() {
                     ) : (
                       <>
                         <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
-                          <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_90px_100px] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                          <div className="hidden md:grid grid-cols-[1.6fr_0.9fr_0.9fr_1fr_1fr_1fr_84px_92px] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
                             <div>Market / Word</div>
                             <div className="text-right">YES Shares</div>
                             <div className="text-right">NO Shares</div>
                             <div className="text-right">Current Price</div>
                             <div className="text-right">Est. Value</div>
+                            <div className="text-right">P&amp;L</div>
                             <div className="text-right">Status</div>
                             <div className="text-right">Action</div>
                           </div>
@@ -920,6 +920,8 @@ export default function PositionsPage() {
                             const yes = BigInt(pos.yesShares)
                             const no  = BigInt(pos.noShares)
                             const estValue = Number(BigInt(pos.estValueUsdc ?? '0')) / 1e6
+                            const costBasis = Number(BigInt(pos.costBasisUsdc ?? '0')) / 1e6
+                            const pnl = estValue - costBasis
                             const isResolved = pos.marketStatus === 2
                             const winYes = pos.outcome === true
                             const winNo  = pos.outcome === false
@@ -928,7 +930,7 @@ export default function PositionsPage() {
                             return (
                               <div
                                 key={`${pos.marketId}-${pos.wordIndex}`}
-                                className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_90px_100px] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] transition-colors"
+                                className="grid grid-cols-1 md:grid-cols-[1.6fr_0.9fr_0.9fr_1fr_1fr_1fr_84px_92px] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] transition-colors"
                                 style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
                               >
                                 <div className="flex items-center gap-2 min-w-0">
@@ -968,6 +970,12 @@ export default function PositionsPage() {
                                   <span className="text-neutral-600 text-xs md:hidden">Est. Value</span>
                                   <span className="text-white text-sm font-medium tabular-nums">
                                     ${estValue.toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">P&amp;L</span>
+                                  <span className={`text-sm font-medium tabular-nums ${pnl > 0 ? 'text-apple-green' : pnl < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                                    {pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)}
                                   </span>
                                 </div>
                                 <div className="flex md:block justify-between md:text-right items-center">
@@ -1021,7 +1029,7 @@ export default function PositionsPage() {
                       <MentionedSpinner className="py-20" />
                     ) : onchainHistory.length === 0 ? (
                       <div className="flex flex-col items-center py-20 gap-3">
-                        <p className="text-neutral-500 text-sm">No trade history yet</p>
+                        <p className="text-neutral-500 text-sm">No closed positions yet</p>
                         <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
                           Browse markets
                         </Link>
@@ -1031,61 +1039,67 @@ export default function PositionsPage() {
                         <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
                           <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
                             <div>Market / Word</div>
-                            <div className="text-right">Action</div>
-                            <div className="text-right">Shares</div>
-                            <div className="text-right">Cost</div>
-                            <div className="text-right">Price After</div>
-                            <div className="text-right">Time</div>
+                            <div className="text-right">Outcome</div>
+                            <div className="text-right">Cost Basis</div>
+                            <div className="text-right">Proceeds</div>
+                            <div className="text-right">P&amp;L</div>
+                            <div className="text-right">Closed</div>
                           </div>
-                          {onchainHistoryPg.paged.map((t, i) => (
+                          {onchainHistoryPg.paged.map((c, i) => {
+                            const cost = c.costBasisUsdc / 1e6
+                            const proceeds = c.proceedsUsdc / 1e6
+                            const pnl = c.realizedPnlUsdc / 1e6
+                            const outcomeClass =
+                              c.outcomeLabel === 'Won' ? 'bg-apple-green/15 text-apple-green'
+                              : c.outcomeLabel === 'Lost' ? 'bg-apple-red/15 text-apple-red'
+                              : 'bg-white/5 text-neutral-400'
+                            return (
                             <div
-                              key={t.signature}
+                              key={`${c.marketId}-${c.wordIndex}`}
                               className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] transition-colors"
                               style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                {t.coverImageUrl && (
-                                  <img src={t.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                                {c.coverImageUrl && (
+                                  <img src={c.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
                                 )}
                                 <div className="min-w-0">
                                   <Link
-                                    href={`/market/${t.marketId}`}
+                                    href={`/market/${c.marketId}`}
                                     className="text-white text-sm font-semibold hover:underline truncate block leading-snug"
                                   >
-                                    {t.marketTitle}
+                                    {c.marketTitle}
                                   </Link>
-                                  <span className="text-neutral-500 text-xs truncate block">{t.wordLabel}</span>
+                                  <span className="text-neutral-500 text-xs truncate block">{c.wordLabel}</span>
                                 </div>
                               </div>
                               <div className="flex md:block justify-between md:text-right items-center">
-                                <span className="text-neutral-600 text-xs md:hidden">Action</span>
-                                <div className="flex md:justify-end items-center gap-1.5">
-                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.direction === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                                    {t.direction}
-                                  </span>
-                                  <span className="text-neutral-400 text-xs">{t.isBuy ? 'Buy' : 'Sell'}</span>
-                                </div>
+                                <span className="text-neutral-600 text-xs md:hidden">Outcome</span>
+                                <span className={`text-[10px] font-bold px-2 py-1 rounded ${outcomeClass}`}>{c.outcomeLabel}</span>
                               </div>
                               <div className="flex md:block justify-between md:text-right items-center">
-                                <span className="text-neutral-600 text-xs md:hidden">Shares</span>
-                                <span className="text-neutral-300 text-sm tabular-nums">{(t.quantity / 1e6).toFixed(2)}</span>
+                                <span className="text-neutral-600 text-xs md:hidden">Cost Basis</span>
+                                <span className="text-neutral-300 text-sm tabular-nums">${cost.toFixed(2)}</span>
                               </div>
                               <div className="flex md:block justify-between md:text-right items-center">
-                                <span className="text-neutral-600 text-xs md:hidden">Cost</span>
-                                <span className="text-white text-sm font-medium tabular-nums">${(t.cost / 1e6).toFixed(4)}</span>
+                                <span className="text-neutral-600 text-xs md:hidden">Proceeds</span>
+                                <span className="text-white text-sm font-medium tabular-nums">${proceeds.toFixed(2)}</span>
                               </div>
                               <div className="flex md:block justify-between md:text-right items-center">
-                                <span className="text-neutral-600 text-xs md:hidden">Price After</span>
-                                <span className="text-neutral-400 text-sm tabular-nums">{Math.round(t.impliedPrice * 100)}¢</span>
+                                <span className="text-neutral-600 text-xs md:hidden">P&amp;L</span>
+                                <span className={`text-sm font-semibold tabular-nums ${pnl > 0 ? 'text-apple-green' : pnl < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                                  {pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)}
+                                </span>
                               </div>
                               <div className="flex md:block justify-between md:text-right items-center">
-                                <span className="text-neutral-600 text-xs md:hidden">Time</span>
+                                <span className="text-neutral-600 text-xs md:hidden">Closed</span>
                                 <span className="text-neutral-500 text-xs tabular-nums">
-                                  {new Date(t.blockTime).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                  {new Date(c.closedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                                 </span>
                               </div>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                         <Pagination page={onchainHistoryPg.page} totalPages={onchainHistoryPg.totalPages} totalItems={onchainHistoryPg.totalItems} onPageChange={onchainHistoryPg.setPage} />
                       </>

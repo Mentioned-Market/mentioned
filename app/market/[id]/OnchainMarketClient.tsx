@@ -45,6 +45,9 @@ interface UserTokens {
   no: bigint
 }
 
+// Frontend-only cap on a single (word, side) position during early testing ($2).
+const MAX_POSITION_USDC = 2_000_000n
+
 interface OnchainTrade {
   signature: string
   wordIndex: number
@@ -181,6 +184,13 @@ export default function OnchainMarketClient({ marketId }: Props) {
   // ── Recent trades ─────────────────────────────────────────
   const [trades, setTrades] = useState<OnchainTrade[]>([])
 
+  // Net USDC spent per "<wordIndex>:<0|1>" (0=YES,1=NO) for the $2-per-position cap.
+  // `baseSpend` is the indexed history from the server (fetched once per load);
+  // `sessionSpend` is an immediate local overlay for trades made this session, so
+  // the cap reacts instantly without waiting for the webhook indexer to catch up.
+  const [baseSpend, setBaseSpend] = useState<Record<string, number>>({})
+  const [sessionSpend, setSessionSpend] = useState<Record<string, number>>({})
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Data fetching ─────────────────────────────────────────
@@ -249,6 +259,20 @@ export default function OnchainMarketClient({ marketId }: Props) {
     } catch { /* ignore */ }
   }, [marketId])
 
+  // Pull the wallet's indexed net-spend per (word, side). Resets the local session
+  // overlay, since the server figure now reflects everything up to this point.
+  const fetchSpend = useCallback(async () => {
+    if (!publicKey) { setBaseSpend({}); setSessionSpend({}); return }
+    try {
+      const res = await fetch(`/api/paid-markets/user-word-spend?wallet=${publicKey}&id=${marketId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBaseSpend(data.spend || {})
+        setSessionSpend({})
+      }
+    } catch { /* ignore — keep prior figures */ }
+  }, [publicKey, marketId])
+
   useEffect(() => {
     loadMarket()
     pollRef.current = setInterval(loadMarket, POLL_INTERVAL)
@@ -257,6 +281,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
   useEffect(() => { loadChart() }, [loadChart])
   useEffect(() => { fetchTrades() }, [fetchTrades])
+  useEffect(() => { fetchSpend() }, [fetchSpend])
 
   useEffect(() => {
     if (market) loadUserData(market)
@@ -308,6 +333,18 @@ export default function OnchainMarketClient({ marketId }: Props) {
     ? (userTokens[selectedWordIdx]?.yes ?? 0n)
     : (userTokens[selectedWordIdx]?.no ?? 0n)
 
+  // Frontend-only position cap: $2 max NET-SPEND per (word, side). Net spend =
+  // Σ buys − Σ sells (from indexed history + this session's local overlay), so it
+  // can't be gamed by price drift. Selling lowers it (re-entry allowed by design).
+  // Users could still bypass at the contract level — fine for early testing.
+  const spendKey = `${selectedWordIdx}:${side === 'YES' ? 0 : 1}`
+  const netSpentForSide = (baseSpend[spendKey] ?? 0) + (sessionSpend[spendKey] ?? 0)
+  const maxPos = Number(MAX_POSITION_USDC)
+  const remainingNum = Math.max(0, Math.min(maxPos, maxPos - netSpentForSide)) // base units
+  const remainingAllowance = BigInt(Math.floor(remainingNum))
+  const remainingDollars = remainingNum / 1_000_000
+  const positionFull = tradeMode === 'buy' && remainingAllowance <= 0n
+
   const streamEmbedUrl = metadata?.stream_url ? toEmbedUrl(metadata.stream_url) : null
   const DESC_LIMIT = 180
 
@@ -335,7 +372,8 @@ export default function OnchainMarketClient({ marketId }: Props) {
     })
   }, [market, chartData])
 
-  const sliderMax = tradeMode === 'buy' ? userUsdc : heldForSide
+  const buyCap = userUsdc < remainingAllowance ? userUsdc : remainingAllowance
+  const sliderMax = tradeMode === 'buy' ? buyCap : heldForSide
   const sliderValue = sliderMax > 0n ? Math.min(100, (amountNum * 1_000_000 / Number(sliderMax)) * 100) : 0
 
   const isOpen = market?.status === MarketStatus.Open
@@ -349,20 +387,23 @@ export default function OnchainMarketClient({ marketId }: Props) {
   // ── Quick-amount preset handler ───────────────────────────
 
   const handlePreset = useCallback((pct: number) => {
-    const max = tradeMode === 'buy' ? userUsdc : heldForSide
+    // For buys, cap the usable max at the remaining $2-per-position allowance.
+    const max = tradeMode === 'buy'
+      ? (userUsdc < remainingAllowance ? userUsdc : remainingAllowance)
+      : heldForSide
     if (max <= 0n) return
     const fraction = Number(max) * pct / 100
     if (tradeMode === 'buy') {
-      // USDC: format to 2dp, capped at $2
+      // USDC: format to 2dp (max already capped at the remaining allowance)
       const raw = Math.floor(fraction / 10_000) / 100
-      setAmount(Math.min(raw, 2).toString())
+      setAmount(raw.toString())
     } else {
       // Tokens: format to 2dp truncated
       const tokens = fraction / 1_000_000
       const truncated = Math.floor(tokens * 100) / 100
       setAmount(truncated.toFixed(2))
     }
-  }, [tradeMode, userUsdc, heldForSide])
+  }, [tradeMode, userUsdc, heldForSide, remainingAllowance])
 
   // ── Word selection handler ────────────────────────────────
 
@@ -378,8 +419,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
   const handleBuy = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey || !word || amountNum <= 0) return
-    if (amountNum > 2) {
-      setTradeStatus({ msg: 'Max position is $2 during testing', error: true })
+    // $2 net-spend cap per (word, side): prior net spend + this buy's all-in cost.
+    if (netSpentForSide + Number(estimatedCost + feeOnCost) > maxPos) {
+      setTradeStatus({ msg: `Max $2 per position during testing — you can add up to $${remainingDollars.toFixed(2)} more on ${side}`, error: true })
       return
     }
     setTxPending(true)
@@ -400,14 +442,17 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
       setTradeStatus({ msg: `Bought ${formatTokens(shares)} ${side} tokens for "${word.label}"`, error: false })
       setAmount('')
-      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades() }, 2000)
+      // Optimistically add this buy's all-in cost to the session overlay so the cap
+      // tightens immediately; fetchSpend later reconciles against indexed history.
+      setSessionSpend(prev => ({ ...prev, [spendKey]: (prev[spendKey] ?? 0) + Number(cost + fee) }))
+      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades(); fetchSpend() }, 4000)
     } catch (e: unknown) {
       setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades])
+  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, netSpentForSide, estimatedCost, feeOnCost, remainingDollars, maxPos, spendKey])
 
   const handleSell = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey || !word || sellShares <= 0n) return
@@ -424,14 +469,16 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
       setTradeStatus({ msg: `Sold ${formatTokens(sellShares)} ${side} tokens`, error: false })
       setAmount('')
-      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades() }, 2000)
+      // Selling returns USDC, so it lowers net spend on this (word, side).
+      setSessionSpend(prev => ({ ...prev, [spendKey]: (prev[spendKey] ?? 0) - Number(ret) }))
+      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades(); fetchSpend() }, 4000)
     } catch (e: unknown) {
       setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, word, side, sellShares, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades])
+  }, [market, signer, signOnly, publicKey, word, side, sellShares, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, spendKey])
 
   const handleRedeem = useCallback(async (wordIndex: number, dir: 'YES' | 'NO') => {
     if (!market || !signer || !signOnly || !publicKey) return
@@ -555,14 +602,21 @@ export default function OnchainMarketClient({ marketId }: Props) {
           onChange={e => {
             const raw = e.target.value.replace(/[^0-9.]/g, '')
             const n = parseFloat(raw)
-            if (!isNaN(n) && n > 2) return
+            // Buys are capped at the remaining $2-per-position allowance; sells keep
+            // the existing per-trade ceiling.
+            const cap = tradeMode === 'buy' ? remainingDollars : 2
+            if (!isNaN(n) && n > cap) return
             setAmount(raw)
           }}
           placeholder="0"
           className="bg-transparent border-0 text-right text-4xl font-bold text-white w-full focus:outline-none focus:ring-0 placeholder:text-neutral-700 p-0 mb-1"
         />
         {tradeMode === 'buy' && (
-          <p className="text-[10px] text-neutral-600 text-right mb-3">$2.00 max per position</p>
+          <p className="text-[10px] text-neutral-600 text-right mb-3">
+            {positionFull
+              ? `Position full — $2.00 max on ${side}`
+              : `$${remainingDollars.toFixed(2)} left of $2.00 max on ${side}`}
+          </p>
         )}
 
         {/* Preset quick buttons */}
@@ -607,7 +661,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
                 : 0}¢
             </span>
             <span className="text-neutral-400">
-              fee ${formatUsdc(feeOnCost)} ({(market?.tradeFeeBps ?? 0) / 100}%)
+              {market?.tradeFeeBps
+                ? `fee $${formatUsdc(feeOnCost)} (${market.tradeFeeBps / 100}%)`
+                : 'no fee'}
             </span>
           </div>
         </div>
@@ -662,7 +718,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
       ) : (
         <button
           onClick={tradeMode === 'buy' ? handleBuy : handleSell}
-          disabled={txPending || !canTrade || amountNum <= 0}
+          disabled={txPending || !canTrade || amountNum <= 0 || positionFull}
           className={`w-full py-4 font-bold text-base rounded-2xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
             side === 'YES'
               ? 'bg-apple-green hover:bg-apple-green/90 text-white'
@@ -677,6 +733,8 @@ export default function OnchainMarketClient({ marketId }: Props) {
               </svg>
               Processing...
             </span>
+          ) : positionFull ? (
+            `$2 max reached on ${side === 'YES' ? 'Yes' : 'No'}`
           ) : (
             `${tradeMode === 'buy' ? 'Buy' : 'Sell'} ${side === 'YES' ? 'Yes' : 'No'}`
           )}
@@ -1035,22 +1093,35 @@ export default function OnchainMarketClient({ marketId }: Props) {
                             </div>
                           </button>
 
-                          {/* Redeem row for resolved markets with winning positions */}
+                          {/* Winning position: redeem only once the WHOLE market is resolved
+                              (the contract's redeem requires MarketStatus::Resolved — partial-word
+                              redemption would drain the shared vault). Until then, show a "you won"
+                              notice so the user knows the payout is coming. */}
                           {isResolved && winDir && connected && (
                             (() => {
                               const winTokens = winDir === 'YES' ? userYes : userNo
                               if (winTokens <= 0n) return null
+                              const marketResolved = market.status === MarketStatus.Resolved
                               return (
                                 <div className="px-3 md:px-4 py-2 border-b border-white/5 bg-apple-green/5">
-                                  <button
-                                    onClick={() => handleRedeem(i, winDir)}
-                                    disabled={txPending}
-                                    className="w-full py-2.5 rounded-xl text-sm font-semibold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
-                                  >
-                                    {txPending
-                                      ? 'Processing...'
-                                      : `Redeem ${formatTokens(winTokens)} ${winDir} → $${formatUsdc(winTokens)} USDC`}
-                                  </button>
+                                  {marketResolved ? (
+                                    <button
+                                      onClick={() => handleRedeem(i, winDir)}
+                                      disabled={txPending}
+                                      className="w-full py-2.5 rounded-xl text-sm font-semibold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
+                                    >
+                                      {txPending
+                                        ? 'Processing...'
+                                        : `Redeem ${formatTokens(winTokens)} ${winDir} → $${formatUsdc(winTokens)} USDC`}
+                                    </button>
+                                  ) : (
+                                    <div className="w-full py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold bg-apple-green/10 border border-apple-green/30 text-apple-green flex items-center justify-center gap-1.5 text-center">
+                                      <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                      <span>You won ${formatUsdc(winTokens)} on {winDir} — redeemable once the whole market resolves</span>
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })()

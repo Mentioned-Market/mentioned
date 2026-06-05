@@ -1032,15 +1032,25 @@ export async function fetchAllMarkets(): Promise<
 
   const discB64 = btoa(String.fromCharCode(...ACCT_DISC.marketAccount))
 
+  // getProgramAccounts is heavily rate-limited and has caching gaps on devnet
+  // Helius — a transient failure must NOT wipe the whole market list. Return []
+  // on error so callers that pass known market IDs (fetchAllMarketsWithFallback)
+  // can backfill every market via the far-more-reliable getAccountInfo path.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await (rpc as any)
-    .getProgramAccounts(PROGRAM_ID, {
-      encoding: 'base64',
-      filters: [
-        { memcmp: { offset: 0n, bytes: discB64 as any, encoding: 'base64' } },
-      ],
-    })
-    .send()
+  let result: any[]
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    result = await (rpc as any)
+      .getProgramAccounts(PROGRAM_ID, {
+        encoding: 'base64',
+        filters: [
+          { memcmp: { offset: 0n, bytes: discB64 as any, encoding: 'base64' } },
+        ],
+      })
+      .send()
+  } catch {
+    return []
+  }
 
   const markets: Array<{ pubkey: Address; account: UsdcMarketAccount }> = []
   for (const item of result) {
