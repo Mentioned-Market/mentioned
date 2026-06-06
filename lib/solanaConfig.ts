@@ -10,35 +10,20 @@
 
 export type SolanaCluster = 'mainnet' | 'devnet'
 
-// NEXT_PUBLIC_ so the choice is available in the browser bundle too. Anything
-// other than the literal 'devnet' resolves to mainnet (fail-safe to live).
+// NEXT_PUBLIC_ so the choice is available in the browser bundle too (this is a
+// cluster name, never a secret). Anything other than the literal 'devnet'
+// resolves to mainnet (fail-safe to live).
 export const SOLANA_CLUSTER: SolanaCluster =
   process.env.NEXT_PUBLIC_SOLANA_CLUSTER === 'devnet' ? 'devnet' : 'mainnet'
 
-// RPC resolution per cluster. The server var wins (unrestricted key — server
-// requests carry no Origin header, so a domain-locked key would 401); in the
-// browser the server var is undefined (Next only inlines NEXT_PUBLIC_*), so the
-// bundle falls back to the domain-locked public key. Public-cluster URL is the
-// last resort (no API key shipped). Keep dedicated paid keys separate from the
-// app's general RPC so a browser-shipped key can stay domain-locked.
 const CONFIG = {
   mainnet: {
     programId: '7pL3oze39xX7NmGFtndTz3EjhkCP9AcoVtX6fVmxm9pn',
     usdcMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // Circle USDC on Solana
-    rpc: {
-      server: process.env.HELIUS_MAINNET_RPC_URL,
-      browser: process.env.NEXT_PUBLIC_HELIUS_MAINNET_RPC_URL,
-      fallback: 'https://api.mainnet-beta.solana.com',
-    },
   },
   devnet: {
     programId: '9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk',
     usdcMint: '6duUhxsjpsRasCSmvejAad4hH7aSyuBba99iZvsCsDum',
-    rpc: {
-      server: process.env.HELIUS_DEVNET_RPC_URL,
-      browser: process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL,
-      fallback: 'https://api.devnet.solana.com',
-    },
   },
 } as const
 
@@ -46,7 +31,31 @@ const active = CONFIG[SOLANA_CLUSTER]
 
 export const PAID_PROGRAM_ID = active.programId
 export const PAID_USDC_MINT = active.usdcMint
-export const PAID_RPC_URL = active.rpc.server || active.rpc.browser || active.rpc.fallback
+
+// Keyed upstream RPC for the active cluster — SERVER-ONLY (no NEXT_PUBLIC), so the
+// Helius API key never reaches the browser bundle. Read at runtime, so changing it
+// in the host dashboard takes effect on restart with no rebuild. Used by the
+// server-side paid routes and by the /api/paid-rpc proxy below. Falls back to the
+// public cluster endpoint if unset (works for basic reads, not getProgramAccounts).
+export const PAID_RPC_UPSTREAM =
+  (SOLANA_CLUSTER === 'mainnet'
+    ? process.env.HELIUS_MAINNET_RPC_URL
+    : process.env.HELIUS_DEVNET_RPC_URL) ||
+  (SOLANA_CLUSTER === 'mainnet'
+    ? 'https://api.mainnet-beta.solana.com'
+    : 'https://api.devnet.solana.com')
+
+// What the paid SDK points its RPC client / fetches at:
+//   - server (window undefined): the keyed upstream directly — no point proxying
+//     server→server, and the key is already private there.
+//   - browser: a same-origin proxy (/api/paid-rpc) that forwards to the upstream
+//     server-side. No API key is shipped to the client, and there is no
+//     NEXT_PUBLIC build-time inlining to manage. The SSR placeholder is never
+//     fetched — all paid RPC runs inside browser effects/handlers.
+export const PAID_RPC_URL =
+  typeof window === 'undefined'
+    ? PAID_RPC_UPSTREAM
+    : `${window.location.origin}/api/paid-rpc`
 
 // Human-readable cluster label for UI copy (e.g. "on Solana mainnet").
 export const CLUSTER_LABEL = SOLANA_CLUSTER === 'mainnet' ? 'mainnet' : 'devnet'
