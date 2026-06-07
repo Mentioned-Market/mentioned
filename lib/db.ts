@@ -960,6 +960,8 @@ export interface WordMentionRow {
   confidence: number | null
   superseded: boolean
   created_at: string
+  /** Object-storage key for this mention's audio clip; null until uploaded. */
+  clip_key: string | null
 }
 
 export interface MentionWordSummary {
@@ -1041,7 +1043,7 @@ export async function getMentionsForStream(streamId: number): Promise<MentionWor
     pool.query<WordMentionRow & { rn: string }>(
       `SELECT * FROM (
          SELECT id, stream_id, word_index, word, matched_text, segment_id,
-                stream_offset_ms, snippet, confidence, superseded, created_at,
+                stream_offset_ms, snippet, confidence, superseded, created_at, clip_key,
                 ROW_NUMBER() OVER (PARTITION BY word_index ORDER BY created_at DESC) AS rn
            FROM word_mentions
           WHERE stream_id = $1 AND superseded = FALSE
@@ -1104,14 +1106,14 @@ export async function dismissWordMention(
             superseded_at = NOW()
       WHERE id = $1 AND superseded = FALSE
       RETURNING id, stream_id, word_index, word, matched_text, segment_id,
-                stream_offset_ms, snippet, confidence, superseded, created_at`,
+                stream_offset_ms, snippet, confidence, superseded, created_at, clip_key`,
     [mentionId, adminWallet],
   )
   if (result.rows.length === 0) {
     // Already-dismissed or doesn't exist — fetch to disambiguate.
     const cur = await pool.query<WordMentionRow>(
       `SELECT id, stream_id, word_index, word, matched_text, segment_id,
-              stream_offset_ms, snippet, confidence, superseded, created_at
+              stream_offset_ms, snippet, confidence, superseded, created_at, clip_key
          FROM word_mentions WHERE id = $1`,
       [mentionId],
     )
@@ -1127,6 +1129,19 @@ export async function dismissWordMention(
     }),
   ])
   return result.rows[0]
+}
+
+/**
+ * Look up the object-storage key for a mention's audio clip. Returns the key,
+ * or null when the mention doesn't exist or has no clip yet. Used by the admin
+ * clip route to presign a download URL.
+ */
+export async function getMentionClipKey(mentionId: number): Promise<string | null> {
+  const res = await pool.query<{ clip_key: string | null }>(
+    `SELECT clip_key FROM word_mentions WHERE id = $1`,
+    [mentionId],
+  )
+  return res.rows[0]?.clip_key ?? null
 }
 
 export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl: string; updatedAt: string }[]> {

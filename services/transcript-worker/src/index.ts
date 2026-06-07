@@ -34,6 +34,11 @@ const env = {
   scheduledStreamWaitMinutes: numberFromEnv('SCHEDULED_STREAM_WAIT_MINUTES', 120),
   deepgramRotateMinutes: numberFromEnv('DEEPGRAM_ROTATE_MINUTES', 90),
   ffmpegRecycleMinutes: numberFromEnv('FFMPEG_RECYCLE_MINUTES', 240),
+  // Audio clip capture (admin review). Only active when CLIP_CAPTURE_ENABLED=true
+  // AND the S3 bucket is configured — see clipStore.isClipStoreEnabled().
+  clipBufferSeconds: numberFromEnv('CLIP_BUFFER_SECONDS', 60),
+  clipPadSeconds: numberFromEnv('CLIP_PAD_SECONDS', 3),
+  clipTrailingDelayMs: numberFromEnv('CLIP_TRAILING_DELAY_MS', 3500),
   dailyCostCentsAlert: numberFromEnv('DAILY_COST_CENTS_ALERT', 2000),
   dailyCostCentsHalt: numberFromEnv('DAILY_COST_CENTS_HALT', 5000),
   localAudio: resolveLocalAudio(),
@@ -385,6 +390,9 @@ async function spawnStreamWorker(row: MonitoredStreamRow, words: MatchableWord[]
     scheduledStreamWaitMinutes: env.scheduledStreamWaitMinutes,
     deepgramRotateMinutes: env.deepgramRotateMinutes,
     ffmpegRecycleMinutes: env.ffmpegRecycleMinutes,
+    clipBufferSeconds: env.clipBufferSeconds,
+    clipPadSeconds: env.clipPadSeconds,
+    clipTrailingDelayMs: env.clipTrailingDelayMs,
     localAudio: env.localAudio ?? undefined,
   }
   const worker = new StreamWorker(cfg, {
