@@ -8,17 +8,19 @@ const sslDisabled = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')
 // shape is forward-compatible: missing fields are tolerated, unknown
 // fields are ignored. All discriminators ride the same channel keyed by
 // streamId:
-//   - 'mention'   new hit
-//   - 'dismiss'   admin flagged a false positive
-//   - 'auto_lock' worker flipped pending_resolution on a high-confidence hit
+//   - 'mention'    new hit
+//   - 'dismiss'    admin flagged a false positive
+//   - 'auto_lock'  worker flipped pending_resolution on a high-confidence hit
+//   - 'clip_ready' worker finished uploading the mention's audio clip
 export interface MentionNotification {
-  type: 'mention' | 'dismiss' | 'auto_lock'
+  type: 'mention' | 'dismiss' | 'auto_lock' | 'clip_ready'
   streamId: number
   /** Absent for type='auto_lock' (no specific mention id). */
   mentionId?: number
-  wordIndex: number
-  // The remaining fields are present on type='mention'. 'dismiss' and
-  // 'auto_lock' only carry the dedupe keys above.
+  /** Absent for type='clip_ready' (which carries only mentionId). */
+  wordIndex?: number
+  // The remaining fields are present on type='mention'. 'dismiss',
+  // 'auto_lock' and 'clip_ready' only carry the dedupe keys above.
   eventId?: string
   word?: string
   matchedText?: string
@@ -26,6 +28,8 @@ export interface MentionNotification {
   snippet?: string
   confidence?: number | null
   createdAt?: string
+  /** Present on type='clip_ready' — the uploaded clip's object key. */
+  clipKey?: string
 }
 
 type MentionCallback = (payload: MentionNotification) => void
