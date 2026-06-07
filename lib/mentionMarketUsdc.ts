@@ -1053,33 +1053,35 @@ export async function fetchAllMarkets(): Promise<
 }
 
 /**
- * Like fetchAllMarkets but supplements with individually-fetched accounts for any
- * DB-known market IDs that getProgramAccounts missed (RPC caching gap).
+ * Fetch every DB-known market by ID via getAccountInfo (per account).
+ *
+ * We deliberately do NOT use getProgramAccounts here: on Helius it can return a
+ * STALE snapshot of an account (e.g. a market's state right after creation, with
+ * liquidity_param_b = 0 and zero quantities, even after liquidity + trades have
+ * landed). That stale read silently values every position at $0 and shows 50¢
+ * prices. getAccountInfo is authoritative and not subject to that caching lag.
+ *
+ * Callers seed `knownMarketIds` from the full paid_market_metadata set, so this
+ * covers every market we care about (and we only surface admin/metadata markets
+ * anyway), making program-account discovery unnecessary.
  */
 export async function fetchAllMarketsWithFallback(
   knownMarketIds: string[]
 ): Promise<Array<{ pubkey: Address; account: UsdcMarketAccount }>> {
-  const markets = await fetchAllMarkets()
-  const seenIds = new Set(markets.map(m => m.account.marketId.toString()))
-  const missingIds = knownMarketIds.filter(id => !seenIds.has(id))
-
-  if (missingIds.length > 0) {
-    const extras = await Promise.all(
-      missingIds.map(async id => {
-        try {
-          const account = await fetchMarket(BigInt(id))
-          return account ? { pubkey: id as Address, account } : null
-        } catch {
-          return null
-        }
-      })
-    )
-    for (const m of extras) {
-      if (m) markets.push(m)
-    }
-  }
-
-  return markets
+  const ids = [...new Set(knownMarketIds)]
+  const results = await Promise.all(
+    ids.map(async id => {
+      try {
+        const account = await fetchMarket(BigInt(id))
+        return account ? { pubkey: id as Address, account } : null
+      } catch {
+        return null
+      }
+    })
+  )
+  return results
+    .filter((m): m is { pubkey: Address; account: UsdcMarketAccount } => m !== null)
+    .sort((a, b) => Number(b.account.createdAt - a.account.createdAt))
 }
 
 export async function fetchLpPosition(

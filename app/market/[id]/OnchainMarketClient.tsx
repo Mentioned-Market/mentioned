@@ -48,6 +48,11 @@ interface UserTokens {
 // Frontend-only cap on a single (word, side) position during early testing ($2).
 const MAX_POSITION_USDC = 2_000_000n
 
+// Minimum SOL a wallet needs to cover network fees + the rent to create the YES/NO
+// token account on a first trade. Embedded (Privy) wallets often hold USDC but no
+// SOL, so we guard against the confusing on-chain "ResultWithNegativeLamports" error.
+const MIN_SOL_FOR_FEES = 0.004
+
 interface OnchainTrade {
   signature: string
   wordIndex: number
@@ -153,7 +158,7 @@ function DescriptionBlock({ text, limit }: { text: string; limit: number }) {
 export default function OnchainMarketClient({ marketId }: Props) {
   const id = useMemo(() => BigInt(marketId), [marketId])
 
-  const { publicKey, connected, connect, signer, signOnly } = useWallet()
+  const { publicKey, connected, connect, signer, signOnly, balance } = useWallet()
 
   // ── Data state ────────────────────────────────────────────
   const [market, setMarket] = useState<UsdcMarketAccount | null>(null)
@@ -419,6 +424,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
   const handleBuy = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey || !word || amountNum <= 0) return
+    // Block early with a clear message when the wallet can't cover fees + ATA rent,
+    // instead of letting it fail in on-chain simulation with a cryptic error.
+    if (balance !== null && balance < MIN_SOL_FOR_FEES) {
+      setTradeStatus({ msg: 'You need ~0.004 SOL for network fees, add SOL to your wallet to trade', error: true })
+      return
+    }
     // $2 net-spend cap per (word, side): prior net spend + this buy's all-in cost.
     if (netSpentForSide + Number(estimatedCost + feeOnCost) > maxPos) {
       setTradeStatus({ msg: `Max $2 per position during testing — you can add up to $${remainingDollars.toFixed(2)} more on ${side}`, error: true })
@@ -452,7 +463,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, netSpentForSide, estimatedCost, feeOnCost, remainingDollars, maxPos, spendKey])
+  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, netSpentForSide, estimatedCost, feeOnCost, remainingDollars, maxPos, spendKey, balance])
 
   const handleSell = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey || !word || sellShares <= 0n) return
@@ -1158,7 +1169,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
                                   </Link>
                                   <span className="flex-shrink-0">{t.isBuy ? 'bought' : 'sold'}</span>
                                   <span className={`flex-shrink-0 font-medium ${t.direction === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
-                                    {t.quantity.toFixed(0)} {t.direction}
+                                    {(t.quantity / 1e6).toFixed(2)} {t.direction}
                                   </span>
                                   <span className="flex-shrink-0">for</span>
                                   <span className="flex-shrink-0 text-neutral-300">${formatUsdc(BigInt(Math.round(t.cost)))}</span>

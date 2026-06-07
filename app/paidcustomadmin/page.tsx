@@ -96,6 +96,7 @@ export default function PaidCustomAdminPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [markets, setMarkets] = useState<MarketWithMeta[]>([])
+  const [hiddenMap, setHiddenMap] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -172,13 +173,22 @@ export default function PaidCustomAdminPage() {
       // with the DB-known market IDs — fetchAllMarketsWithFallback backfills any
       // that getProgramAccounts misses via the reliable getAccountInfo path.
       let knownIds: string[] = []
+      const hidden: Record<string, boolean> = {}
       try {
         const metaRes = await fetch('/api/paid-markets/metadata')
         if (metaRes.ok) {
           const allMeta = await metaRes.json()
-          knownIds = Array.isArray(allMeta) ? allMeta.map((m: { market_id: string }) => m.market_id) : []
+          if (Array.isArray(allMeta)) {
+            knownIds = allMeta.map((m: { market_id: string }) => m.market_id)
+            for (const m of allMeta as { market_id: string; hidden?: boolean }[]) {
+              hidden[m.market_id] = !!m.hidden
+            }
+          }
         }
       } catch { /* fall back to getProgramAccounts-only */ }
+      setHiddenMap(hidden)
+      // Already admin-only: knownIds come from DB metadata, and metadata can only
+      // be created via the admin-gated POST — so this never shows others' markets.
       const all = await fetchAllMarketsWithFallback(knownIds)
       // Enrich each market independently: a transient vault/LP RPC failure on one
       // market must NOT reject the whole batch and wipe the list. fetchLpPosition
@@ -371,6 +381,27 @@ export default function PaidCustomAdminPage() {
       show(err?.message || 'Failed to create market', 'error')
     } finally {
       setCreating(false)
+    }
+  }
+
+  async function handleToggleVisibility(market: MarketWithMeta) {
+    if (!publicKey) return
+    const marketId = market.account.marketId.toString()
+    const next = !(hiddenMap[marketId] ?? true)
+    setTxPending(true)
+    try {
+      const res = await fetch('/api/paid-markets/metadata', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey, marketId, hidden: next }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.error || 'Failed to update visibility')
+      setHiddenMap(prev => ({ ...prev, [marketId]: next }))
+      show(next ? 'Market hidden from the site' : 'Market is now live on the site')
+    } catch (err: any) {
+      show(err?.message || 'Failed to update visibility', 'error')
+    } finally {
+      setTxPending(false)
     }
   }
 
@@ -817,6 +848,7 @@ export default function PaidCustomAdminPage() {
                       const mk = market.account
                       const isExpanded = expandedId === market.pubkey
                       const wordRes = resolutions[market.pubkey] || {}
+                      const isHidden = hiddenMap[mk.marketId.toString()] ?? true
 
                       return (
                         <div key={market.pubkey} className="rounded-xl border border-white/5 overflow-hidden">
@@ -832,6 +864,9 @@ export default function PaidCustomAdminPage() {
                               <span className="text-sm font-medium truncate">{mk.label}</span>
                               <span className={`text-xs font-semibold shrink-0 ${statusColor(mk.status)}`}>
                                 {statusLabel(mk.status)}
+                              </span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${isHidden ? 'bg-white/10 text-neutral-400' : 'bg-apple-green/15 text-apple-green'}`}>
+                                {isHidden ? 'Hidden' : 'Live'}
                               </span>
                             </div>
                             <div className="flex items-center gap-4 text-xs text-neutral-500 shrink-0">
@@ -1196,6 +1231,17 @@ export default function PaidCustomAdminPage() {
                                       Unpause Trading
                                     </button>
                                   )}
+                                  <button
+                                    onClick={() => handleToggleVisibility(market)}
+                                    disabled={txPending}
+                                    className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 ${
+                                      isHidden
+                                        ? 'bg-apple-green/20 text-apple-green hover:bg-apple-green/30'
+                                        : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                                    }`}
+                                  >
+                                    {isHidden ? 'Make Live on Site' : 'Hide from Site'}
+                                  </button>
                                   <a
                                     href={editStates[market.pubkey]?.existingSlug
                                       ? `/paid/${editStates[market.pubkey]?.existingSlug}`

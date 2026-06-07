@@ -3686,6 +3686,7 @@ export interface PaidMarketMetadata {
   stream_url: string | null
   slug: string | null
   event_start_time: string | null
+  hidden: boolean
   created_at: string
   updated_at: string
 }
@@ -3741,6 +3742,16 @@ export async function getAllPaidMarketMetadata(): Promise<PaidMarketMetadata[]> 
     [SOLANA_CLUSTER],
   )
   return result.rows
+}
+
+/** Toggle a paid market's public visibility (admin-only; cluster-scoped). */
+export async function setPaidMarketHidden(marketId: bigint, hidden: boolean): Promise<PaidMarketMetadata | null> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `UPDATE paid_market_metadata SET hidden = $1, updated_at = NOW()
+     WHERE market_id = $2 AND cluster = $3 RETURNING *`,
+    [hidden, marketId.toString(), SOLANA_CLUSTER],
+  )
+  return result.rows[0] ?? null
 }
 
 export async function getPaidMarketTraderCounts(marketIds: string[]): Promise<Map<string, number>> {

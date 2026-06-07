@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { fetchAllMarketsWithFallback, impliedYesPrice, MarketStatus } from '@/lib/mentionMarketUsdc'
 import { getAllPaidMarketMetadata, getPaidMarketTraderCounts } from '@/lib/db'
+import { isAdmin } from '@/lib/adminAuth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,7 +28,15 @@ export async function GET() {
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
 
-  const summaries: PaidMarketSummary[] = markets.map(({ account: mkt }) => {
+  const summaries: PaidMarketSummary[] = markets
+    // Public list: only markets WE created (admin authority), with metadata, and
+    // not hidden. Keeps stranger-created on-chain markets and unreleased test
+    // markets off the site.
+    .filter(({ account: mkt }) => {
+      const meta = metaByMarketId.get(mkt.marketId.toString())
+      return !!meta && !meta.hidden && isAdmin(mkt.authority)
+    })
+    .map(({ account: mkt }) => {
     const meta = metaByMarketId.get(mkt.marketId.toString())
     const activeWords = mkt.words.slice(0, mkt.numWords)
     return {

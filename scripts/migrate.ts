@@ -471,6 +471,10 @@ ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS event_start_time TIMES
 -- mainnet admin/market list, mirroring trade_events.
 ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS cluster TEXT NOT NULL DEFAULT 'devnet';
 CREATE INDEX IF NOT EXISTS idx_paid_market_metadata_cluster ON paid_market_metadata(cluster);
+-- Hidden by default so a freshly-created market (incl. mainnet test markets) does
+-- NOT appear on the public markets page until an admin explicitly makes it live.
+-- The admin UI shows hidden markets; the public list filters them out.
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT true;
 
 -- User feedback submissions
 CREATE TABLE IF NOT EXISTS feedback_submissions (

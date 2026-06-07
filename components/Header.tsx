@@ -8,7 +8,7 @@ import PrivyFundsModal from '@/components/PrivyFundsModal'
 import HowItWorksModal from '@/components/HowItWorksModal'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import UserSearch from '@/components/UserSearch'
 
 function formatUsdc(baseUnits: string | null): string {
@@ -26,6 +26,7 @@ export default function Header() {
   const [showFundsModal, setShowFundsModal] = useState(false)
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
   const [portfolioValue, setPortfolioValue] = useState<string | null>(null)
+  const [refreshingSummary, setRefreshingSummary] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const discordTooltipRef = useRef<HTMLDivElement>(null)
@@ -88,27 +89,31 @@ export default function Header() {
       .catch(() => {})
   }, [connected, publicKey, showAchievementToast])
 
-  // Fetch USDC balance + portfolio value when connected
+  // Fetch USDC balance + portfolio value. Manual-refresh only (a tiny button in the
+  // header) so we don't hammer the RPC with a background poll — the user pulls a
+  // fresh read after trading.
+  const loadWalletSummary = useCallback(() => {
+    if (!publicKey) return
+    setRefreshingSummary(true)
+    fetch(`/api/paid-markets/wallet-summary?wallet=${publicKey}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return
+        setUsdcBalance(data.usdcBalance)
+        setPortfolioValue(data.portfolioValue)
+      })
+      .catch(() => {})
+      .finally(() => setRefreshingSummary(false))
+  }, [publicKey])
+
   useEffect(() => {
     if (!connected || !publicKey) {
       setUsdcBalance(null)
       setPortfolioValue(null)
       return
     }
-    const load = () => {
-      fetch(`/api/paid-markets/wallet-summary?wallet=${publicKey}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (!data) return
-          setUsdcBalance(data.usdcBalance)
-          setPortfolioValue(data.portfolioValue)
-        })
-        .catch(() => {})
-    }
-    load()
-    const id = setInterval(load, 30_000)
-    return () => clearInterval(id)
-  }, [connected, publicKey])
+    loadWalletSummary()
+  }, [connected, publicKey, loadWalletSummary])
 
   return (
     <>
@@ -163,6 +168,17 @@ export default function Header() {
                     {usdcBalance !== null ? formatUsdc(usdcBalance) : '—'}
                   </div>
                 </div>
+                <button
+                  onClick={loadWalletSummary}
+                  disabled={refreshingSummary}
+                  aria-label="Refresh balances"
+                  title="Refresh balances"
+                  className="text-neutral-500 hover:text-white transition-colors disabled:opacity-50"
+                >
+                  <svg className={`w-3.5 h-3.5 ${refreshingSummary ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
               </div>
             </div>
           )}

@@ -21,6 +21,7 @@ function readU64LE(buf: Buffer, offset: number): bigint {
 async function getTokenBalance(ata: Address): Promise<bigint> {
   const res = await fetch(RPC_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       jsonrpc: '2.0', id: 1,
@@ -73,6 +74,7 @@ export async function GET(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await fetch(RPC_URL, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0', id: 1,

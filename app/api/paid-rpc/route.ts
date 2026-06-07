@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
   try {
     const res = await fetch(PAID_RPC_UPSTREAM, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body,
     })

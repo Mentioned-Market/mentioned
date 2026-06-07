@@ -742,7 +742,7 @@ export default function PositionsPage() {
                       : { color: '#6b7280' }
                     }
                   >
-                    Mention Markets
+                    Paid Markets
                   </button>
                   {/* Polymarkets tab hidden while phasing out */}
                   <button

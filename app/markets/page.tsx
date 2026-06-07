@@ -788,7 +788,7 @@ function PaidMarketCard({ market, showTypeBadge }: { market: PaidMarketSummary; 
   const closesLabel = formatClosesIn(market.locksAt)
 
   return (
-    <div className="group relative block overflow-hidden rounded-2xl transition-all duration-300 hover-lift" style={{ background: 'rgba(10,10,10,0.75)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
+    <div className="group relative block overflow-hidden rounded-2xl transition-all duration-300 hover-lift" style={{ background: 'rgba(10,10,10,0.75)', border: '1.5px solid rgba(242,183,31,0.55)', boxShadow: '0 0 22px rgba(242,183,31,0.10)', backdropFilter: 'blur(12px)' }}>
       <Link href={url} className="block w-full relative overflow-hidden bg-neutral-800" style={{ height: '140px' }}>
         {(!market.coverImageUrl || imgError) && (
           <div className="absolute inset-0 flex items-center justify-center">

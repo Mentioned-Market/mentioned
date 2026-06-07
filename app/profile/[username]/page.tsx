@@ -1142,7 +1142,7 @@ export default function ProfilePage() {
               profileMode === 'onchain' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
             }`}
           >
-            Mention Markets
+            Paid Markets
           </button>
           <button
             onClick={() => setProfileMode('free')}
@@ -1431,7 +1431,7 @@ export default function ProfilePage() {
           <div className="glass rounded-2xl p-6 flex flex-col">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-full bg-apple-blue" />
-              <span className="text-neutral-400 text-sm font-medium">Mention Markets</span>
+              <span className="text-neutral-400 text-sm font-medium">Paid Markets</span>
             </div>
             <div className="text-3xl font-bold mb-0.5 text-white">
               ${onchainPositions.reduce((sum, p) =>
