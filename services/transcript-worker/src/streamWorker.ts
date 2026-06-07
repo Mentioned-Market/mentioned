@@ -32,6 +32,8 @@ import {
 } from './streamUrl'
 import { probeStreamLive } from './probeStreamLive'
 import { WordMatcher, type MatchableWord, type MatchHit } from './wordMatcher'
+import { PcmRingBuffer } from './pcmRingBuffer'
+import { isClipStoreEnabled, clipKeyFor, putClip } from './clipStore'
 
 // Cost rate: Nova-3 monolingual streaming is $0.0048/min → 0.48 cents/min.
 const COST_CENTS_PER_MINUTE = 0.48
@@ -93,6 +95,12 @@ export interface StreamWorkerConfig {
   scheduledStreamWaitMinutes: number
   deepgramRotateMinutes: number
   ffmpegRecycleMinutes: number
+  /** Seconds of PCM retained in the clip ring buffer. */
+  clipBufferSeconds: number
+  /** Padding (seconds) added on each side of a mention's segment when cutting a clip. */
+  clipPadSeconds: number
+  /** Delay (ms) before extracting a clip, so the trailing context has buffered. */
+  clipTrailingDelayMs: number
   /**
    * Required for `source === 'local-audio'`. Resolved from env (LOCAL_AUDIO_*)
    * by the manager so a single laptop can be retargeted between streams
@@ -150,6 +158,12 @@ export class StreamWorker {
   private deepgramReplaceTimer: NodeJS.Timeout | null = null
   private lastDeepgramOpenedAtMs = 0
 
+  // Audio clip capture. ringBuffer is null when clip capture is disabled or S3
+  // isn't configured — in that case dispatchAudio does no extra work. Deferred
+  // extraction timers are tracked so they can be cleared on shutdown.
+  private ringBuffer: PcmRingBuffer | null = null
+  private readonly clipTimers = new Set<NodeJS.Timeout>()
+
   constructor(
     private readonly cfg: StreamWorkerConfig,
     private readonly cb: StreamWorkerCallbacks,
@@ -158,6 +172,9 @@ export class StreamWorker {
     this.matcher = new WordMatcher(cfg.words)
     this.thresholdByWordIndex = new Map(cfg.words.map((w) => [w.index, w.threshold]))
     this.autoLockByWordIndex = new Map(cfg.words.map((w) => [w.index, w.autoLockEnabled]))
+    if (isClipStoreEnabled()) {
+      this.ringBuffer = new PcmRingBuffer(cfg.clipBufferSeconds)
+    }
   }
 
   async start(): Promise<void> {
@@ -263,6 +280,11 @@ export class StreamWorker {
         waitedSec: ((this.firstPcmReceivedAtMs - this.startedAtMs) / 1000).toFixed(1),
       })
     }
+    // Retain a rolling copy for clip extraction, timestamped in the same
+    // capture clock used for mention segment offsets. Append every chunk,
+    // including those buffered while Deepgram is still opening, so the
+    // timeline has no gaps.
+    if (this.ringBuffer) this.ringBuffer.append(chunk, Date.now() - this.startedAtMs)
     if (this.activeDg) {
       this.activeDg.send(chunk)
       return
@@ -598,6 +620,93 @@ export class StreamWorker {
     // If the word is admin-opted-in for auto-lock and this mention's confidence
     // clears the bar, flip pending_resolution. Same fire-and-forget contract.
     void this.maybeAutoLock(hit, confidence)
+
+    // Save an audio clip of this mention for admin review. Deferred + entirely
+    // off this path — see scheduleClipCapture.
+    const durationMs = Math.max(0, Math.round((t.durationSec ?? 0) * 1000))
+    this.scheduleClipCapture(mentionId, segmentStartMs, durationMs)
+  }
+
+  /**
+   * Cut a short WAV clip around a mention and upload it for admin review.
+   *
+   * Deferred by clipTrailingDelayMs: a finalized segment ends ~now but the
+   * audio was spoken ~1-2s earlier (Deepgram latency), so the trailing padding
+   * is audio that hasn't been buffered yet at mention time. Waiting lets the
+   * trailing context land in the ring buffer before we slice.
+   *
+   * The window covers the whole segment plus padding on each side, so the
+   * matched word is included no matter where in the segment it fell. Segment
+   * offsets and the ring buffer's chunk timestamps share the worker's
+   * start-relative capture clock, so the window maps across directly.
+   *
+   * Fully best-effort: a failure anywhere here is logged and dropped. clip_key
+   * simply stays NULL.
+   */
+  private scheduleClipCapture(mentionId: number, segmentStartMs: number, durationMs: number): void {
+    const ring = this.ringBuffer
+    if (!ring || this.shutdownPromise) return
+    if (this.firstPcmReceivedAtMs == null) return
+
+    const padMs = this.cfg.clipPadSeconds * 1000
+    const winStartMs = segmentStartMs - padMs
+    const winEndMs = segmentStartMs + durationMs + padMs
+
+    // The extraction must run late enough that the trailing pad has actually
+    // been captured. Keep it at least the pad plus a small margin so a config
+    // where the delay is shorter than the pad can't silently truncate clips.
+    const delayMs = Math.max(this.cfg.clipTrailingDelayMs, padMs + 250)
+
+    const timer = setTimeout(() => {
+      this.clipTimers.delete(timer)
+      if (this.shutdownPromise || !this.ringBuffer) return
+      void this.captureClip(mentionId, winStartMs, winEndMs)
+    }, delayMs)
+    timer.unref()
+    this.clipTimers.add(timer)
+  }
+
+  private async captureClip(
+    mentionId: number,
+    winStartMs: number,
+    winEndMs: number,
+  ): Promise<void> {
+    const ring = this.ringBuffer
+    if (!ring) return
+    const wav = ring.extractWav(winStartMs, winEndMs)
+    if (!wav) return
+
+    const key = clipKeyFor(this.cfg.streamId, mentionId)
+    const ok = await putClip(key, wav)
+    if (!ok) return
+
+    try {
+      await pool.query(
+        `UPDATE word_mentions SET clip_key = $2 WHERE id = $1 AND clip_key IS NULL`,
+        [mentionId, key],
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn('clip_key update failed', { streamId: this.cfg.streamId, mentionId, err: msg })
+      return
+    }
+
+    // Tell the admin SSE the clip is now playable. Rides the same word_mention
+    // channel as 'mention'/'dismiss'/'auto_lock'; consumers ignore unknown types.
+    try {
+      const payload = JSON.stringify({
+        type: 'clip_ready',
+        eventId: this.cfg.eventId,
+        streamId: this.cfg.streamId,
+        mentionId,
+        clipKey: key,
+      })
+      await pool.query('SELECT pg_notify($1, $2)', ['word_mention', payload])
+    } catch (err) {
+      // Non-fatal — UI picks the clip up on the next periodic refetch.
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn('clip_ready notify failed', { streamId: this.cfg.streamId, mentionId, err: msg })
+    }
   }
 
   /**
@@ -997,6 +1106,8 @@ export class StreamWorker {
   }
 
   private clearTimers(): void {
+    for (const t of this.clipTimers) clearTimeout(t)
+    this.clipTimers.clear()
     if (this.rotationTimer) clearInterval(this.rotationTimer)
     if (this.recycleTimer) clearInterval(this.recycleTimer)
     if (this.silenceTimer) clearInterval(this.silenceTimer)
