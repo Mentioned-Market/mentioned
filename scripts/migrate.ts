@@ -538,6 +538,13 @@ CREATE INDEX IF NOT EXISTS idx_word_mentions_event_active
 CREATE INDEX IF NOT EXISTS idx_word_mentions_stream
   ON word_mentions(stream_id, created_at);
 
+-- Object-storage key for the saved audio clip of this mention (admin review).
+-- NULL until the transcript worker's deferred clip upload completes, or
+-- permanently NULL when clip capture is disabled / the upload failed. Clip
+-- objects are keyed clips/{stream_id}/{mention_id}.wav and expire via the
+-- bucket's lifecycle rule.
+ALTER TABLE word_mentions ADD COLUMN IF NOT EXISTS clip_key TEXT;
+
 -- Word-level resolution rules. Default 1 = any-mention semantics (no behavioral
 -- change for existing markets). Higher = count-based ("said 10+ times").
 ALTER TABLE custom_market_words

@@ -14,6 +14,7 @@ interface MentionRow {
   confidence: number | null
   superseded: boolean
   created_at: string
+  clip_key: string | null
 }
 
 interface WordSummary {
@@ -30,17 +31,20 @@ interface WordSummary {
 }
 
 interface MentionEvent {
-  type: 'mention' | 'dismiss' | 'auto_lock'
+  type: 'mention' | 'dismiss' | 'auto_lock' | 'clip_ready'
   streamId: number
   /** Absent on 'auto_lock' (no specific mention id). */
   mentionId?: number
-  wordIndex: number
+  /** Absent on 'clip_ready' (carries mentionId only). */
+  wordIndex?: number
   word?: string
   matchedText?: string
   streamOffsetMs?: number
   snippet?: string
   confidence?: number | null
   createdAt?: string
+  /** Present on 'clip_ready'. */
+  clipKey?: string
 }
 
 const RECENT_LIMIT = 5
@@ -92,6 +96,8 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
   const [dismissingId, setDismissingId] = useState<number | null>(null)
   const [pendingBusy, setPendingBusy] = useState<number | null>(null)
   const [autoLockBusy, setAutoLockBusy] = useState<number | null>(null)
+  const [playingId, setPlayingId] = useState<number | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const sseRef = useRef<EventSource | null>(null)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
@@ -167,6 +173,8 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
             confidence: data.confidence ?? null,
             superseded: false,
             created_at: data.createdAt ?? new Date().toISOString(),
+            // Clip uploads land a few seconds later via a 'clip_ready' event.
+            clip_key: null,
           }
           const newCount = w.count + 1
           // Recompute running average; null confidences excluded.
@@ -203,10 +211,27 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
         // Worker flipped pending_resolution. Mirror locally so the "Pending"
         // pill shows up immediately; parent's cache (powering WordEditorRow)
         // also needs the update.
+        if (data.wordIndex == null) return
+        const wordIndex = data.wordIndex
         setWords((prev) => prev.map((w) =>
-          w.word_index === data.wordIndex ? { ...w, pending_resolution: true } : w,
+          w.word_index === wordIndex ? { ...w, pending_resolution: true } : w,
         ))
-        onWordPatchedRef.current?.(data.wordIndex, { pendingResolution: true })
+        onWordPatchedRef.current?.(wordIndex, { pendingResolution: true })
+      } else if (data.type === 'clip_ready') {
+        // Worker finished uploading this mention's audio clip. Flag the row so
+        // the play control appears. Carries mentionId only, so scan all words.
+        if (data.mentionId == null) return
+        const mentionId = data.mentionId
+        const clipKey = data.clipKey ?? 'ready'
+        setWords((prev) => prev.map((w) => {
+          if (!w.recent.some((r) => r.id === mentionId)) return w
+          return {
+            ...w,
+            recent: w.recent.map((r) =>
+              r.id === mentionId ? { ...r, clip_key: clipKey } : r,
+            ),
+          }
+        }))
       }
     }
 
@@ -282,6 +307,23 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
     }
   }
 
+  function togglePlay(mentionId: number) {
+    const audio = audioRef.current
+    if (!audio) return
+    if (playingId === mentionId) {
+      audio.pause()
+      setPlayingId(null)
+      return
+    }
+    // preload="none" + on-demand src means no clip bytes are fetched until an
+    // admin actually plays one.
+    audio.src = `/api/admin/mentions/${mentionId}/clip`
+    audio.play().then(() => setPlayingId(mentionId)).catch(() => {
+      onErrorRef.current?.('Failed to play clip')
+      setPlayingId(null)
+    })
+  }
+
   function jumpUrl(offsetMs: number): string | null {
     if (!streamUrl) return null
     const seconds = Math.max(0, Math.floor(offsetMs / 1000))
@@ -316,6 +358,19 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
 
   return (
     <div className="space-y-3">
+      <audio
+        ref={audioRef}
+        preload="none"
+        className="hidden"
+        onEnded={() => setPlayingId(null)}
+        onPause={() => setPlayingId(null)}
+        onError={() => {
+          // Media-level failure (expired link, transient 5xx) — play()'s promise
+          // doesn't always reject for these, so reset state and surface it here.
+          if (audioRef.current?.src) onErrorRef.current?.('Failed to load clip')
+          setPlayingId(null)
+        }}
+      />
       {words.map((w) => {
         const pill = verdictPill(w.count, w.mention_threshold)
         const isResolved = w.resolved_outcome !== null
@@ -403,6 +458,15 @@ export default function MentionsPanel({ streamId, marketId, isActive, streamUrl,
                         <span className="font-mono text-neutral-500 shrink-0">{ts}</span>
                       )}
                       <span className="text-neutral-300 flex-1">{m.snippet}</span>
+                      {m.clip_key && (
+                        <button
+                          onClick={() => togglePlay(m.id)}
+                          className="shrink-0 text-apple-blue hover:text-apple-blue/80"
+                          title={playingId === m.id ? 'Pause clip' : 'Play audio clip'}
+                        >
+                          {playingId === m.id ? '⏸' : '▶'}
+                        </button>
+                      )}
                       {m.confidence != null && (
                         <span className={`shrink-0 ${confidenceColor(m.confidence)}`}>
                           {(m.confidence * 100).toFixed(0)}%
