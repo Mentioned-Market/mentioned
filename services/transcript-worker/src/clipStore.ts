@@ -29,8 +29,9 @@ function getClient(): S3Client {
     client = new S3Client({
       region,
       endpoint,
-      // Railway / most S3-compatible stores need path-style addressing.
-      forcePathStyle: true,
+      // Modern Railway buckets (and standard S3) use virtual-hosted-style URLs.
+      // Only legacy/path-style buckets need this on — opt in via env.
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
       credentials: { accessKeyId, secretAccessKey },
     })
   }
