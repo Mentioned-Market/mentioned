@@ -164,6 +164,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
   const [market, setMarket] = useState<UsdcMarketAccount | null>(null)
   const [metadata, setMetadata] = useState<PaidMarketMetadata | null>(null)
   const [chartData, setChartData] = useState<{ wordIndex: number; history: { t: number; p: number }[] }[]>([])
+  const [volumeBaseUnits, setVolumeBaseUnits] = useState(0)
   const [chartLoading, setChartLoading] = useState(true)
   const [vaultBalance, setVaultBalance] = useState<bigint>(0n)
   const [userUsdc, setUserUsdc] = useState<bigint>(0n)
@@ -248,6 +249,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
       if (res.ok) {
         const data = await res.json()
         setChartData(data.words || [])
+        setVolumeBaseUnits(data.totalVolume || 0)
       }
     } catch { /* ignore */ } finally {
       setChartLoading(false)
@@ -764,8 +766,14 @@ export default function OnchainMarketClient({ marketId }: Props) {
               if (!tok || (tok.yes < 10_000n && tok.no < 10_000n)) return null
               const yesPrice = impliedYesPrice(w, market.liquidityParamB)
               const noPrice  = 1 - yesPrice
-              const yesReturn = (() => { try { return tok.yes >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'YES', tok.yes) : 0n } catch { return 0n } })()
-              const noReturn  = (() => { try { return tok.no  >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'NO',  tok.no)  : 0n } catch { return 0n } })()
+              // Resolved: winning side redeems 1:1 ($1/share), losing side is worth $0.
+              // Unresolved: current LMSR sell value. Never value a losing position.
+              const yesReturn = w.outcome !== null
+                ? (w.outcome === true ? tok.yes : 0n)
+                : (() => { try { return tok.yes >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'YES', tok.yes) : 0n } catch { return 0n } })()
+              const noReturn  = w.outcome !== null
+                ? (w.outcome === false ? tok.no : 0n)
+                : (() => { try { return tok.no  >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'NO',  tok.no)  : 0n } catch { return 0n } })()
               const winDir: 'YES' | 'NO' | null = w.outcome === true ? 'YES' : w.outcome === false ? 'NO' : null
               return (
                 <div key={i} className="glass rounded-xl p-3 space-y-2">
@@ -927,7 +935,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
                     <span className="text-neutral-700">·</span>
                   </>
                 )}
-                <span>${formatUsdc(market.tradeFeeBps > 0 ? market.accumulatedFees * 10000n / BigInt(market.tradeFeeBps) : 0n)} volume</span>
+                <span>${formatUsdc(BigInt(Math.round(volumeBaseUnits)))} volume</span>
                 <span className="text-neutral-700">·</span>
                 <span>{market.words.length} word{market.words.length !== 1 ? 's' : ''}</span>
                 <span className="text-neutral-700">·</span>

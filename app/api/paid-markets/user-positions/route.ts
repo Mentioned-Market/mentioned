@@ -151,9 +151,17 @@ export async function GET(req: NextRequest) {
     const yes = BigInt(pos.yesShares)
     const no  = BigInt(pos.noShares)
     try {
-      const yesRet = yes >= DUST ? estimateSellReturn(word, mkt.liquidityParamB, 'YES', yes) : 0n
-      const noRet  = no  >= DUST ? estimateSellReturn(word, mkt.liquidityParamB, 'NO',  no)  : 0n
-      pos.estValueUsdc = (yesRet + noRet).toString()
+      if (word.outcome !== null) {
+        // Resolved: the winning side redeems 1:1 ($1/share); the LOSING side is
+        // worthless and must value at $0 (it can't be redeemed or sold).
+        const yesVal = word.outcome === true ? yes : 0n
+        const noVal  = word.outcome === false ? no : 0n
+        pos.estValueUsdc = (yesVal + noVal).toString()
+      } else {
+        const yesRet = yes >= DUST ? estimateSellReturn(word, mkt.liquidityParamB, 'YES', yes) : 0n
+        const noRet  = no  >= DUST ? estimateSellReturn(word, mkt.liquidityParamB, 'NO',  no)  : 0n
+        pos.estValueUsdc = (yesRet + noRet).toString()
+      }
     } catch {
       pos.estValueUsdc = '0'
     }

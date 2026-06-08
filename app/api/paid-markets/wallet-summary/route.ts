@@ -36,11 +36,32 @@ async function getTokenBalance(ata: Address): Promise<bigint> {
 
 const DUST = 10_000n
 
+// Per-wallet cooldown so this RPC-heavy summary can't be spammed (the header
+// refresh button is throttled too, but this guards direct/abusive callers).
+// In-memory, therefore per instance — fine for rate-limiting a single source.
+const REFRESH_COOLDOWN_MS = 5000
+const lastRequestByWallet = new Map<string, number>()
+setInterval(() => {
+  const cutoff = Date.now() - REFRESH_COOLDOWN_MS
+  for (const [w, t] of lastRequestByWallet) if (t < cutoff) lastRequestByWallet.delete(w)
+}, 60_000)
+
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get('wallet')
   if (!wallet || wallet.length < 32) {
     return NextResponse.json({ error: 'wallet required' }, { status: 400 })
   }
+
+  const now = Date.now()
+  const last = lastRequestByWallet.get(wallet) ?? 0
+  if (now - last < REFRESH_COOLDOWN_MS) {
+    return NextResponse.json(
+      { error: 'Refresh at most once every 5 seconds' },
+      { status: 429, headers: { 'Retry-After': '5' } },
+    )
+  }
+  lastRequestByWallet.set(wallet, now)
+
   const walletAddr = wallet as Address
 
   // USDC cash balance + portfolio value in parallel
@@ -114,8 +135,14 @@ export async function GET(req: NextRequest) {
     if (!mkt) continue
     const word = mkt.words[wordIndex]
     try {
-      if (yes >= DUST) portfolioValue += estimateSellReturn(word, mkt.liquidityParamB, 'YES', yes)
-      if (no >= DUST)  portfolioValue += estimateSellReturn(word, mkt.liquidityParamB, 'NO',  no)
+      if (word.outcome !== null) {
+        // Resolved: only the winning side has value (1:1 redeem); losing side $0.
+        if (word.outcome === true && yes >= DUST) portfolioValue += yes
+        if (word.outcome === false && no >= DUST) portfolioValue += no
+      } else {
+        if (yes >= DUST) portfolioValue += estimateSellReturn(word, mkt.liquidityParamB, 'YES', yes)
+        if (no >= DUST)  portfolioValue += estimateSellReturn(word, mkt.liquidityParamB, 'NO',  no)
+      }
     } catch { /* skip */ }
   }
 

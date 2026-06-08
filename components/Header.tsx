@@ -27,6 +27,7 @@ export default function Header() {
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
   const [portfolioValue, setPortfolioValue] = useState<string | null>(null)
   const [refreshingSummary, setRefreshingSummary] = useState(false)
+  const [refreshCooldown, setRefreshCooldown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const discordTooltipRef = useRef<HTMLDivElement>(null)
@@ -92,11 +93,20 @@ export default function Header() {
   // Fetch USDC balance + portfolio value. Manual-refresh only (a tiny button in the
   // header) so we don't hammer the RPC with a background poll — the user pulls a
   // fresh read after trading.
-  const loadWalletSummary = useCallback(() => {
+  const loadWalletSummary = useCallback((isRetry = false) => {
     if (!publicKey) return
     setRefreshingSummary(true)
     fetch(`/api/paid-markets/wallet-summary?wallet=${publicKey}`)
-      .then(r => r.ok ? r.json() : null)
+      .then(async r => {
+        // API enforces a 5s/wallet cooldown; a fresh page load can collide with a
+        // recent refresh — retry once after the cooldown so the values still fill.
+        if (r.status === 429 && !isRetry) {
+          const retryAfter = Number(r.headers.get('Retry-After') || 5)
+          setTimeout(() => loadWalletSummary(true), retryAfter * 1000)
+          return null
+        }
+        return r.ok ? r.json() : null
+      })
       .then(data => {
         if (!data) return
         setUsdcBalance(data.usdcBalance)
@@ -105,6 +115,15 @@ export default function Header() {
       .catch(() => {})
       .finally(() => setRefreshingSummary(false))
   }, [publicKey])
+
+  // Manual refresh with a 5s client-side cooldown so the button can't be spammed
+  // (the API also enforces its own 5s/wallet cooldown as a backstop).
+  const handleManualRefresh = useCallback(() => {
+    if (refreshingSummary || refreshCooldown) return
+    setRefreshCooldown(true)
+    loadWalletSummary()
+    setTimeout(() => setRefreshCooldown(false), 5000)
+  }, [refreshingSummary, refreshCooldown, loadWalletSummary])
 
   useEffect(() => {
     if (!connected || !publicKey) {
@@ -169,11 +188,11 @@ export default function Header() {
                   </div>
                 </div>
                 <button
-                  onClick={loadWalletSummary}
-                  disabled={refreshingSummary}
+                  onClick={handleManualRefresh}
+                  disabled={refreshingSummary || refreshCooldown}
                   aria-label="Refresh balances"
-                  title="Refresh balances"
-                  className="text-neutral-500 hover:text-white transition-colors disabled:opacity-50"
+                  title={refreshCooldown ? 'Please wait a few seconds' : 'Refresh balances'}
+                  className="text-neutral-500 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg className={`w-3.5 h-3.5 ${refreshingSummary ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
