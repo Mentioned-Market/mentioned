@@ -433,9 +433,11 @@ export default function OnchainMarketClient({ marketId }: Props) {
       setTradeStatus({ msg: 'You need ~0.004 SOL for network fees, add SOL to your wallet to trade', error: true })
       return
     }
-    // $2 net-spend cap per (word, side): prior net spend + this buy's all-in cost.
-    if (netSpentForSide + Number(estimatedCost + feeOnCost) > maxPos) {
-      setTradeStatus({ msg: `Max $2 per position during testing — you can add up to $${remainingDollars.toFixed(2)} more on ${side}`, error: true })
+    // $2 cap per (word, side) on the USDC entered to spend. The fee/price-impact
+    // is excluded so a full $2 entry isn't blocked; the input is already clamped to
+    // the remaining allowance, so this is a consistent backstop.
+    if (netSpentForSide + Math.round(amountNum * 1_000_000) > maxPos) {
+      setTradeStatus({ msg: `Max $2 per position during testing, you can add up to $${remainingDollars.toFixed(2)} more on ${side}`, error: true })
       return
     }
     setTxPending(true)
@@ -531,6 +533,11 @@ export default function OnchainMarketClient({ marketId }: Props) {
         </div>
       </div>
 
+      {/* Testing cap notice */}
+      <div className="mb-4 px-3 py-2 rounded-lg bg-[#F2B71F]/[0.08] border border-[#F2B71F]/20 text-[11px] text-[#F2B71F]/90 text-center leading-snug">
+        Controlled testing: $2 max per position
+      </div>
+
       {/* Buy / Sell tabs */}
       <div className="flex items-center gap-5 mb-5">
         <button
@@ -594,7 +601,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
                 <>
                   <span className={`text-xs font-medium transition-colors ${showBuyPreview ? 'text-apple-red' : 'text-neutral-400'}`}>
                     {showBuyPreview
-                      ? `$${formatUsdc(userUsdc - estimatedCost - feeOnCost)} USDC`
+                      ? `$${formatUsdc(userUsdc > estimatedCost + feeOnCost ? userUsdc - estimatedCost - feeOnCost : 0n)} USDC`
                       : `$${formatUsdc(userUsdc)} USDC`}
                   </span>
                   <span className="block text-[10px] text-neutral-600">
@@ -631,8 +638,8 @@ export default function OnchainMarketClient({ marketId }: Props) {
         {tradeMode === 'buy' && (
           <p className="text-[10px] text-neutral-600 text-right mb-3">
             {positionFull
-              ? `Position full — $2.00 max on ${side}`
-              : `$${remainingDollars.toFixed(2)} left of $2.00 max on ${side}`}
+              ? `Position full, $2.00 max on ${side}`
+              : `$${Math.max(0, remainingDollars - amountNum).toFixed(2)} left of $2.00 max on ${side}`}
           </p>
         )}
 

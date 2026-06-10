@@ -1108,9 +1108,11 @@ export async function fetchVaultBalance(marketId: bigint): Promise<bigint> {
 
 /** Format USDC base units to human-readable string (e.g. 1_000_000 -> "1.00") */
 export function formatUsdc(baseUnits: bigint): string {
-  const whole = baseUnits / USDC_PRECISION
-  const frac = baseUnits % USDC_PRECISION
-  return `${whole}.${frac.toString().padStart(6, '0').slice(0, 2)}`
+  const neg = baseUnits < 0n
+  const abs = neg ? -baseUnits : baseUnits
+  const whole = abs / USDC_PRECISION
+  const frac = abs % USDC_PRECISION
+  return `${neg ? '-' : ''}${whole}.${frac.toString().padStart(6, '0').slice(0, 2)}`
 }
 
 export function statusLabel(status: MarketStatus): string {
