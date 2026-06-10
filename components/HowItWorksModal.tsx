@@ -342,6 +342,70 @@ function SlideRedeemPoints({ play }: { play: boolean }) {
   )
 }
 
+/* ── Slide 4: Level up to Paid Markets ────────────── */
+function SlidePaidMarkets({ play }: { play: boolean }) {
+  const p = useAutoPlay(play, 4600)
+  const cardEnter = ease(sub(p, 0, 0.22))
+  const badgeT = ease(sub(p, 0.24, 0.42))
+  const rowT = ease(sub(p, 0.42, 0.62))
+  const cashT = ease(sub(p, 0.6, 0.85))
+
+  return (
+    <div className="w-full mx-auto space-y-2" style={{ opacity: cardEnter, transform: `translateY(${lerp(20, 0, cardEnter)}px)` }}>
+      {/* Paid market card (gold border) */}
+      <div
+        className="rounded-xl p-3 relative overflow-hidden"
+        style={{
+          background: 'rgba(255,255,255,0.04)',
+          border: `1.5px solid rgba(242,183,31,${0.2 + badgeT * 0.35})`,
+          boxShadow: `0 0 ${badgeT * 24}px rgba(242,183,31,${badgeT * 0.1})`,
+        }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-base shrink-0">🍏</div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-white text-xs font-semibold truncate">Apple WWDC Keynote</h4>
+              <span className="text-[10px] font-bold text-[#F2B71F] bg-[#F2B71F]/15 px-1.5 py-0.5 rounded-full shrink-0" style={{ opacity: badgeT }}>Real USDC</span>
+            </div>
+            <div className="flex gap-2.5">
+              <div className="flex items-center gap-1 text-[10px]"><span className="text-neutral-500">Hardware</span><span className="text-green-400 font-mono">64¢</span></div>
+              <div className="flex items-center gap-1 text-[10px]"><span className="text-neutral-500">Vision Pro</span><span className="text-green-400 font-mono">41¢</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Wins pay real money */}
+      <div
+        className="rounded-xl p-2.5 space-y-1"
+        style={{ opacity: rowT, transform: `translateY(${lerp(12, 0, rowT)}px)`, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+      >
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Each winning share</span><span className="text-[#F2B71F] font-mono">$1.00 USDC</span></div>
+        <div className="flex justify-between text-[11px]"><span className="text-neutral-500">Bet $2 at 40¢, to win</span><span className="text-[#F2B71F] font-mono">$5.00</span></div>
+      </div>
+
+      {/* Withdraw to wallet */}
+      <div
+        className="rounded-xl p-2.5 flex items-center gap-3"
+        style={{
+          opacity: cashT,
+          transform: `translateY(${lerp(12, 0, cashT)}px)`,
+          background: `rgba(242,183,31,${cashT * 0.08})`,
+          border: `1px solid rgba(242,183,31,${cashT * 0.3})`,
+          boxShadow: `0 0 ${cashT * 16}px rgba(242,183,31,${cashT * 0.07})`,
+        }}
+      >
+        <span className="text-base shrink-0">💸</span>
+        <div>
+          <p className="text-[#F2B71F] text-xs font-semibold">Winnings are yours to keep</p>
+          <p className="text-neutral-400 text-[11px]">Redeem 1:1 to real USDC in your wallet</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Step indicator dots ──────────────────────────── */
 function StepDots({ total, active, onGoTo }: { total: number; active: number; onGoTo: (i: number) => void }) {
   return (
@@ -383,6 +447,12 @@ const SLIDES = [
     title: 'Redeem for Points',
     desc: 'Win tokens, earn points. Points count on the weekly leaderboard and top traders win real cash prizes every week.',
     Component: SlideRedeemPoints,
+  },
+  {
+    step: 4,
+    title: 'Ready for Real Stakes?',
+    desc: 'When you’re comfortable, switch to Paid Markets and trade the same way with real USDC. Winning shares redeem 1:1 for USDC straight to your wallet. Real money, not points.',
+    Component: SlidePaidMarkets,
   },
 ]
 
@@ -476,7 +546,7 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
         <div
           className="relative px-6"
           style={{
-            height: step === 0 ? '210px' : '290px',
+            height: step === 0 || step === 3 ? '210px' : '290px',
             overflow: 'hidden',
             transition: 'height 0.28s ease-in-out',
           }}

@@ -7,6 +7,7 @@ import Footer from '@/components/Footer'
 import FlashValue from '@/components/FlashValue'
 import EventPriceChart from '@/components/EventPriceChart'
 import MentionedSpinner from '@/components/MentionedSpinner'
+import MarketHowItWorks from '@/components/MarketHowItWorks'
 import { useWallet } from '@/contexts/WalletContext'
 import {
   fetchMarket,
@@ -525,6 +526,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
           )}
         </div>
         <span className="text-white font-semibold text-base truncate">{word.label}</span>
+        <div className="ml-auto flex-shrink-0">
+          <MarketHowItWorks variant="paid" compact />
+        </div>
       </div>
 
       {/* Buy / Sell tabs */}
