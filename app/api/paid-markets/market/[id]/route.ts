@@ -31,9 +31,12 @@ export const dynamic = 'force-dynamic'
 const TTL_MS = 3_000
 const STALE_MS = 30_000
 
-// On-chain market ids are small sequential u64s assigned by our admin flow; a
-// 12-digit ceiling is far beyond any real id while keeping keys bounded.
-const ID_PATTERN = /^\d{1,12}$/
+// On-chain market ids are u64s assigned by the admin flow as BigInt(Date.now())
+// (13 digits today). Accept any decimal that fits in a u64; the BigInt bound
+// check below rejects overflow, and together they keep cache-key cardinality
+// bounded to plausible ids.
+const ID_PATTERN = /^\d{1,20}$/
+const U64_MAX = 18_446_744_073_709_551_615n
 
 interface MarketSnapshot {
   /** base64-encoded market account data, or null if the account doesn't exist */
@@ -72,7 +75,7 @@ export async function GET(
   }
 
   const id = params.id
-  if (!ID_PATTERN.test(id)) {
+  if (!ID_PATTERN.test(id) || BigInt(id) > U64_MAX) {
     return NextResponse.json({ error: 'invalid market id' }, { status: 400 })
   }
 
