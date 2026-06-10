@@ -18,6 +18,8 @@ import {
   getTransactionEncoder,
 } from '@solana/kit'
 import { PAID_PROGRAM_ID, PAID_USDC_MINT, PAID_RPC_URL } from './solanaConfig'
+import { sendViaProxy, confirmSignature } from './rpcSend'
+import { fetchWith429Retry } from './fetchRetry'
 
 // ── Constants ────────────────────────────────────────────
 
@@ -758,9 +760,12 @@ export function sharesForUsdc(
 /**
  * Build, sign, and send a set of instructions to the configured cluster.
  *
- * Uses `signOnly` (Phantom's raw signTransaction, no simulate) to avoid the
+ * Uses `signOnly` (the wallet's raw signTransaction, no simulate) to avoid the
  * "base64 encoded too large" error from the mainnet preSimulate in the normal
- * signing flow. Broadcasts directly to the configured cluster RPC.
+ * signing flow. Broadcast + confirmation go through the shared lib/rpcSend
+ * helpers (RPC_URL resolves to the /api/paid-rpc proxy in the browser, where
+ * this always runs) so every send in the app has identical retry and
+ * indeterminate-timeout semantics.
  */
 export async function sendInstructions(
   signer: TransactionSendingSigner,
@@ -810,42 +815,12 @@ export async function sendInstructions(
 
   const signedBytes = await signOnly(txBytes)
 
-  const base64Tx = btoa(String.fromCharCode(...signedBytes))
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'sendTransaction',
-      params: [base64Tx, { encoding: 'base64', skipPreflight: true, preflightCommitment: 'confirmed' }],
-    }),
-  })
-  const json = await res.json()
-  if (json.error) {
-    throw new Error(json.error.message || JSON.stringify(json.error))
-  }
-
-  // Poll until confirmed (up to 30 s) so callers can trust the tx landed
-  const signature = json.result as string
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 1_500))
-    const statusRes = await fetch(RPC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
-        method: 'getSignatureStatuses',
-        params: [[signature], { searchTransactionHistory: false }],
-      }),
-    })
-    const statusJson = await statusRes.json()
-    const status = statusJson.result?.value?.[0]
-    if (status?.err) throw new Error(`Transaction failed on-chain: ${JSON.stringify(status.err)}`)
-    if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return
-  }
-  throw new Error('Transaction confirmation timed out after 30s')
+  // Broadcast (with safe transient retry) and poll until confirmed so callers
+  // can trust the tx landed. A confirmation timeout throws
+  // ConfirmationTimeoutError, which is explicit that the tx may still land —
+  // never present it to the user as a definite failure.
+  const signature = await sendViaProxy(signedBytes, RPC_URL)
+  await confirmSignature(signature, { proxyUrl: RPC_URL })
 }
 
 // ── Account deserialization ──────────────────────────────
@@ -1094,6 +1069,28 @@ export async function fetchLpPosition(
   if (!result.value) return null
   const bytes = decodeBase64(result.value.data)
   return deserializeLpPosition(bytes)
+}
+
+/**
+ * BROWSER-ONLY: market account + vault balance via the shared cached API route
+ * (/api/paid-markets/market/[id]) instead of two direct per-viewer RPC reads.
+ * The route returns the raw base64 account bytes, decoded here with the exact
+ * same deserializer as the direct-RPC path — byte-for-byte equivalent data,
+ * shared across all viewers server-side. Retries once on a 429 so a viewer on
+ * a crowded IP gets a delayed load instead of an error.
+ */
+export async function fetchMarketSnapshot(
+  marketId: string
+): Promise<{ market: UsdcMarketAccount | null; vaultBalance: bigint }> {
+  const res = await fetchWith429Retry(`/api/paid-markets/market/${marketId}`)
+  if (res.status === 404) return { market: null, vaultBalance: 0n }
+  if (!res.ok) throw new Error(`Failed to load market (${res.status})`)
+  const json = await res.json()
+  if (typeof json.account !== 'string') return { market: null, vaultBalance: 0n }
+  return {
+    market: deserializeMarketAccount(decodeBase64(json.account)),
+    vaultBalance: BigInt(json.vaultAmount ?? '0'),
+  }
 }
 
 /** Fetch vault USDC balance in base units (6 decimals) */

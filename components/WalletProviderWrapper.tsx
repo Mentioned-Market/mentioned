@@ -9,25 +9,26 @@ import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit'
 import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? ''
-const MAINNET_HTTP = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
-const MAINNET_WSS = MAINNET_HTTP.replace(/^https?:\/\//, 'wss://')
 
-// Pre-built RPC clients for Privy's embedded wallet transaction signing UI.
+// Public (keyless) endpoints only. Privy no longer broadcasts — every flow uses
+// its sign-only signTransaction and our same-origin proxies do the sending
+// (lib/rpcSend) — so this config is effectively vestigial. It exists because the
+// SDK requires an RPC map, and it must NEVER point at a keyed URL: anything
+// referenced here is inlined into the public browser bundle.
 const solanaMainnetRpc = {
-  rpc: createSolanaRpc(MAINNET_HTTP),
-  rpcSubscriptions: createSolanaRpcSubscriptions(MAINNET_WSS),
+  rpc: createSolanaRpc('https://api.mainnet-beta.solana.com'),
+  rpcSubscriptions: createSolanaRpcSubscriptions('wss://api.mainnet-beta.solana.com'),
 }
 
 // Only register a devnet RPC when the paid stack is actually on devnet — keeps
 // devnet out of the bundle on mainnet while staying one env-flag away.
-const solanaDevnetRpc = (() => {
-  if (SOLANA_CLUSTER !== 'devnet') return null
-  const http = process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL || 'https://api.devnet.solana.com'
-  return {
-    rpc: createSolanaRpc(http),
-    rpcSubscriptions: createSolanaRpcSubscriptions(http.replace(/^https?:\/\//, 'wss://')),
-  }
-})()
+const solanaDevnetRpc =
+  SOLANA_CLUSTER === 'devnet'
+    ? {
+        rpc: createSolanaRpc('https://api.devnet.solana.com'),
+        rpcSubscriptions: createSolanaRpcSubscriptions('wss://api.devnet.solana.com'),
+      }
+    : null
 
 export default function WalletProviderWrapper({
   children,

@@ -32,6 +32,13 @@ const active = CONFIG[SOLANA_CLUSTER]
 export const PAID_PROGRAM_ID = active.programId
 export const PAID_USDC_MINT = active.usdcMint
 
+// Public (keyless) endpoint for the active cluster. Used as the unset-var
+// fallback below and as the outage failover target in /api/paid-rpc.
+export const PAID_RPC_PUBLIC =
+  SOLANA_CLUSTER === 'mainnet'
+    ? 'https://api.mainnet-beta.solana.com'
+    : 'https://api.devnet.solana.com'
+
 // Keyed upstream RPC for the active cluster — SERVER-ONLY (no NEXT_PUBLIC), so the
 // Helius API key never reaches the browser bundle. Read at runtime, so changing it
 // in the host dashboard takes effect on restart with no rebuild. Used by the
@@ -41,9 +48,7 @@ export const PAID_RPC_UPSTREAM =
   (SOLANA_CLUSTER === 'mainnet'
     ? process.env.HELIUS_MAINNET_RPC_URL
     : process.env.HELIUS_DEVNET_RPC_URL) ||
-  (SOLANA_CLUSTER === 'mainnet'
-    ? 'https://api.mainnet-beta.solana.com'
-    : 'https://api.devnet.solana.com')
+  PAID_RPC_PUBLIC
 
 // What the paid SDK points its RPC client / fetches at:
 //   - server (window undefined): the keyed upstream directly — no point proxying

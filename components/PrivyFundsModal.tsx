@@ -117,7 +117,7 @@ interface PrivyFundsModalProps {
 }
 
 export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps) {
-  const { publicKey, balance, signer } = useWallet()
+  const { publicKey, balance, signer, refreshBalance } = useWallet()
 
   const [tab, setTab] = useState<'deposit' | 'withdraw'>('deposit')
   const [selectedToken, setSelectedToken] = useState<TokenKey>('SOL')
@@ -259,6 +259,9 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
       }
 
       await sendIxs(signer, ixs, MAINNET_RPC_PROXY)
+      // Refresh both balances now rather than waiting for the 30s poll — the
+      // user is looking at these numbers when the send completes.
+      refreshBalance()
       await fetchTokenBalances()
 
       setSuccess(`Sent ${qty} ${selectedToken} successfully`)

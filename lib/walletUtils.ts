@@ -2,8 +2,13 @@
 
 import { getWallets } from '@wallet-standard/app'
 import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
+import { sendViaProxy } from '@/lib/rpcSend'
 
 const SOLANA_CHAIN = 'solana:mainnet-beta'
+// Privy's internal chain id format (differs from Wallet Standard's
+// 'solana:mainnet-beta'). The Jupiter flows that come through here are
+// mainnet-only, so this is fixed rather than cluster-driven.
+const PRIVY_CHAIN = 'solana:mainnet'
 
 interface SignAndSendFeature {
   signAndSendTransaction(
@@ -118,23 +123,6 @@ async function preSimulate(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Send a signed transaction via the server-side RPC proxy and return the signature.
- */
-async function sendRawTransaction(signedTxBytes: Uint8Array): Promise<string> {
-  const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
-  const res = await fetch('/api/rpc/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ transaction: base64Tx }),
-  })
-  const json = await res.json()
-  if (!res.ok) {
-    throw new Error(`sendTransaction failed: ${json.error || 'Unknown error'}`)
-  }
-  return json.signature as string
-}
-
-/**
  * Sign and send a base64-encoded transaction using whatever wallet is connected.
  *
  * For Phantom with multi-signer transactions:
@@ -155,7 +143,7 @@ export async function signAndSendTx(
   if (walletType === 'phantom') {
     return signAndSendPhantom(txBytes, ownerPubkey)
   } else {
-    return signAndSendPrivy(txBytes, ownerPubkey)
+    return signAndSendPrivy(txBytes)
   }
 }
 
@@ -196,7 +184,7 @@ async function signAndSendPhantom(
     const fullySigned = restoreSignatures(result.signedTransaction, saved)
 
     // Send via RPC
-    return sendRawTransaction(fullySigned)
+    return sendViaProxy(fullySigned)
   }
 
   // Fallback: signAndSendTransaction
@@ -214,41 +202,40 @@ async function signAndSendPhantom(
     .join('')
 }
 
-async function signAndSendPrivy(
-  txBytes: Uint8Array,
-  ownerPubkey: string
-): Promise<string> {
+/**
+ * Privy sign-only path: the embedded wallet only signs (pure crypto, no RPC);
+ * the broadcast goes through our same-origin proxy. Mirrors the Phantom
+ * two-step flow above, including the strip/restore dance so Jupiter's
+ * pre-applied co-signatures survive signing. Returns the base58 signature.
+ */
+async function signAndSendPrivy(txBytes: Uint8Array): Promise<string> {
   const wallet = getPrivySolanaProvider()
-  if (!wallet) throw new Error('Privy Solana wallet not connected')
+  const signTx = getPrivySignTx()
+  if (!wallet || !signTx) throw new Error('Privy Solana wallet not connected')
 
-  const wallets = getWallets().get()
+  // Surface failures before the wallet signs (parity with the Phantom path —
+  // previously Privy transactions were never pre-simulated).
+  await preSimulate(txBytes)
 
-  for (const w of wallets) {
-    if (!('solana:signAndSendTransaction' in w.features)) continue
-    const account = w.accounts.find((a) => a.address === ownerPubkey)
-    if (!account) continue
+  const { stripped, saved } = stripSignatures(txBytes)
 
-    const signAndSend = w.features[
-      'solana:signAndSendTransaction'
-    ] as SignAndSendFeature
-    const chain =
-      account.chains.find((c) => c.startsWith('solana:')) || SOLANA_CHAIN
+  const { signedTransaction } = await signTx({
+    transaction: stripped,
+    wallet,
+    chain: PRIVY_CHAIN,
+  })
 
-    const [result] = await signAndSend.signAndSendTransaction({
-      transaction: txBytes,
-      account,
-      chain,
-    })
-    return Array.from(result.signature)
-      .map((b: number) => b.toString(16).padStart(2, '0'))
-      .join('')
-  }
-
-  throw new Error('No wallet-standard wallet found for Privy address')
+  const fullySigned = restoreSignatures(
+    new Uint8Array(signedTransaction),
+    saved
+  )
+  return sendViaProxy(fullySigned)
 }
 
 /**
- * Module-level store for the Privy Solana wallet reference.
+ * Module-level store for the Privy Solana wallet reference and its sign-only
+ * function. Both are set by WalletContext (which owns the Privy React hooks)
+ * so this non-React module can sign without importing Privy.
  */
 let _privySolanaProvider: any = null
 
@@ -258,4 +245,20 @@ export function setPrivySolanaProvider(provider: any) {
 
 function getPrivySolanaProvider(): any {
   return _privySolanaProvider
+}
+
+type PrivySignTxFn = (input: {
+  transaction: Uint8Array
+  wallet: any
+  chain: any
+}) => Promise<{ signedTransaction: Uint8Array }>
+
+let _privySignTx: PrivySignTxFn | null = null
+
+export function setPrivySignTx(fn: PrivySignTxFn | null) {
+  _privySignTx = fn
+}
+
+function getPrivySignTx(): PrivySignTxFn | null {
+  return _privySignTx
 }

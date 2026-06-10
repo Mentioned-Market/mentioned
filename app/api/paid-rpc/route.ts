@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getClientIp } from '@/lib/clientIp'
-import { PAID_RPC_UPSTREAM } from '@/lib/solanaConfig'
+import { checkRateLimit } from '@/lib/rateLimit'
+import { forwardRpc } from '@/lib/rpcUpstream'
+import { PAID_RPC_UPSTREAM, PAID_RPC_PUBLIC } from '@/lib/solanaConfig'
 
 // Same-origin passthrough to the paid (USDC AMM) cluster RPC. The browser talks to
 // this route so the Helius API key stays server-side (read from HELIUS_MAINNET_RPC_URL
@@ -15,6 +17,10 @@ import { PAID_RPC_UPSTREAM } from '@/lib/solanaConfig'
 //                          per-market getAccountInfo via fetchAllMarketsWithFallback)
 //  - no batch requests  → one POST maps to exactly one upstream call
 //  - body-size cap      → a single legit call (incl. a base64 tx) is tiny
+//
+// Resilience: forwardRpc fails over to the public cluster endpoint when the keyed
+// upstream is unreachable / 5xx / 429, so paid reads and sends degrade instead of
+// hard-failing during a Helius outage.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,35 +40,11 @@ const ALLOWED_METHODS = new Set([
 
 const MAX_BODY_BYTES = 100 * 1024 // 100 KB — a single call, even with a base64 tx, is well under this
 
-// Per-IP sliding-window rate limit. Paid loads come in bursts (a few getAccountInfo +
-// vault/LP reads per market, then a sign/simulate/send/poll sequence per trade), so the
-// ceiling is more generous than the general proxy while still 1-for-1 credit-capped.
-// In-memory, therefore per instance — effective ceiling is N replicas × this.
-const RATE_LIMIT_WINDOW_MS = 60 * 1000
+// Per-IP ceiling. Paid loads come in bursts (a few getAccountInfo + vault/LP reads
+// per market, then a sign/simulate/send/poll sequence per trade), so this is more
+// generous than the general proxy while still 1-for-1 credit-capped. The limiter
+// (lib/rateLimit) is per process — effective ceiling is N replicas × this.
 const RATE_LIMIT_MAX = 240
-const rateLimitMap = new Map<string, number[]>()
-
-function rateLimitRetryAfter(ip: string): number {
-  const now = Date.now()
-  const recent = (rateLimitMap.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS)
-  if (recent.length >= RATE_LIMIT_MAX) {
-    rateLimitMap.set(ip, recent)
-    const retryMs = RATE_LIMIT_WINDOW_MS - (now - recent[0])
-    return Math.max(1, Math.ceil(retryMs / 1000))
-  }
-  recent.push(now)
-  rateLimitMap.set(ip, recent)
-  return 0
-}
-
-setInterval(() => {
-  const now = Date.now()
-  for (const [ip, timestamps] of rateLimitMap) {
-    const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS)
-    if (recent.length === 0) rateLimitMap.delete(ip)
-    else rateLimitMap.set(ip, recent)
-  }
-}, 5 * 60 * 1000)
 
 function rpcError(id: unknown, code: number, message: string, status: number) {
   return NextResponse.json(
@@ -73,13 +55,11 @@ function rpcError(id: unknown, code: number, message: string, status: number) {
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req)
-  if (ip) {
-    const retryAfter = rateLimitRetryAfter(ip)
-    if (retryAfter > 0) {
-      const res = rpcError(null, -32005, 'Rate limit exceeded', 429)
-      res.headers.set('Retry-After', String(retryAfter))
-      return res
-    }
+  const limit = checkRateLimit('paid-rpc', ip, RATE_LIMIT_MAX)
+  if (!limit.ok) {
+    const res = rpcError(null, -32005, 'Rate limit exceeded', 429)
+    res.headers.set('Retry-After', String(limit.retryAfter))
+    return res
   }
 
   const contentLength = Number(req.headers.get('content-length') || 0)
@@ -110,15 +90,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(PAID_RPC_UPSTREAM, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    })
-    const text = await res.text()
-    return new NextResponse(text, {
-      status: res.status,
+    const upstream = await forwardRpc(body, PAID_RPC_UPSTREAM, PAID_RPC_PUBLIC)
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
       headers: { 'Content-Type': 'application/json' },
     })
   } catch {

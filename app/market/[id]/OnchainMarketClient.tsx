@@ -10,8 +10,7 @@ import MentionedSpinner from '@/components/MentionedSpinner'
 import MarketHowItWorks from '@/components/MarketHowItWorks'
 import { useWallet } from '@/contexts/WalletContext'
 import {
-  fetchMarket,
-  fetchVaultBalance,
+  fetchMarketSnapshot,
   fetchTokenBalance,
   fetchUsdcBalance,
   createAtaIx,
@@ -204,14 +203,15 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
   const loadMarket = useCallback(async () => {
     try {
-      const [mkt, vault, metaRes] = await Promise.all([
-        fetchMarket(id),
-        fetchVaultBalance(id),
+      // Market account + vault come from the shared cached snapshot route (one
+      // upstream read per ~3s for ALL viewers) instead of per-viewer RPC reads.
+      const [snap, metaRes] = await Promise.all([
+        fetchMarketSnapshot(marketId),
         fetch(`/api/paid-markets/metadata?id=${marketId}`).then(r => r.ok ? r.json() : null),
       ])
-      if (!mkt) { setError('Market not found'); setLoading(false); return }
-      setMarket(mkt)
-      setVaultBalance(vault)
+      if (!snap.market) { setError('Market not found'); setLoading(false); return }
+      setMarket(snap.market)
+      setVaultBalance(snap.vaultBalance)
       if (metaRes && !metaRes.error) setMetadata(metaRes)
       setError(null)
     } catch (e) {

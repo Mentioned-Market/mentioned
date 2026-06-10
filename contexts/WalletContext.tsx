@@ -21,12 +21,12 @@ import {
 import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth'
 import {
   useWallets as usePrivySolanaWallets,
-  useSignAndSendTransaction,
   useSignTransaction as usePrivySignTransaction,
   useCreateWallet as useCreateSolanaWallet,
 } from '@privy-io/react-auth/solana'
-import { setPrivySolanaProvider } from '@/lib/walletUtils'
+import { setPrivySolanaProvider, setPrivySignTx } from '@/lib/walletUtils'
 import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
+import { sendViaProxy, confirmSignature } from '@/lib/rpcSend'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
@@ -38,7 +38,6 @@ const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
 // disturbing the app's other (always-mainnet) flows.
 const PAID_PHANTOM_CHAIN = SOLANA_CLUSTER === 'devnet' ? 'solana:devnet' : SOLANA_CHAIN
 const PAID_PRIVY_CHAIN = SOLANA_CLUSTER === 'devnet' ? 'solana:devnet' : PRIVY_SOLANA_CHAIN
-const RPC_SEND_PROXY = '/api/rpc/send'
 const LAMPORTS_PER_SOL = 1_000_000_000
 
 const FEAT_CONNECT = 'standard:connect'
@@ -115,6 +114,8 @@ interface WalletContextType {
   profileLoading: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
   refreshProfile: () => void
+  /** Immediately re-fetch the SOL balance (call after any send so the UI doesn't wait for the 30s poll) */
+  refreshBalance: () => void
   /** Directly update the cached username (e.g. after a successful save, before refetch) */
   setCachedUsername: (username: string | null) => void
   /** Whether the session has been verified server-side */
@@ -135,7 +136,7 @@ const SSR_DEFAULT: WalletContextType = {
   privyReady: false,
   connect: () => {}, disconnect: () => {}, setMode: () => {}, setShowConnectModal: () => {},
   connectPhantom: async () => {}, connectPrivy: () => {}, connectGoogle: () => {}, connectX: () => {},
-  refreshProfile: () => {}, setCachedUsername: () => {},
+  refreshProfile: () => {}, refreshBalance: () => {}, setCachedUsername: () => {},
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -181,21 +182,11 @@ async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Send a signed transaction via the server-side RPC proxy.
+ * Send a signed transaction via the same-origin RPC proxy.
  * Returns the base58 signature as a Uint8Array (text-encoded).
  */
 async function sendRawTx(signedTxBytes: Uint8Array): Promise<Uint8Array> {
-  const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
-  const res = await fetch(RPC_SEND_PROXY, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ transaction: base64Tx }),
-  })
-  const json = await res.json()
-  if (!res.ok) {
-    throw new Error(`sendTransaction failed: ${json.error || 'Unknown error'}`)
-  }
-  const sigStr = json.signature as string
+  const sigStr = await sendViaProxy(signedTxBytes, MAINNET_RPC_PROXY)
   return new TextEncoder().encode(sigStr)
 }
 
@@ -292,20 +283,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { initOAuth } = useLoginWithOAuth()
   const { wallets: privySolanaWallets, ready: privySolanaReady } =
     usePrivySolanaWallets()
-  const { signAndSendTransaction: privySignAndSend } =
-    useSignAndSendTransaction()
   const { createWallet: createSolanaWallet } = useCreateSolanaWallet()
   const createSolanaWalletRef = useRef(createSolanaWallet)
   useEffect(() => { createSolanaWalletRef.current = createSolanaWallet }, [createSolanaWallet])
 
-  const privySignAndSendRef = useRef(privySignAndSend)
-  useEffect(() => {
-    privySignAndSendRef.current = privySignAndSend
-  }, [privySignAndSend])
-
   const { signTransaction: privySignTx } = usePrivySignTransaction()
   const privySignTxRef = useRef(privySignTx)
-  useEffect(() => { privySignTxRef.current = privySignTx }, [privySignTx])
+  useEffect(() => {
+    privySignTxRef.current = privySignTx
+    // Mirror into lib/walletUtils so the non-React Jupiter flow can sign too.
+    setPrivySignTx(privySignTx as any)
+  }, [privySignTx])
 
   const privyWalletRef = useRef<any>(null)
 
@@ -500,6 +488,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWalletType('privy')
     setConnecting(false)
 
+    // Sign-only flow: Privy signs (pure crypto, no RPC), our same-origin proxy
+    // broadcasts and confirms. Privy never needs an RPC endpoint, so no keyed
+    // URL ships in the browser bundle. Confirmation is awaited because callers
+    // (e.g. PrivyFundsModal) refetch balances as soon as this resolves.
     const encoder = getTransactionEncoder()
     const privySigner: TransactionSendingSigner = {
       address: toAddress(embeddedWalletAddress),
@@ -507,12 +499,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const results = []
         for (const tx of transactions) {
           const txBytes = new Uint8Array(encoder.encode(tx))
-          const result = await privySignAndSendRef.current({
+          // Surface failures before signing (parity with the Phantom signer).
+          await preSimulateTx(txBytes)
+          const { signedTransaction } = await privySignTxRef.current({
             transaction: txBytes,
             wallet: privyWalletRef.current,
             chain: PRIVY_SOLANA_CHAIN as any,
           })
-          results.push(result.signature)
+          const signature = await sendViaProxy(
+            new Uint8Array(signedTransaction),
+            MAINNET_RPC_PROXY
+          )
+          await confirmSignature(signature, { proxyUrl: MAINNET_RPC_PROXY })
+          results.push(new TextEncoder().encode(signature))
         }
         return results as any
       },
@@ -545,7 +544,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Poll the balance only while the tab is visible — a backgrounded/minimized tab
   // burns RPC credits for a balance the user can't see. The hook pauses on hidden
   // and resumes (with an immediate fetch) when the tab is shown again.
-  useVisibleInterval(fetchBalance, 10_000)
+  //
+  // 30s is deliberate: SOL balance only changes when the user acts (covered by
+  // refreshBalance calls after sends + the immediate fetch on refocus/connect)
+  // or by external deposits, where 30s latency is invisible. This poll is the
+  // single largest RPC credit line at scale — keep it lean.
+  useVisibleInterval(fetchBalance, 30_000)
 
   // Fetch immediately on connect / account switch rather than waiting for the next
   // poll tick — useVisibleInterval only re-fires on visibility change, not on pubkey.
@@ -867,6 +871,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         profileLoading,
         walletReady,
         refreshProfile,
+        refreshBalance: fetchBalance,
         setCachedUsername: setUsername,
         authenticated,
         connecting,
