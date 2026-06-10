@@ -18,6 +18,7 @@ import LoadingScreen from '@/components/LoadingScreen'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import { fetchWith429Retry } from '@/lib/fetchRetry'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import Pagination, { usePagination } from '@/components/Pagination'
 
@@ -753,7 +754,7 @@ export default function ProfilePage() {
     if (!profile?.wallet) return
     setLoadingOnchainPositions(true)
     try {
-      const res = await fetch(`/api/paid-markets/user-positions?wallet=${profile.wallet}`)
+      const res = await fetchWith429Retry(`/api/paid-markets/user-positions?wallet=${profile.wallet}`)
       if (res.ok) setOnchainPositions((await res.json()).positions || [])
     } catch { /* ignore */ }
     setLoadingOnchainPositions(false)
@@ -763,7 +764,7 @@ export default function ProfilePage() {
     if (!profile?.wallet) return
     setLoadingOnchainHistory(true)
     try {
-      const res = await fetch(`/api/paid-markets/user-history?wallet=${profile.wallet}`)
+      const res = await fetchWith429Retry(`/api/paid-markets/user-history?wallet=${profile.wallet}`)
       if (res.ok) setOnchainHistory((await res.json()).trades || [])
     } catch { /* ignore */ }
     setLoadingOnchainHistory(false)

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
-import { fetchAllMarketsWithFallback, impliedYesPrice, MarketStatus } from '@/lib/mentionMarketUsdc'
-import { getAllPaidMarketMetadata, getPaidMarketTraderCounts } from '@/lib/db'
+import { impliedYesPrice, MarketStatus } from '@/lib/mentionMarketUsdc'
+import { getPaidMarketTraderCounts } from '@/lib/db'
 import { isAdmin } from '@/lib/adminAuth'
+import { cached } from '@/lib/ttlCache'
+import { getMarketsAndMetadataCached } from '@/lib/paidMarketsServer'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,11 +22,22 @@ export interface PaidMarketSummary {
 }
 
 export async function GET() {
-  const allMetadata = await getAllPaidMarketMetadata()
-  const [markets, traderCounts] = await Promise.all([
-    fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id)),
-    getPaidMarketTraderCounts(allMetadata.map(m => m.market_id)),
-  ])
+  // This response is identical for every visitor and re-prices every market via
+  // upstream RPC, so it's cached rather than rate-limited: one cache key means
+  // a flood of callers can't amplify into more than one RPC fan-out per TTL, and
+  // legit shared-IP traffic is never throttled. Stale-on-error keeps the markets
+  // page populated through transient RPC blips.
+  const summaries = await cached<PaidMarketSummary[]>(
+    'paid:list',
+    { ttlMs: 8_000, staleMs: 60_000 },
+    computeMarketList,
+  )
+  return NextResponse.json({ markets: summaries })
+}
+
+async function computeMarketList(): Promise<PaidMarketSummary[]> {
+  const { metadata: allMetadata, markets } = await getMarketsAndMetadataCached()
+  const traderCounts = await getPaidMarketTraderCounts(allMetadata.map(m => m.market_id))
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
 
@@ -65,5 +78,5 @@ export async function GET() {
     return Number(BigInt(a.locksAt) - BigInt(b.locksAt))
   })
 
-  return NextResponse.json({ markets: summaries })
+  return summaries
 }

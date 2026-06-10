@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { type Address } from '@solana/kit'
 import {
-  fetchAllMarketsWithFallback,
   getAssociatedTokenAddress,
   impliedYesPrice,
   estimateSellReturn,
   createRpc,
   MarketStatus,
 } from '@/lib/mentionMarketUsdc'
-import { getAllPaidMarketMetadata, pool } from '@/lib/db'
+import { pool } from '@/lib/db'
+import { getMarketsAndMetadataCached } from '@/lib/paidMarketsServer'
 import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
+import { getClientIp } from '@/lib/clientIp'
+import { checkRateLimit } from '@/lib/rateLimit'
+import { cached } from '@/lib/ttlCache'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,15 +40,36 @@ export interface OnchainPosition {
 }
 
 export async function GET(req: NextRequest) {
+  // Per-IP cap: this route reads on-chain positions via several upstream RPC
+  // calls, keyed only by an attacker-controlled `wallet` param otherwise.
+  const rl = checkRateLimit('paid:user-positions', getClientIp(req), 30)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    )
+  }
+
   const wallet = req.nextUrl.searchParams.get('wallet')
   if (!wallet || wallet.length < 32) {
     return NextResponse.json({ error: 'wallet required' }, { status: 400 })
   }
+
+  // Short per-wallet cache so the polled positions tab (and repeat loads) reuse
+  // one RPC fan-out within the TTL; single-flight collapses concurrent loads.
+  const positions = await cached(
+    `paid:user-positions:${SOLANA_CLUSTER}:${wallet}`,
+    { ttlMs: 5_000, staleMs: 15_000 },
+    () => computeUserPositions(wallet),
+  )
+  return NextResponse.json({ positions })
+}
+
+async function computeUserPositions(wallet: string): Promise<OnchainPosition[]> {
   const walletAddr = wallet as Address
 
-  const allMetadata = await getAllPaidMarketMetadata()
-  const [markets, buyRows] = await Promise.all([
-    fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id)),
+  const [{ metadata: allMetadata, markets }, buyRows] = await Promise.all([
+    getMarketsAndMetadataCached(),
     pool.query(
       `SELECT market_id AS "marketId", word_index AS "wordIndex", direction,
               SUM(quantity) AS qty, SUM(cost) AS cost
@@ -188,5 +212,5 @@ export async function GET(req: NextRequest) {
     return Number(BigInt(b.marketId) - BigInt(a.marketId))
   })
 
-  return NextResponse.json({ positions })
+  return positions
 }

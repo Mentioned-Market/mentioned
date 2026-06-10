@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { pool, getAllPaidMarketMetadata } from '@/lib/db'
-import { fetchAllMarketsWithFallback } from '@/lib/mentionMarketUsdc'
+import { pool } from '@/lib/db'
+import { getMarketsAndMetadataCached } from '@/lib/paidMarketsServer'
 import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
+import { getClientIp } from '@/lib/clientIp'
+import { checkRateLimit } from '@/lib/rateLimit'
+import { cached } from '@/lib/ttlCache'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,12 +28,33 @@ export interface ClosedPosition {
 }
 
 export async function GET(req: NextRequest) {
+  // Per-IP cap: history reconstruction reads on-chain market state via upstream
+  // RPC, keyed only by an attacker-controlled `wallet` param otherwise.
+  const rl = checkRateLimit('paid:user-history', getClientIp(req), 30)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    )
+  }
+
   const wallet = req.nextUrl.searchParams.get('wallet')
   if (!wallet || wallet.length < 32) {
     return NextResponse.json({ error: 'wallet required' }, { status: 400 })
   }
 
-  const [rows, allMetadata] = await Promise.all([
+  // Short per-wallet cache so the polled history tab (and repeat loads) reuse one
+  // RPC fan-out within the TTL; single-flight collapses concurrent loads.
+  const data = await cached(
+    `paid:user-history:${SOLANA_CLUSTER}:${wallet}`,
+    { ttlMs: 5_000, staleMs: 15_000 },
+    () => computeUserHistory(wallet),
+  )
+  return NextResponse.json(data)
+}
+
+async function computeUserHistory(wallet: string) {
+  const [rows, { metadata: allMetadata, markets: allMarkets }] = await Promise.all([
     pool.query(
       `SELECT
          te.signature,
@@ -49,9 +73,8 @@ export async function GET(req: NextRequest) {
        LIMIT 5000`,
       [wallet, SOLANA_CLUSTER],
     ),
-    getAllPaidMarketMetadata(),
+    getMarketsAndMetadataCached(),
   ])
-  const allMarkets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
 
   const metaByMarketId = new Map(allMetadata.map(m => [m.market_id, m]))
   const wordsByMarketId = new Map(
@@ -166,5 +189,5 @@ export async function GET(req: NextRequest) {
 
   closedPositions.sort((x, y) => new Date(y.closedAt).getTime() - new Date(x.closedAt).getTime())
 
-  return NextResponse.json({ trades, closedPositions })
+  return { trades, closedPositions }
 }

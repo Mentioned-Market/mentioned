@@ -4,10 +4,11 @@ import {
   USDC_MINT,
   RPC_URL,
   getAssociatedTokenAddress,
-  fetchAllMarketsWithFallback,
   estimateSellReturn,
 } from '@/lib/mentionMarketUsdc'
-import { getAllPaidMarketMetadata } from '@/lib/db'
+import { getMarketsAndMetadataCached } from '@/lib/paidMarketsServer'
+import { getClientIp } from '@/lib/clientIp'
+import { checkRateLimit } from '@/lib/rateLimit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -47,6 +48,17 @@ setInterval(() => {
 }, 60_000)
 
 export async function GET(req: NextRequest) {
+  // Per-IP cap first: this route fans out into many upstream RPC calls, and the
+  // per-wallet cooldown below is keyed on an attacker-controlled query param, so
+  // rotating `wallet` would otherwise bypass it entirely.
+  const rl = checkRateLimit('paid:wallet-summary', getClientIp(req), 30)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    )
+  }
+
   const wallet = req.nextUrl.searchParams.get('wallet')
   if (!wallet || wallet.length < 32) {
     return NextResponse.json({ error: 'wallet required' }, { status: 400 })
@@ -64,12 +76,11 @@ export async function GET(req: NextRequest) {
 
   const walletAddr = wallet as Address
 
-  // USDC cash balance + portfolio value in parallel
-  const [usdcAta, allMetadata] = await Promise.all([
+  // USDC cash balance + shared cached market snapshot in parallel
+  const [usdcAta, { markets }] = await Promise.all([
     getAssociatedTokenAddress(USDC_MINT, walletAddr),
-    getAllPaidMarketMetadata(),
+    getMarketsAndMetadataCached(),
   ])
-  const markets = await fetchAllMarketsWithFallback(allMetadata.map(m => m.market_id))
 
   // Batch-fetch all position ATAs + the USDC wallet ATA
   type AtaRef = { marketId: bigint; wordIndex: number; side: 'YES' | 'NO'; ata: Address }

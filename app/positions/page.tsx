@@ -7,6 +7,7 @@ import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import { fetchWith429Retry } from '@/lib/fetchRetry'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import Pagination, { usePagination } from '@/components/Pagination'
 import {
@@ -372,7 +373,7 @@ export default function PositionsPage() {
     }
     setLoadingOnchain(true)
     try {
-      const res = await fetch(`/api/paid-markets/user-positions?wallet=${publicKey}`)
+      const res = await fetchWith429Retry(`/api/paid-markets/user-positions?wallet=${publicKey}`)
       if (res.ok) {
         const json = await res.json()
         const positions = (json.positions || []).filter(
@@ -392,7 +393,7 @@ export default function PositionsPage() {
     }
     setLoadingOnchainHistory(true)
     try {
-      const res = await fetch(`/api/paid-markets/user-history?wallet=${publicKey}`)
+      const res = await fetchWith429Retry(`/api/paid-markets/user-history?wallet=${publicKey}`)
       if (res.ok) {
         const json = await res.json()
         setOnchainHistory(json.closedPositions || [])
