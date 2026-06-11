@@ -16,6 +16,17 @@ function formatUsdc(baseUnits: string | null): string {
   return '$' + (Number(BigInt(baseUnits)) / 1_000_000).toFixed(2)
 }
 
+// Last successful wallet summary, kept at module level so it survives the
+// Header remount on every page navigation. Without it, each navigation starts
+// from null, refetches, and often hits the API's 5s/wallet cooldown — leaving
+// the balance pill empty for seconds even though we showed values moments ago.
+let summaryCache: { wallet: string; usdc: string | null; portfolio: string | null } | null = null
+
+// Shimmer placeholder sized to match the balance text while a first load runs.
+function BalanceSkeleton() {
+  return <div className="h-3.5 w-12 rounded bg-white/10 animate-pulse" aria-hidden="true" />
+}
+
 export default function Header() {
   const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType, connecting, refreshProfile } = useWallet()
   const { showAchievementToast } = useAchievements()
@@ -24,8 +35,14 @@ export default function Header() {
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
   const [showFundsModal, setShowFundsModal] = useState(false)
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
-  const [portfolioValue, setPortfolioValue] = useState<string | null>(null)
+  // Seed from the module cache so navigations show the last-known values
+  // immediately while a background refresh runs.
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(
+    () => (summaryCache && summaryCache.wallet === publicKey ? summaryCache.usdc : null)
+  )
+  const [portfolioValue, setPortfolioValue] = useState<string | null>(
+    () => (summaryCache && summaryCache.wallet === publicKey ? summaryCache.portfolio : null)
+  )
   const [refreshingSummary, setRefreshingSummary] = useState(false)
   const [refreshCooldown, setRefreshCooldown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -100,20 +117,24 @@ export default function Header() {
       .then(async r => {
         // API enforces a 5s/wallet cooldown; a fresh page load can collide with a
         // recent refresh — retry once after the cooldown so the values still fill.
+        // Keep refreshingSummary true through the wait so the skeleton/spinner
+        // doesn't flash off and back on.
         if (r.status === 429 && !isRetry) {
           const retryAfter = Number(r.headers.get('Retry-After') || 5)
           setTimeout(() => loadWalletSummary(true), retryAfter * 1000)
-          return null
+          return 'retry-scheduled' as const
         }
         return r.ok ? r.json() : null
       })
       .then(data => {
+        if (data === 'retry-scheduled') return
+        setRefreshingSummary(false)
         if (!data) return
         setUsdcBalance(data.usdcBalance)
         setPortfolioValue(data.portfolioValue)
+        summaryCache = { wallet: publicKey, usdc: data.usdcBalance, portfolio: data.portfolioValue }
       })
-      .catch(() => {})
-      .finally(() => setRefreshingSummary(false))
+      .catch(() => setRefreshingSummary(false))
   }, [publicKey])
 
   // Manual refresh with a 5s client-side cooldown so the button can't be spammed
@@ -131,6 +152,11 @@ export default function Header() {
       setPortfolioValue(null)
       return
     }
+    // On wallet switch, drop the previous wallet's values (or restore this
+    // wallet's cached ones) before the background refresh lands.
+    const cached = summaryCache && summaryCache.wallet === publicKey ? summaryCache : null
+    setUsdcBalance(cached ? cached.usdc : null)
+    setPortfolioValue(cached ? cached.portfolio : null)
     loadWalletSummary()
   }, [connected, publicKey, loadWalletSummary])
 
@@ -170,21 +196,23 @@ export default function Header() {
             How it works
           </button>
 
-          {/* USDC balance display — desktop only, logged-in only */}
-          {connected && (usdcBalance !== null || portfolioValue !== null) && (
+          {/* USDC balance display — desktop only, logged-in only. Rendered as soon
+              as the wallet connects: cached values show instantly, a shimmer
+              covers the first load instead of the pill being invisible. */}
+          {connected && (
             <div className="hidden md:flex items-center gap-1">
               <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div className="text-center">
                   <div className="text-[10px] text-neutral-500 font-medium leading-none mb-0.5">Portfolio</div>
                   <div className="text-sm font-bold text-apple-green leading-none tabular-nums">
-                    {portfolioValue !== null ? formatUsdc(portfolioValue) : '—'}
+                    {portfolioValue !== null ? formatUsdc(portfolioValue) : refreshingSummary ? <BalanceSkeleton /> : '—'}
                   </div>
                 </div>
                 <div className="w-px h-6 bg-white/10" />
                 <div className="text-center">
                   <div className="text-[10px] text-neutral-500 font-medium leading-none mb-0.5">Cash</div>
                   <div className="text-sm font-bold text-apple-green leading-none tabular-nums">
-                    {usdcBalance !== null ? formatUsdc(usdcBalance) : '—'}
+                    {usdcBalance !== null ? formatUsdc(usdcBalance) : refreshingSummary ? <BalanceSkeleton /> : '—'}
                   </div>
                 </div>
                 <button
