@@ -22,6 +22,13 @@ function formatUsdc(baseUnits: string | null): string {
 // the balance pill empty for seconds even though we showed values moments ago.
 let summaryCache: { wallet: string; usdc: string | null; portfolio: string | null } | null = null
 
+// When the last summary fetch started, per wallet — module level for the same
+// reason as summaryCache. Navigations within SUMMARY_REFRESH_MIN_MS of a fetch
+// reuse cached values instead of refetching, so route changes can't trip the
+// API's 5s/wallet cooldown.
+let lastSummaryFetch: { wallet: string; at: number } | null = null
+const SUMMARY_REFRESH_MIN_MS = 10_000
+
 // Shimmer placeholder sized to match the balance text while a first load runs.
 function BalanceSkeleton() {
   return <div className="h-3.5 w-12 rounded bg-white/10 animate-pulse" aria-hidden="true" />
@@ -112,6 +119,7 @@ export default function Header() {
   // fresh read after trading.
   const loadWalletSummary = useCallback((isRetry = false) => {
     if (!publicKey) return
+    if (!isRetry) lastSummaryFetch = { wallet: publicKey, at: Date.now() }
     setRefreshingSummary(true)
     fetch(`/api/paid-markets/wallet-summary?wallet=${publicKey}`)
       .then(async r => {
@@ -157,6 +165,17 @@ export default function Header() {
     const cached = summaryCache && summaryCache.wallet === publicKey ? summaryCache : null
     setUsdcBalance(cached ? cached.usdc : null)
     setPortfolioValue(cached ? cached.portfolio : null)
+    // Header remounts on every navigation; skip the refetch when a fetch for
+    // this wallet ran recently so route changes don't hit the API cooldown.
+    // Only skip when cached values exist — otherwise the pill would sit empty.
+    if (
+      cached &&
+      lastSummaryFetch &&
+      lastSummaryFetch.wallet === publicKey &&
+      Date.now() - lastSummaryFetch.at < SUMMARY_REFRESH_MIN_MS
+    ) {
+      return
+    }
     loadWalletSummary()
   }, [connected, publicKey, loadWalletSummary])
 
