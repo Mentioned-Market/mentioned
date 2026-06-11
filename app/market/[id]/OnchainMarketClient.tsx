@@ -68,6 +68,41 @@ interface OnchainTrade {
 
 // ── Helpers ──────────────────────────────────────────────
 
+// Turn raw on-chain / wallet error text into a clear, user-facing message. The
+// program surfaces Anchor messages like "Return is below min_return slippage
+// limit", which are accurate but jargon; map the ones a trader can actually hit.
+function friendlyTradeError(raw: string): string {
+  const m = raw.toLowerCase()
+  if (m.includes('min_return') || m.includes('max_cost') || m.includes('slippage'))
+    return 'The price moved while your trade was processing. Please try again.'
+  if (m.includes('not open for trading') || m.includes('market is paused') || m.includes('trading is locked') || m.includes('locks_at'))
+    return 'Trading is closed for this market right now.'
+  if (m.includes('already resolved'))
+    return 'This has already resolved, so it can no longer be traded.'
+  if (m.includes('parameter b is zero') || m.includes('pool has no balance') || m.includes('zeroliquidity'))
+    return 'This market has no liquidity to trade against yet.'
+  if (m.includes('no tokens to redeem'))
+    return 'There is nothing to redeem here.'
+  if (m.includes('not yet resolved'))
+    return 'This market has not resolved yet, so there is nothing to redeem.'
+  if (m.includes('direction does not match winning outcome'))
+    return 'These shares did not win, so there is nothing to redeem.'
+  if (m.includes('insufficient token balance'))
+    return 'You do not have enough shares to sell.'
+  if ((m.includes('insufficient') && m.includes('lamport')) || m.includes('resultwithnegativelamports'))
+    return 'You need a little SOL for network fees. Add SOL and try again.'
+  if (m.includes('insufficient balance') || m.includes('insufficient funds'))
+    return 'Insufficient balance for this trade.'
+  if (m.includes('user rejected') || m.includes('rejected the request') || m.includes('declined') || m.includes('user denied'))
+    return 'Transaction cancelled.'
+  if (m.includes('blockhash') || m.includes('expired') || m.includes('block height exceeded'))
+    return 'The transaction expired before it landed. Please try again.'
+  // Fallback: don't dump raw program/JSON jargon at the user.
+  if (raw.length > 100 || m.includes('custom program error') || m.includes('instructionerror') || m.includes('0x'))
+    return 'Transaction failed. Please try again.'
+  return raw
+}
+
 function formatTokens(baseUnits: bigint): string {
   const whole = baseUnits / USDC_PRECISION
   const frac = baseUnits % USDC_PRECISION
@@ -180,6 +215,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
   const [amount, setAmount] = useState('')
   const [txPending, setTxPending] = useState(false)
   const [tradeStatus, setTradeStatus] = useState<{ msg: string; error: boolean } | null>(null)
+  // True from a confirmed trade until the on-chain position/balances are re-read,
+  // so we can show a spinner while the new position catches up.
+  const [updatingPositions, setUpdatingPositions] = useState(false)
 
   // ── Mobile sheet ──────────────────────────────────────────
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
@@ -461,9 +499,13 @@ export default function OnchainMarketClient({ marketId }: Props) {
       // Optimistically add this buy's all-in cost to the session overlay so the cap
       // tightens immediately; fetchSpend later reconciles against indexed history.
       setSessionSpend(prev => ({ ...prev, [spendKey]: (prev[spendKey] ?? 0) + Number(cost + fee) }))
-      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades(); fetchSpend() }, 4000)
+      setUpdatingPositions(true)
+      setTimeout(async () => {
+        await Promise.allSettled([loadMarket(), loadUserData(market), fetchTrades(), fetchSpend()])
+        setUpdatingPositions(false)
+      }, 4000)
     } catch (e: unknown) {
-      setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
+      setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
@@ -487,9 +529,13 @@ export default function OnchainMarketClient({ marketId }: Props) {
       setAmount('')
       // Selling returns USDC, so it lowers net spend on this (word, side).
       setSessionSpend(prev => ({ ...prev, [spendKey]: (prev[spendKey] ?? 0) - Number(ret) }))
-      setTimeout(() => { loadMarket(); loadUserData(market); fetchTrades(); fetchSpend() }, 4000)
+      setUpdatingPositions(true)
+      setTimeout(async () => {
+        await Promise.allSettled([loadMarket(), loadUserData(market), fetchTrades(), fetchSpend()])
+        setUpdatingPositions(false)
+      }, 4000)
     } catch (e: unknown) {
-      setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
+      setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
@@ -507,7 +553,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
       setTradeStatus({ msg: 'Redeemed successfully!', error: false })
       setTimeout(() => { loadMarket(); loadUserData(market) }, 2000)
     } catch (e: unknown) {
-      setTradeStatus({ msg: e instanceof Error ? e.message : String(e), error: true })
+      setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
@@ -535,7 +581,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
 
       {/* Testing cap notice */}
       <div className="mb-4 px-3 py-2 rounded-lg bg-[#F2B71F]/[0.08] border border-[#F2B71F]/20 text-[11px] text-[#F2B71F]/90 text-center leading-snug">
-        Controlled testing: $2 max per position
+        $2 max per position
       </div>
 
       {/* Buy / Sell tabs */}
@@ -765,8 +811,16 @@ export default function OnchainMarketClient({ marketId }: Props) {
         </button>
       )}
 
+      {/* Post-trade: position is settling on-chain + indexing — show a spinner so
+          the user knows their position is on the way. */}
+      {updatingPositions && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <MentionedSpinner className="py-3" />
+        </div>
+      )}
+
       {/* User positions */}
-      {connected && userTokens.some(t => t.yes >= 10_000n || t.no >= 10_000n) && market && (
+      {connected && !updatingPositions && userTokens.some(t => t.yes >= 10_000n || t.no >= 10_000n) && market && (
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-3">
             Your Positions

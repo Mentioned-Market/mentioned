@@ -955,19 +955,14 @@ function MarketCardSkeleton({ index = 0 }: { index?: number }) {
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function MarketsPage() {
-  const [events, setEvents] = useState<PolyEvent[]>([])
   const [customMarkets, setCustomMarkets] = useState<CustomMarketSummary[]>([])
   const [paidMarkets, setPaidMarkets] = useState<PaidMarketSummary[]>([])
   const [sidebarData, setSidebarData] = useState<SidebarData | null>(null)
   const [sidebarLoading, setSidebarLoading] = useState(true)
-  const [polyLoading, setPolyLoading] = useState(false)
   const [customLoading, setCustomLoading] = useState(true)
   const [paidLoading, setPaidLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
-  const [paidOpen, setPaidOpen] = useState(false)
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('all')
-  const polyFetchedRef = useRef(false)
 
   // Live countdown — shows arena end during competition, otherwise next Monday
   useEffect(() => {
@@ -1030,23 +1025,6 @@ export default function MarketsPage() {
     const interval = setInterval(fetchSidebar, SIDEBAR_STALE_MS)
     return () => clearInterval(interval)
   }, [])
-
-  // Fetch paid markets only when the section is expanded
-  useEffect(() => {
-    if (!paidOpen || polyFetchedRef.current) return
-    polyFetchedRef.current = true
-    setPolyLoading(true)
-    fetch('/api/polymarket?category=mentions')
-      .then(res => { if (!res.ok) throw new Error('Failed to fetch events'); return res.json() })
-      .then(data => setEvents(data.data || []))
-      .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
-      .finally(() => setPolyLoading(false))
-  }, [paidOpen])
-
-  const now = Date.now()
-  const activeEvents = events.filter(e => e.isActive && new Date(e.metadata.closeTime).getTime() > now)
-  const liveEvents = activeEvents.filter(e => e.isLive)
-  const upcomingEvents = activeEvents.filter(e => !e.isLive)
 
   const pageReady = !customLoading && !sidebarLoading && !paidLoading
   const featuredMarket = customMarkets.find(m => m.is_featured) ?? null
@@ -1214,76 +1192,6 @@ export default function MarketsPage() {
                   )}
                 </aside>
               </div>
-
-              {/* Paid Markets — collapsible, loads on expand */}
-              {pageReady && <section className="border-t border-white/10 pt-6 mt-2">
-                <button
-                  onClick={() => setPaidOpen(o => !o)}
-                  className="flex items-center gap-3 w-full text-left mb-4 group"
-                >
-                  <span className="px-2 py-0.5 rounded-full bg-apple-blue/20 text-apple-blue text-[10px] font-bold uppercase">Paid</span>
-                  <h2 className="text-white text-lg font-semibold flex-1">Paid Prediction Markets</h2>
-                  <svg
-                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    className={`text-neutral-400 group-hover:text-white transition-all duration-200 ${paidOpen ? 'rotate-180' : ''}`}
-                  >
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </button>
-                {paidOpen && (
-                  polyLoading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 py-2">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <MarketCardSkeleton key={i} index={i} />
-                      ))}
-                    </div>
-                  ) : error ? (
-                    <div className="flex flex-col items-start gap-2 py-4">
-                      <p className="text-apple-red text-sm font-medium">Failed to load paid markets</p>
-                      <button
-                        onClick={() => {
-                          polyFetchedRef.current = false
-                          setError(null)
-                          setPolyLoading(true)
-                          fetch('/api/polymarket?category=mentions')
-                            .then(res => { if (!res.ok) throw new Error('Failed'); return res.json() })
-                            .then(data => setEvents(data.data || []))
-                            .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
-                            .finally(() => setPolyLoading(false))
-                        }}
-                        className="px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      {liveEvents.length > 0 && (
-                        <div className="mb-6">
-                          <div className="flex items-center gap-2 mb-4">
-                            <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
-                            <h3 className="text-white text-base font-semibold">Live Now</h3>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {liveEvents.map(event => <EventCard key={event.eventId} event={event} />)}
-                          </div>
-                        </div>
-                      )}
-                      {upcomingEvents.length > 0 && (
-                        <div>
-                          {liveEvents.length > 0 && <h3 className="text-white text-base font-semibold mb-4">Upcoming</h3>}
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {upcomingEvents.map(event => <EventCard key={event.eventId} event={event} />)}
-                          </div>
-                        </div>
-                      )}
-                      {activeEvents.length === 0 && !polyLoading && (
-                        <p className="text-neutral-500 text-sm py-4">No paid markets available right now</p>
-                      )}
-                    </>
-                  )
-                )}
-              </section>}
 
               {/* Mobile sidebar widgets — stacked below main content */}
               {pageReady && (
