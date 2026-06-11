@@ -51,6 +51,12 @@ export const RPC_URL = PAID_RPC_URL
 export const USDC_DECIMALS = 6
 export const USDC_PRECISION = 1_000_000n
 
+// Rent-exempt deposit for a 165-byte SPL token account. Paid by the user when a
+// first trade creates a word ATA; refunded in full when the account is closed
+// via the rent-reclaim flow. Display/estimation only — reclaim flows always use
+// the actual lamports read from the chain.
+export const TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280n
+
 // Anchor instruction discriminators
 const DISC = {
   createMarket:      new Uint8Array([103, 226, 97, 235, 200, 188, 251, 254]),
@@ -463,6 +469,54 @@ export async function createAtaIx(
   }
 }
 
+/**
+ * SPL Token Burn — destroys `amount` tokens from the owner's ATA for `mint`.
+ * Requires only the owner's signature (not the mint authority), so users can
+ * burn worthless losing-side tokens themselves after a word resolves.
+ */
+export async function createBurnTokensIx(
+  owner: Address,
+  mint: Address,
+  amount: bigint
+): Promise<Instruction> {
+  const ata = await getAssociatedTokenAddress(mint, owner)
+  return {
+    programAddress: TOKEN_PROGRAM,
+    accounts: [
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: mint, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
+    ] as AccountMeta[],
+    // SPL Token instruction 8 = Burn { amount: u64 }
+    data: concat(new Uint8Array([8]), u64LE(amount)),
+  }
+}
+
+/**
+ * SPL Token CloseAccount — deallocates the owner's ATA for `mint` and refunds
+ * its full lamport balance (the ~0.00204 SOL rent-exempt deposit) to
+ * `destination`. The token balance must be exactly 0 at execution time, so a
+ * burn of the full balance must precede this in the same transaction when the
+ * account still holds tokens.
+ */
+export async function createCloseTokenAccountIx(
+  owner: Address,
+  mint: Address,
+  destination: Address
+): Promise<Instruction> {
+  const ata = await getAssociatedTokenAddress(mint, owner)
+  return {
+    programAddress: TOKEN_PROGRAM,
+    accounts: [
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: destination, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
+    ] as AccountMeta[],
+    // SPL Token instruction 9 = CloseAccount
+    data: new Uint8Array([9]),
+  }
+}
+
 export async function createBuyIx(
   trader: Address,
   marketId: bigint,
@@ -589,6 +643,159 @@ export async function fetchTokenBalance(
 /** Fetch user's USDC ATA balance in base units */
 export async function fetchUsdcBalance(owner: Address): Promise<bigint> {
   return fetchTokenBalance(USDC_MINT, owner)
+}
+
+export interface TokenAccountState {
+  mint: Address
+  ata: Address
+  /** Account exists on-chain (a missing ATA must never be passed to CloseAccount) */
+  exists: boolean
+  /** Token balance in base units; 0n when the account is missing */
+  amount: bigint
+  /** Lamports held by the account — the rent deposit refunded on close */
+  lamports: bigint
+}
+
+/**
+ * Fetch existence + token balance + lamports for the owner's ATA of each mint,
+ * in ONE getMultipleAccounts call (vs N per-account reads). Existence matters:
+ * fetchTokenBalance conflates "missing" with "balance 0", but CloseAccount on a
+ * missing account fails the whole transaction, so reclaim flows need the
+ * distinction. Results are positionally aligned with `mints`.
+ */
+export async function fetchTokenAccountStates(
+  owner: Address,
+  mints: Address[]
+): Promise<TokenAccountState[]> {
+  const atas = await Promise.all(
+    mints.map((mint) => getAssociatedTokenAddress(mint, owner))
+  )
+  const rpc = createRpc()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await (rpc as any)
+    .getMultipleAccounts(atas, { encoding: 'base64' })
+    .send()
+  const values: Array<{ data: unknown; lamports: bigint | number } | null> =
+    result?.value ?? []
+
+  return mints.map((mint, i) => {
+    const info = values[i]
+    if (!info) {
+      return { mint, ata: atas[i], exists: false, amount: 0n, lamports: 0n }
+    }
+    const bytes = decodeBase64(info.data)
+    // SPL token account layout: mint(32) + owner(32) + amount(u64 LE @ 64)
+    const amount = bytes.length >= 72 ? readU64(bytes, 64) : 0n
+    return {
+      mint,
+      ata: atas[i],
+      exists: true,
+      amount,
+      lamports: BigInt(info.lamports),
+    }
+  })
+}
+
+// ── Rent reclaim (burn dead tokens + close empty ATAs) ─────────────────────
+
+export interface ReclaimPlan {
+  /** Instruction batches, each sized to fit a single transaction */
+  txChunks: Instruction[][]
+  /** Total rent-exempt lamports refunded by the CloseAccount instructions */
+  reclaimLamports: bigint
+  /** USDC base units paid out by redeem instructions included in the plan */
+  redeemBaseUnits: bigint
+  /** Number of token accounts the plan closes */
+  accountsToClose: number
+}
+
+// Words per transaction. Worst case a word contributes redeem+close+burn+close
+// (4 instructions) and 4 fresh addresses (2 mints + 2 ATAs ≈ 128 bytes); four
+// words plus the shared accounts (market, vault, USDC ATA, owner, programs)
+// stays comfortably under the 1232-byte packet limit.
+const RECLAIM_WORDS_PER_TX = 4
+
+/**
+ * Build the full post-resolution cleanup for a wallet on one market:
+ *  - winning side with balance  → redeem (program burns all) + close ATA
+ *  - losing side with balance   → burn full balance + close ATA
+ *  - any empty leftover ATA     → close
+ * Every close refunds its rent deposit to `owner`.
+ *
+ * SAFETY: must only be called when `market.status === Resolved` — the terminal
+ * state in which buy/sell/redeem-losing are all rejected on-chain, so burning a
+ * losing balance can never destroy value. Words without an on-chain outcome are
+ * skipped entirely as defense in depth.
+ *
+ * `states` comes from fetchTokenAccountStates over [w0.yes, w0.no, w1.yes, …]
+ * and should be FRESH (fetched at click time): a stale amount makes the burn or
+ * close fail and the whole transaction revert — never an over- or under-burn.
+ */
+export async function buildReclaimPlan(
+  owner: Address,
+  market: UsdcMarketAccount,
+  states: TokenAccountState[]
+): Promise<ReclaimPlan> {
+  if (market.status !== MarketStatus.Resolved) {
+    return { txChunks: [], reclaimLamports: 0n, redeemBaseUnits: 0n, accountsToClose: 0 }
+  }
+
+  const wordGroups: Instruction[][] = []
+  let reclaimLamports = 0n
+  let redeemBaseUnits = 0n
+  let accountsToClose = 0
+
+  for (let i = 0; i < market.words.length; i++) {
+    const word = market.words[i]
+    if (word.outcome === null) continue
+
+    const yes = states[i * 2]
+    const no = states[i * 2 + 1]
+    if (!yes || !no) continue
+
+    const group: Instruction[] = []
+    for (const side of ['YES', 'NO'] as const) {
+      const state = side === 'YES' ? yes : no
+      if (!state.exists) continue
+      const mint = side === 'YES' ? word.yesMint : word.noMint
+      const won = word.outcome === (side === 'YES')
+
+      if (state.amount > 0n) {
+        if (won) {
+          // redeem burns the full balance and pays 1:1 USDC
+          group.push(await createRedeemIx(owner, market.marketId, i, side))
+          redeemBaseUnits += state.amount
+        } else {
+          group.push(await createBurnTokensIx(owner, mint, state.amount))
+        }
+      }
+      group.push(await createCloseTokenAccountIx(owner, mint, owner))
+      reclaimLamports += state.lamports
+      accountsToClose += 1
+    }
+    if (group.length > 0) wordGroups.push(group)
+  }
+
+  const txChunks: Instruction[][] = []
+  for (let i = 0; i < wordGroups.length; i += RECLAIM_WORDS_PER_TX) {
+    txChunks.push(wordGroups.slice(i, i + RECLAIM_WORDS_PER_TX).flat())
+  }
+
+  // Redeem pays USDC into the owner's USDC ATA, which must exist. It always
+  // does for anyone who traded, but guard anyway — create_idempotent is a no-op
+  // when present and a few lamports of rent (paid to themselves) when not.
+  if (redeemBaseUnits > 0n && txChunks.length > 0) {
+    txChunks[0].unshift(await createAtaIx(owner, owner, USDC_MINT))
+  }
+
+  return { txChunks, reclaimLamports, redeemBaseUnits, accountsToClose }
+}
+
+/** Format lamports as a trimmed SOL string (e.g. 4_078_560n -> "0.0041") */
+export function formatSol(lamports: bigint): string {
+  const sol = Number(lamports) / 1e9
+  if (sol === 0) return '0'
+  return sol.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
 }
 
 // ── Exact fixed-point LMSR math (mirrors on-chain Rust) ────────────────────

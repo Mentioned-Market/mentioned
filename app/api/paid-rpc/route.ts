@@ -32,6 +32,7 @@ export const dynamic = 'force-dynamic'
 const ALLOWED_METHODS = new Set([
   'getAccountInfo',          // fetchMarket / fetchLpPosition / getProgramAccounts fallback
   'getTokenAccountBalance',  // fetchVaultBalance / fetchUsdcBalance / fetchTokenBalance
+  'getMultipleAccounts',     // fetchTokenAccountStates (rent reclaim — 1 call for all word ATAs)
   'getLatestBlockhash',      // sendInstructions
   'simulateTransaction',     // sendInstructions pre-flight
   'sendTransaction',         // sendInstructions broadcast
@@ -84,9 +85,20 @@ export async function POST(req: NextRequest) {
     return rpcError(null, -32600, 'Batch requests are not allowed', 400)
   }
 
-  const { id, method } = (parsed ?? {}) as { id?: unknown; method?: unknown }
+  const { id, method, params } = (parsed ?? {}) as { id?: unknown; method?: unknown; params?: unknown }
   if (typeof method !== 'string' || !ALLOWED_METHODS.has(method)) {
     return rpcError(id, -32601, `Method not allowed: ${typeof method === 'string' ? method : 'unknown'}`, 403)
+  }
+
+  // getMultipleAccounts accepts up to 100 addresses upstream — enough to turn one
+  // rate-limited call into a large-response bandwidth amplifier. The only client
+  // use is word-ATA reads (2 per word, max 8 words), so cap well above that but
+  // far below the protocol max.
+  if (method === 'getMultipleAccounts') {
+    const addresses = Array.isArray(params) ? params[0] : undefined
+    if (!Array.isArray(addresses) || addresses.length === 0 || addresses.length > 20) {
+      return rpcError(id, -32602, 'getMultipleAccounts is limited to 1-20 addresses', 400)
+    }
   }
 
   try {

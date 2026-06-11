@@ -11,13 +11,18 @@ import MarketHowItWorks from '@/components/MarketHowItWorks'
 import { useWallet } from '@/contexts/WalletContext'
 import {
   fetchMarketSnapshot,
-  fetchTokenBalance,
   fetchUsdcBalance,
+  fetchTokenAccountStates,
   createAtaIx,
   createBuyIx,
   createSellIx,
   createRedeemIx,
+  createBurnTokensIx,
+  createCloseTokenAccountIx,
+  buildReclaimPlan,
   sendInstructions,
+  formatSol,
+  TOKEN_ACCOUNT_RENT_LAMPORTS,
   impliedYesPrice,
   estimateBuyCost,
   estimateSellReturn,
@@ -29,6 +34,7 @@ import {
   USDC_PRECISION,
   type UsdcMarketAccount,
   type WordState,
+  type TokenAccountState,
 } from '@/lib/mentionMarketUsdc'
 import type { Address } from '@solana/kit'
 
@@ -198,7 +204,7 @@ function DescriptionBlock({ text, limit }: { text: string; limit: number }) {
 export default function OnchainMarketClient({ marketId }: Props) {
   const id = useMemo(() => BigInt(marketId), [marketId])
 
-  const { publicKey, connected, connect, signer, signOnly, balance } = useWallet()
+  const { publicKey, connected, connect, signer, signOnly, balance, refreshBalance } = useWallet()
 
   // ── Data state ────────────────────────────────────────────
   const [market, setMarket] = useState<UsdcMarketAccount | null>(null)
@@ -223,6 +229,14 @@ export default function OnchainMarketClient({ marketId }: Props) {
   // True from a confirmed trade until the on-chain position/balances are re-read,
   // so we can show a spinner while the new position catches up.
   const [updatingPositions, setUpdatingPositions] = useState(false)
+
+  // ── Word ATA states ───────────────────────────────────────
+  // Existence + balance + rent lamports for every word ATA, indexed
+  // [w0.yes, w0.no, w1.yes, …]. Loaded with user data (same getMultipleAccounts
+  // read). Existence drives the first-trade rent notice on open markets and the
+  // rent-reclaim flow on resolved ones.
+  const [ataStates, setAtaStates] = useState<TokenAccountState[] | null>(null)
+  const [reclaimStatus, setReclaimStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
   // ── Mobile sheet ──────────────────────────────────────────
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
@@ -269,17 +283,19 @@ export default function OnchainMarketClient({ marketId }: Props) {
     if (!publicKey) return
     const wallet = publicKey as Address
     try {
-      const [usdc, ...tokens] = await Promise.all([
+      // One getMultipleAccounts call covers every word ATA (balance + existence
+      // + rent lamports) instead of 2-per-word getTokenAccountBalance reads.
+      // Existence feeds the first-trade rent notice and the reclaim flow.
+      const mints = mkt.words.flatMap((w: WordState) => [w.yesMint, w.noMint])
+      const [usdc, states] = await Promise.all([
         fetchUsdcBalance(wallet),
-        ...mkt.words.flatMap((w: WordState) => [
-          fetchTokenBalance(w.yesMint, wallet),
-          fetchTokenBalance(w.noMint, wallet),
-        ]),
+        fetchTokenAccountStates(wallet, mints),
       ])
       setUserUsdc(usdc)
+      setAtaStates(states)
       const parsed: UserTokens[] = []
       for (let i = 0; i < mkt.words.length; i++) {
-        parsed.push({ yes: tokens[i * 2], no: tokens[i * 2 + 1] })
+        parsed.push({ yes: states[i * 2].amount, no: states[i * 2 + 1].amount })
       }
       setUserTokens(parsed)
     } catch (e) {
@@ -432,8 +448,37 @@ export default function OnchainMarketClient({ marketId }: Props) {
   const wordLocked = word?.locked ?? false
   const canTrade = isOpen && !wordLocked && !!publicKey && !!signer && !!signOnly
 
+  // What the wallet can get back from this resolved market: every existing word
+  // ATA is closable (after redeeming winners / burning dead losing tokens), each
+  // refunding its rent deposit. Mirrors buildReclaimPlan's selection exactly.
+  const reclaim = useMemo(() => {
+    if (!connected || !market || market.status !== MarketStatus.Resolved || !ataStates) return null
+    let lamports = 0n
+    let redeemUnits = 0n
+    let closes = 0
+    market.words.forEach((w, i) => {
+      if (w.outcome === null) return
+      for (const side of ['YES', 'NO'] as const) {
+        const state = ataStates[i * 2 + (side === 'YES' ? 0 : 1)]
+        if (!state?.exists) continue
+        if (state.amount > 0n && w.outcome === (side === 'YES')) redeemUnits += state.amount
+        lamports += state.lamports
+        closes += 1
+      }
+    })
+    if (closes === 0) return null
+    return { lamports, redeemUnits, closes }
+  }, [connected, market, ataStates])
+
   const showBuyPreview = tradeMode === 'buy' && amountNum > 0 && estimatedShares > 0n
   const showSellPreview = tradeMode === 'sell' && amountNum > 0 && estimatedReturn > 0n
+
+  // First buy on this (word, side) creates the token account, costing a one-time
+  // SOL rent deposit the user gets back via the reclaim flow after resolution.
+  // Only shown when ATA existence is actually known (states loaded).
+  const willCreateAta = tradeMode === 'buy' && ataStates !== null
+    ? !(ataStates[selectedWordIdx * 2 + (side === 'YES' ? 0 : 1)]?.exists ?? false)
+    : false
 
   // ── Quick-amount preset handler ───────────────────────────
 
@@ -473,7 +518,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
     // Block early with a clear message when the wallet can't cover fees + ATA rent,
     // instead of letting it fail in on-chain simulation with a cryptic error.
     if (balance !== null && balance < MIN_SOL_FOR_FEES) {
-      setTradeStatus({ msg: 'You need ~0.004 SOL for network fees, add SOL to your wallet to trade', error: true })
+      setTradeStatus({
+        msg: willCreateAta
+          ? 'You need ~0.004 SOL to cover network fees and a refundable account deposit (returned when the market resolves). Add SOL to your wallet to trade.'
+          : 'You need ~0.004 SOL for network fees, add SOL to your wallet to trade',
+        error: true,
+      })
       return
     }
     // $2 cap per (word, side) on the USDC entered to spend. The fee/price-impact
@@ -515,7 +565,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, netSpentForSide, estimatedCost, feeOnCost, remainingDollars, maxPos, spendKey, balance])
+  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, netSpentForSide, estimatedCost, feeOnCost, remainingDollars, maxPos, spendKey, balance, willCreateAta])
 
   const handleSell = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey || !word || sellShares <= 0n) return
@@ -553,17 +603,86 @@ export default function OnchainMarketClient({ marketId }: Props) {
     setTradeStatus(null)
     try {
       const wallet = publicKey as Address
-      const redeemIx = await createRedeemIx(wallet, id, wordIndex, dir)
-      await sendInstructions(signer, signOnly, [redeemIx])
-      setTradeStatus({ msg: 'Redeemed successfully!', error: false })
-      setTimeout(() => { loadMarket(); loadUserData(market) }, 2000)
+      const w = market.words[wordIndex]
+      const winningMint = dir === 'YES' ? w.yesMint : w.noMint
+      const losingMint = dir === 'YES' ? w.noMint : w.yesMint
+
+      const ixs = [await createRedeemIx(wallet, id, wordIndex, dir)]
+      // The program burns the full winning balance, so the ATA is empty after
+      // redeem — close it in the same signature to refund its rent deposit.
+      ixs.push(await createCloseTokenAccountIx(wallet, winningMint, wallet))
+      // Same-word losing ATA: the tokens are dead (sell/redeem both reject
+      // resolved words on-chain), so burn any balance and close it too.
+      const losing = ataStates?.[wordIndex * 2 + (dir === 'YES' ? 1 : 0)]
+      if (losing?.exists) {
+        if (losing.amount > 0n) ixs.push(await createBurnTokensIx(wallet, losingMint, losing.amount))
+        ixs.push(await createCloseTokenAccountIx(wallet, losingMint, wallet))
+      }
+      await sendInstructions(signer, signOnly, ixs)
+      setTradeStatus({ msg: 'Redeemed — SOL rent deposit returned to your wallet!', error: false })
+      setTimeout(() => { loadMarket(); loadUserData(market); refreshBalance() }, 2000)
     } catch (e: unknown) {
       setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
     } finally {
       setTxPending(false)
       setTimeout(() => setTradeStatus(null), 8000)
     }
-  }, [market, signer, signOnly, publicKey, id, loadMarket, loadUserData])
+  }, [market, signer, signOnly, publicKey, id, ataStates, loadMarket, loadUserData, refreshBalance])
+
+  const handleReclaim = useCallback(async () => {
+    if (!market || !signer || !signOnly || !publicKey) return
+    // The ~5k-lamport network fee is charged upfront, before the rent refund
+    // lands — a wallet at exactly 0 SOL can't execute the reclaim that would
+    // fund it. Catch this early with an actionable message.
+    if (balance !== null && balance < 0.0001) {
+      setReclaimStatus({ msg: 'You need a tiny amount of SOL (~0.0001) to cover the network fee — the reclaim returns much more than it costs.', error: true })
+      setTimeout(() => setReclaimStatus(null), 10000)
+      return
+    }
+    setTxPending(true)
+    setReclaimStatus(null)
+    try {
+      const wallet = publicKey as Address
+      // Re-fetch account states at click time so burn amounts are never stale.
+      // A mismatch would only make the transaction revert (atomic), but fresh
+      // reads avoid burning the user's signature on a doomed attempt.
+      const mints = market.words.flatMap((w: WordState) => [w.yesMint, w.noMint])
+      const fresh = await fetchTokenAccountStates(wallet, mints)
+      const plan = await buildReclaimPlan(wallet, market, fresh)
+      if (plan.txChunks.length === 0) {
+        setAtaStates(fresh)
+        setReclaimStatus({ msg: 'Nothing left to reclaim.', error: false })
+        return
+      }
+      for (let i = 0; i < plan.txChunks.length; i++) {
+        if (plan.txChunks.length > 1) {
+          setReclaimStatus({ msg: `Confirming transaction ${i + 1} of ${plan.txChunks.length}…`, error: false })
+        }
+        await sendInstructions(signer, signOnly, plan.txChunks[i])
+      }
+      const solStr = formatSol(plan.reclaimLamports)
+      setReclaimStatus({
+        msg: plan.redeemBaseUnits > 0n
+          ? `Redeemed $${formatUsdc(plan.redeemBaseUnits)} and reclaimed ~${solStr} SOL`
+          : `Reclaimed ~${solStr} SOL`,
+        error: false,
+      })
+      setUpdatingPositions(true)
+      setTimeout(async () => {
+        await Promise.allSettled([loadMarket(), loadUserData(market)])
+        refreshBalance()
+        setUpdatingPositions(false)
+      }, 2000)
+    } catch (e: unknown) {
+      setReclaimStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
+      // Earlier chunks may have landed before the failure — re-read so the card
+      // reflects what's actually still reclaimable.
+      loadUserData(market).then(() => refreshBalance())
+    } finally {
+      setTxPending(false)
+      setTimeout(() => setReclaimStatus(null), 10000)
+    }
+  }, [market, signer, signOnly, publicKey, balance, loadMarket, loadUserData, refreshBalance])
 
   // ── Trading Panel ─────────────────────────────────────────
 
@@ -713,7 +832,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
       {/* Buy preview — animated slide-down */}
       <div
         style={{
-          maxHeight: showBuyPreview ? '140px' : '0px',
+          maxHeight: showBuyPreview ? (willCreateAta ? '200px' : '140px') : '0px',
           opacity: showBuyPreview ? 1 : 0,
           transform: showBuyPreview ? 'translateY(0)' : 'translateY(-10px)',
           overflow: 'hidden',
@@ -741,6 +860,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
                 : 'no fee'}
             </span>
           </div>
+          {willCreateAta && (
+            <div className="mt-2.5 px-2.5 py-2 rounded-lg bg-apple-blue/[0.08] border border-apple-blue/20 text-[11px] text-apple-blue/90 leading-snug">
+              First {side} trade on this word: includes a one-time ~{formatSol(TOKEN_ACCOUNT_RENT_LAMPORTS)} SOL
+              account deposit — you can claim it back after the market resolves.
+            </div>
+          )}
         </div>
       </div>
 
@@ -845,6 +970,10 @@ export default function OnchainMarketClient({ marketId }: Props) {
                 ? (w.outcome === false ? tok.no : 0n)
                 : (() => { try { return tok.no  >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'NO',  tok.no)  : 0n } catch { return 0n } })()
               const winDir: 'YES' | 'NO' | null = w.outcome === true ? 'YES' : w.outcome === false ? 'NO' : null
+              // Rent refunded when redeem closes this word's ATAs (both sides).
+              const yesSt = ataStates?.[i * 2]
+              const noSt = ataStates?.[i * 2 + 1]
+              const rowRent = (yesSt?.exists ? yesSt.lamports : 0n) + (noSt?.exists ? noSt.lamports : 0n)
               return (
                 <div key={i} className="glass rounded-xl p-3 space-y-2">
                   {/* Word label + outcome badge */}
@@ -875,9 +1004,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
                         <button
                           onClick={() => handleRedeem(i, 'YES')}
                           disabled={txPending}
-                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50"
+                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50 whitespace-nowrap"
                         >
-                          Redeem
+                          Redeem{rowRent > 0n ? ` +${formatSol(rowRent)} SOL` : ''}
                         </button>
                       ) : !isResolved ? (
                         <button
@@ -906,9 +1035,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
                         <button
                           onClick={() => handleRedeem(i, 'NO')}
                           disabled={txPending}
-                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50"
+                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50 whitespace-nowrap"
                         >
-                          Redeem
+                          Redeem{rowRent > 0n ? ` +${formatSol(rowRent)} SOL` : ''}
                         </button>
                       ) : !isResolved ? (
                         <button
@@ -1191,6 +1320,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
                               const winTokens = winDir === 'YES' ? userYes : userNo
                               if (winTokens <= 0n) return null
                               const marketResolved = market.status === MarketStatus.Resolved
+                              // Redeeming also closes this word's ATAs (winning +
+                              // any losing leftover), refunding their rent — show
+                              // the real on-chain lamports, separate from winnings.
+                              const yesSt = ataStates?.[i * 2]
+                              const noSt = ataStates?.[i * 2 + 1]
+                              const wordRent = (yesSt?.exists ? yesSt.lamports : 0n) + (noSt?.exists ? noSt.lamports : 0n)
                               return (
                                 <div className="px-3 md:px-4 py-2 border-b border-white/5 bg-apple-green/5">
                                   {marketResolved ? (
@@ -1199,9 +1334,16 @@ export default function OnchainMarketClient({ marketId }: Props) {
                                       disabled={txPending}
                                       className="w-full py-2.5 rounded-xl text-sm font-semibold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
                                     >
-                                      {txPending
-                                        ? 'Processing...'
-                                        : `Redeem ${formatTokens(winTokens)} ${winDir} → $${formatUsdc(winTokens)} USDC`}
+                                      {txPending ? 'Processing...' : (
+                                        <span className="flex flex-col items-center leading-tight">
+                                          <span>Redeem {formatTokens(winTokens)} {winDir} → ${formatUsdc(winTokens)} USDC</span>
+                                          {wordRent > 0n && (
+                                            <span className="text-[11px] font-medium text-white/75">
+                                              + ~{formatSol(wordRent)} SOL deposit back
+                                            </span>
+                                          )}
+                                        </span>
+                                      )}
                                     </button>
                                   ) : (
                                     <div className="w-full py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold bg-apple-green/10 border border-apple-green/30 text-apple-green flex items-center justify-center gap-1.5 text-center">
@@ -1219,6 +1361,38 @@ export default function OnchainMarketClient({ marketId }: Props) {
                       )
                     })}
                   </div>
+
+                  {/* Rent reclaim — after resolution, each word ATA still holds a
+                      refundable SOL rent deposit. One click redeems any winnings,
+                      burns dead losing tokens, and closes the accounts. */}
+                  {connected && isResolved && (reclaim || reclaimStatus) && (
+                    <div className="glass rounded-2xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white text-sm font-semibold mb-1">Reclaim your SOL deposit</div>
+                        {reclaim && (
+                          <div className="text-xs text-neutral-400 leading-relaxed">
+                            {reclaim.closes} token account{reclaim.closes === 1 ? '' : 's'} from this market can be closed,
+                            returning ~{formatSol(reclaim.lamports)} SOL
+                            {reclaim.redeemUnits > 0n ? ` and redeeming $${formatUsdc(reclaim.redeemUnits)} in winnings` : ''}.
+                          </div>
+                        )}
+                        {reclaimStatus && (
+                          <div className={`text-xs mt-2 font-medium ${reclaimStatus.error ? 'text-apple-red' : 'text-apple-green'}`}>
+                            {reclaimStatus.msg}
+                          </div>
+                        )}
+                      </div>
+                      {reclaim && (
+                        <button
+                          onClick={handleReclaim}
+                          disabled={txPending || updatingPositions}
+                          className="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
+                        >
+                          {txPending || updatingPositions ? 'Processing…' : `Reclaim ~${formatSol(reclaim.lamports)} SOL`}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Description */}
                   {metadata?.description && (
