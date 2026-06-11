@@ -95,6 +95,11 @@ function friendlyTradeError(raw: string): string {
     return 'Insufficient balance for this trade.'
   if (m.includes('user rejected') || m.includes('rejected the request') || m.includes('declined') || m.includes('user denied'))
     return 'Transaction cancelled.'
+  // Confirmation timeout is NOT a failure — the tx may have landed (lib/rpcSend
+  // ConfirmationTimeoutError). Never tell the user to simply retry: with real
+  // USDC that invites a double-buy of a trade that already went through.
+  if (m.includes('may still go through') || m.includes('confirmation timed out'))
+    return 'Still confirming — your trade may have gone through. Check your positions in a moment before trying again.'
   if (m.includes('blockhash') || m.includes('expired') || m.includes('block height exceeded'))
     return 'The transaction expired before it landed. Please try again.'
   // Fallback: don't dump raw program/JSON jargon at the user.
