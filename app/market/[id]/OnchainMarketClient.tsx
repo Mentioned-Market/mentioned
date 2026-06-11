@@ -16,9 +16,6 @@ import {
   createAtaIx,
   createBuyIx,
   createSellIx,
-  createRedeemIx,
-  createBurnTokensIx,
-  createCloseTokenAccountIx,
   buildReclaimPlan,
   sendInstructions,
   formatSol,
@@ -480,6 +477,30 @@ export default function OnchainMarketClient({ marketId }: Props) {
     ? !(ataStates[selectedWordIdx * 2 + (side === 'YES' ? 0 : 1)]?.exists ?? false)
     : false
 
+  // Settlement view (resolved markets): one row per held position, from the
+  // holder's perspective. Winning side pays 1:1; losing side is worth $0.
+  const settlementRows = useMemo(() => {
+    if (!market || !connected || market.status !== MarketStatus.Resolved) return []
+    const rows: { label: string; side: 'YES' | 'NO'; amount: bigint; won: boolean }[] = []
+    market.words.forEach((w, i) => {
+      if (w.outcome === null) return
+      const tok = userTokens[i]
+      if (!tok) return
+      if (tok.yes >= 10_000n) rows.push({ label: w.label, side: 'YES', amount: tok.yes, won: w.outcome === true })
+      if (tok.no >= 10_000n) rows.push({ label: w.label, side: 'NO', amount: tok.no, won: w.outcome === false })
+    })
+    return rows
+  }, [market, connected, userTokens])
+
+  const totalWinnings = useMemo(
+    () => settlementRows.reduce((sum, r) => (r.won ? sum + r.amount : sum), 0n),
+    [settlementRows]
+  )
+
+  // Filter zero-quantity dust entries out of the trade feed ("sold 0.00 YES for
+  // $0.00" is noise from rounding-edge sells).
+  const visibleTrades = useMemo(() => trades.filter(t => t.quantity >= 10_000), [trades])
+
   // ── Quick-amount preset handler ───────────────────────────
 
   const handlePreset = useCallback((pct: number) => {
@@ -597,38 +618,10 @@ export default function OnchainMarketClient({ marketId }: Props) {
     }
   }, [market, signer, signOnly, publicKey, word, side, sellShares, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, spendKey])
 
-  const handleRedeem = useCallback(async (wordIndex: number, dir: 'YES' | 'NO') => {
-    if (!market || !signer || !signOnly || !publicKey) return
-    setTxPending(true)
-    setTradeStatus(null)
-    try {
-      const wallet = publicKey as Address
-      const w = market.words[wordIndex]
-      const winningMint = dir === 'YES' ? w.yesMint : w.noMint
-      const losingMint = dir === 'YES' ? w.noMint : w.yesMint
-
-      const ixs = [await createRedeemIx(wallet, id, wordIndex, dir)]
-      // The program burns the full winning balance, so the ATA is empty after
-      // redeem — close it in the same signature to refund its rent deposit.
-      ixs.push(await createCloseTokenAccountIx(wallet, winningMint, wallet))
-      // Same-word losing ATA: the tokens are dead (sell/redeem both reject
-      // resolved words on-chain), so burn any balance and close it too.
-      const losing = ataStates?.[wordIndex * 2 + (dir === 'YES' ? 1 : 0)]
-      if (losing?.exists) {
-        if (losing.amount > 0n) ixs.push(await createBurnTokensIx(wallet, losingMint, losing.amount))
-        ixs.push(await createCloseTokenAccountIx(wallet, losingMint, wallet))
-      }
-      await sendInstructions(signer, signOnly, ixs)
-      setTradeStatus({ msg: 'Redeemed — SOL rent deposit returned to your wallet!', error: false })
-      setTimeout(() => { loadMarket(); loadUserData(market); refreshBalance() }, 2000)
-    } catch (e: unknown) {
-      setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
-    } finally {
-      setTxPending(false)
-      setTimeout(() => setTradeStatus(null), 8000)
-    }
-  }, [market, signer, signOnly, publicKey, id, ataStates, loadMarket, loadUserData, refreshBalance])
-
+  // Single claim path: handleReclaim's buildReclaimPlan covers redemption of
+  // winners, burning of dead losing tokens, and closing every word ATA. The
+  // old per-word redeem buttons are gone — three overlapping CTAs (redeem
+  // banner, row buttons, reclaim card) read as three different payouts.
   const handleReclaim = useCallback(async () => {
     if (!market || !signer || !signOnly || !publicKey) return
     // The ~5k-lamport network fee is charged upfront, before the rent refund
@@ -959,29 +952,30 @@ export default function OnchainMarketClient({ marketId }: Props) {
             {market.words.map((w, i) => {
               const tok = userTokens[i]
               if (!tok || (tok.yes < 10_000n && tok.no < 10_000n)) return null
+              const resolvedWord = w.outcome !== null
               const yesPrice = impliedYesPrice(w, market.liquidityParamB)
               const noPrice  = 1 - yesPrice
               // Resolved: winning side redeems 1:1 ($1/share), losing side is worth $0.
               // Unresolved: current LMSR sell value. Never value a losing position.
-              const yesReturn = w.outcome !== null
+              const yesReturn = resolvedWord
                 ? (w.outcome === true ? tok.yes : 0n)
                 : (() => { try { return tok.yes >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'YES', tok.yes) : 0n } catch { return 0n } })()
-              const noReturn  = w.outcome !== null
+              const noReturn  = resolvedWord
                 ? (w.outcome === false ? tok.no : 0n)
                 : (() => { try { return tok.no  >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'NO',  tok.no)  : 0n } catch { return 0n } })()
-              const winDir: 'YES' | 'NO' | null = w.outcome === true ? 'YES' : w.outcome === false ? 'NO' : null
-              // Rent refunded when redeem closes this word's ATAs (both sides).
-              const yesSt = ataStates?.[i * 2]
-              const noSt = ataStates?.[i * 2 + 1]
-              const rowRent = (yesSt?.exists ? yesSt.lamports : 0n) + (noSt?.exists ? noSt.lamports : 0n)
+              // Badge reflects the HOLDER's outcome, not the word's winning side —
+              // a green "YES Won" above a losing NO position reads as a win.
+              const heldWinning = resolvedWord && (
+                (w.outcome === true && tok.yes >= 10_000n) || (w.outcome === false && tok.no >= 10_000n)
+              )
               return (
                 <div key={i} className="glass rounded-xl p-3 space-y-2">
-                  {/* Word label + outcome badge */}
+                  {/* Word label + holder outcome / live value */}
                   <div className="flex items-center justify-between">
                     <span className="text-white font-semibold text-xs truncate max-w-[160px]">{w.label}</span>
-                    {winDir ? (
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${winDir === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                        {winDir} Won
+                    {resolvedWord ? (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${heldWinning ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                        {heldWinning ? 'You Won' : 'You Lost'}
                       </span>
                     ) : (
                       <span className="text-[10px] text-neutral-600 font-medium">
@@ -997,24 +991,18 @@ export default function OnchainMarketClient({ marketId }: Props) {
                         <span className="text-apple-green font-semibold text-sm tabular-nums">{formatTokens(tok.yes)}</span>
                         <span className="text-apple-green text-xs ml-1">YES</span>
                         <span className="text-neutral-500 text-xs ml-2 tabular-nums">
-                          @ {Math.round(yesPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(yesReturn)}</span>
+                          @ {resolvedWord ? (w.outcome === true ? 100 : 0) : Math.round(yesPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(yesReturn)}</span>
                         </span>
                       </div>
-                      {isResolved && w.outcome === true ? (
-                        <button
-                          onClick={() => handleRedeem(i, 'YES')}
-                          disabled={txPending}
-                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50 whitespace-nowrap"
-                        >
-                          Redeem{rowRent > 0n ? ` +${formatSol(rowRent)} SOL` : ''}
-                        </button>
-                      ) : !isResolved ? (
+                      {!resolvedWord ? (
                         <button
                           onClick={() => { setSelectedWordIdx(i); setTradeMode('sell'); setSide('YES'); setAmount('') }}
                           className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-colors"
                         >
                           Sell
                         </button>
+                      ) : w.outcome === true ? (
+                        <span className="text-[10px] font-bold text-apple-green">Won</span>
                       ) : (
                         <span className="text-[10px] text-neutral-600">Lost</span>
                       )}
@@ -1028,24 +1016,18 @@ export default function OnchainMarketClient({ marketId }: Props) {
                         <span className="text-apple-red font-semibold text-sm tabular-nums">{formatTokens(tok.no)}</span>
                         <span className="text-apple-red text-xs ml-1">NO</span>
                         <span className="text-neutral-500 text-xs ml-2 tabular-nums">
-                          @ {Math.round(noPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(noReturn)}</span>
+                          @ {resolvedWord ? (w.outcome === false ? 100 : 0) : Math.round(noPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(noReturn)}</span>
                         </span>
                       </div>
-                      {isResolved && w.outcome === false ? (
-                        <button
-                          onClick={() => handleRedeem(i, 'NO')}
-                          disabled={txPending}
-                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors disabled:opacity-50 whitespace-nowrap"
-                        >
-                          Redeem{rowRent > 0n ? ` +${formatSol(rowRent)} SOL` : ''}
-                        </button>
-                      ) : !isResolved ? (
+                      {!resolvedWord ? (
                         <button
                           onClick={() => { setSelectedWordIdx(i); setTradeMode('sell'); setSide('NO'); setAmount('') }}
                           className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-colors"
                         >
                           Sell
                         </button>
+                      ) : w.outcome === false ? (
+                        <span className="text-[10px] font-bold text-apple-green">Won</span>
                       ) : (
                         <span className="text-[10px] text-neutral-600">Lost</span>
                       )}
@@ -1057,6 +1039,120 @@ export default function OnchainMarketClient({ marketId }: Props) {
           </div>
         </div>
       )}
+    </>
+  ) : null
+
+  // ── Settlement panel (replaces the trading panel once the market resolves;
+  //    no Buy/Sell chrome, no stale prices — results + one claim action) ─────
+
+  const settlementContent = market ? (
+    <>
+      {!connected ? (
+        <button
+          onClick={connect}
+          className="w-full py-4 bg-white hover:bg-neutral-100 text-black font-bold text-base rounded-2xl transition-all duration-200"
+        >
+          Login to see your results
+        </button>
+      ) : (
+        <>
+          {/* Per-position results, holder's perspective */}
+          {settlementRows.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {settlementRows.map((r, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-center justify-between rounded-xl px-3 py-2.5 border ${
+                    r.won ? 'bg-apple-green/[0.07] border-apple-green/20' : 'bg-white/[0.02] border-white/5'
+                  }`}
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span className="text-white text-sm font-semibold truncate">{r.label}</span>
+                    <span className={`text-xs font-medium flex-shrink-0 ${r.won ? 'text-apple-green' : 'text-neutral-500'}`}>
+                      {formatTokens(r.amount)} {r.side}
+                    </span>
+                  </div>
+                  {r.won ? (
+                    <span className="text-apple-green text-sm font-bold tabular-nums flex-shrink-0">+${formatUsdc(r.amount)}</span>
+                  ) : (
+                    <span className="text-apple-red/80 text-xs font-bold flex-shrink-0">Lost</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Net verdict */}
+          {settlementRows.length > 0 && (
+            <div className="flex items-center justify-between mb-4 px-1">
+              <span className="text-xs text-neutral-400">Your winnings</span>
+              <span className={`text-base font-bold tabular-nums ${totalWinnings > 0n ? 'text-apple-green' : 'text-neutral-400'}`}>
+                ${formatUsdc(totalWinnings)}
+              </span>
+            </div>
+          )}
+
+          {/* Single claim action: pays winnings, burns dead tokens, closes the
+              word token accounts and refunds their SOL deposits. */}
+          {reclaim ? (
+            <>
+              <button
+                onClick={handleReclaim}
+                disabled={txPending || updatingPositions}
+                className="w-full py-3.5 rounded-2xl text-base font-bold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
+              >
+                {txPending || updatingPositions
+                  ? 'Processing…'
+                  : reclaim.redeemUnits > 0n
+                    ? `Claim $${formatUsdc(reclaim.redeemUnits)} + ~${formatSol(reclaim.lamports)} SOL`
+                    : `Reclaim ~${formatSol(reclaim.lamports)} SOL deposit`}
+              </button>
+              <p className="text-[10px] text-neutral-500 mt-2 text-center leading-snug">
+                {reclaim.redeemUnits > 0n ? 'Pays out your winnings and returns' : 'Returns'} the SOL
+                deposit{reclaim.closes === 1 ? '' : 's'} from {reclaim.closes} token account{reclaim.closes === 1 ? '' : 's'}.
+              </p>
+            </>
+          ) : settlementRows.length === 0 && !reclaimStatus && !updatingPositions ? (
+            <div className="text-xs text-neutral-500 text-center py-2">
+              {ataStates === null ? 'Loading your results…' : 'Nothing to claim here.'}
+            </div>
+          ) : null}
+
+          {updatingPositions && <MentionedSpinner className="py-3" />}
+
+          {reclaimStatus && (
+            <div className={`mt-3 p-3 rounded-lg text-xs ${
+              reclaimStatus.error
+                ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+                : 'bg-green-500/10 border border-green-500/30 text-green-300'
+            }`}>
+              {reclaimStatus.msg}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  ) : null
+
+  const settlementPanel = market ? (
+    <>
+      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/10">
+        <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0">
+          {metadata?.cover_image_url ? (
+            <img src={metadata.cover_image_url} alt={metadata?.title || 'Market'} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-base">🎯</div>
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="text-white font-semibold text-base truncate">Market Resolved</div>
+          <div className="text-[11px] text-neutral-500 truncate">{metadata?.title || market.label}</div>
+        </div>
+        <div className="ml-auto flex-shrink-0">
+          <MarketHowItWorks variant="paid" compact />
+        </div>
+      </div>
+      {settlementContent}
     </>
   ) : null
 
@@ -1311,48 +1407,24 @@ export default function OnchainMarketClient({ marketId }: Props) {
                             </div>
                           </button>
 
-                          {/* Winning position: redeem only once the WHOLE market is resolved
-                              (the contract's redeem requires MarketStatus::Resolved — partial-word
-                              redemption would drain the shared vault). Until then, show a "you won"
-                              notice so the user knows the payout is coming. */}
-                          {isResolved && winDir && connected && (
+                          {/* Word resolved while the market is still open: the payout
+                              can't be claimed yet (the contract's redeem requires
+                              MarketStatus::Resolved — partial-word redemption would
+                              drain the shared vault), so show a "you won" notice.
+                              Once the whole market resolves, the settlement panel's
+                              single claim button takes over — no per-word CTA. */}
+                          {isResolved && winDir && connected && market.status !== MarketStatus.Resolved && (
                             (() => {
                               const winTokens = winDir === 'YES' ? userYes : userNo
                               if (winTokens <= 0n) return null
-                              const marketResolved = market.status === MarketStatus.Resolved
-                              // Redeeming also closes this word's ATAs (winning +
-                              // any losing leftover), refunding their rent — show
-                              // the real on-chain lamports, separate from winnings.
-                              const yesSt = ataStates?.[i * 2]
-                              const noSt = ataStates?.[i * 2 + 1]
-                              const wordRent = (yesSt?.exists ? yesSt.lamports : 0n) + (noSt?.exists ? noSt.lamports : 0n)
                               return (
                                 <div className="px-3 md:px-4 py-2 border-b border-white/5 bg-apple-green/5">
-                                  {marketResolved ? (
-                                    <button
-                                      onClick={() => handleRedeem(i, winDir)}
-                                      disabled={txPending}
-                                      className="w-full py-2.5 rounded-xl text-sm font-semibold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
-                                    >
-                                      {txPending ? 'Processing...' : (
-                                        <span className="flex flex-col items-center leading-tight">
-                                          <span>Redeem {formatTokens(winTokens)} {winDir} → ${formatUsdc(winTokens)} USDC</span>
-                                          {wordRent > 0n && (
-                                            <span className="text-[11px] font-medium text-white/75">
-                                              + ~{formatSol(wordRent)} SOL deposit back
-                                            </span>
-                                          )}
-                                        </span>
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <div className="w-full py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold bg-apple-green/10 border border-apple-green/30 text-apple-green flex items-center justify-center gap-1.5 text-center">
-                                      <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                      </svg>
-                                      <span>You won ${formatUsdc(winTokens)} on {winDir} — redeemable once the whole market resolves</span>
-                                    </div>
-                                  )}
+                                  <div className="w-full py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold bg-apple-green/10 border border-apple-green/30 text-apple-green flex items-center justify-center gap-1.5 text-center">
+                                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span>You won ${formatUsdc(winTokens)} on {winDir} — claimable once the whole market resolves</span>
+                                  </div>
                                 </div>
                               )
                             })()
@@ -1362,35 +1434,13 @@ export default function OnchainMarketClient({ marketId }: Props) {
                     })}
                   </div>
 
-                  {/* Rent reclaim — after resolution, each word ATA still holds a
-                      refundable SOL rent deposit. One click redeems any winnings,
-                      burns dead losing tokens, and closes the accounts. */}
-                  {connected && isResolved && (reclaim || reclaimStatus) && (
-                    <div className="glass rounded-2xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white text-sm font-semibold mb-1">Reclaim your SOL deposit</div>
-                        {reclaim && (
-                          <div className="text-xs text-neutral-400 leading-relaxed">
-                            {reclaim.closes} token account{reclaim.closes === 1 ? '' : 's'} from this market can be closed,
-                            returning ~{formatSol(reclaim.lamports)} SOL
-                            {reclaim.redeemUnits > 0n ? ` and redeeming $${formatUsdc(reclaim.redeemUnits)} in winnings` : ''}.
-                          </div>
-                        )}
-                        {reclaimStatus && (
-                          <div className={`text-xs mt-2 font-medium ${reclaimStatus.error ? 'text-apple-red' : 'text-apple-green'}`}>
-                            {reclaimStatus.msg}
-                          </div>
-                        )}
-                      </div>
-                      {reclaim && (
-                        <button
-                          onClick={handleReclaim}
-                          disabled={txPending || updatingPositions}
-                          className="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
-                        >
-                          {txPending || updatingPositions ? 'Processing…' : `Reclaim ~${formatSol(reclaim.lamports)} SOL`}
-                        </button>
-                      )}
+                  {/* Settlement card (mobile only — desktop gets the same content in
+                      the right panel). The trading sheet is gone once resolved, so
+                      this is where mobile users see results and claim. */}
+                  {isResolved && (
+                    <div className="lg:hidden glass rounded-2xl p-4 mb-6">
+                      <div className="text-white text-sm font-semibold mb-3">Your results</div>
+                      {settlementContent}
                     </div>
                   )}
 
@@ -1402,12 +1452,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
                   )}
 
                   {/* Recent trades */}
-                  {trades.length > 0 && (
+                  {visibleTrades.length > 0 && (
                     <div className="mb-6">
                       <h2 className="text-base font-semibold text-white mb-3">Recent Trades</h2>
                       <div className="glass rounded-2xl p-4">
                         <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                          {trades.map(t => {
+                          {visibleTrades.map(t => {
                             const wordLabel = market?.words[t.wordIndex]?.label ?? `Word ${t.wordIndex}`
                             const displayName = t.username || `${t.trader.slice(0, 4)}...${t.trader.slice(-4)}`
                             return (
@@ -1440,11 +1490,12 @@ export default function OnchainMarketClient({ marketId }: Props) {
                   <div className="h-20 lg:hidden" />
                 </div>
 
-                {/* Right column — sticky trading panel (desktop only) */}
+                {/* Right column — sticky panel (desktop only): trading while the
+                    market is live, settlement view once it resolves */}
                 <div className="w-[340px] flex-shrink-0 hidden lg:block">
                   <div className="sticky top-28">
                     <div className="glass rounded-2xl p-5">
-                      {tradingPanel}
+                      {isResolved ? settlementPanel : tradingPanel}
                     </div>
                   </div>
                 </div>
@@ -1456,7 +1507,9 @@ export default function OnchainMarketClient({ marketId }: Props) {
         </div>
       </div>
 
-      {/* Mobile Trade Bar */}
+      {/* Mobile Trade Bar — hidden once resolved (no trading; the settlement
+          card in the main column is the claim surface) */}
+      {!isResolved && (
       <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40">
         {mobileTradeOpen ? (
           <>
@@ -1486,6 +1539,7 @@ export default function OnchainMarketClient({ marketId }: Props) {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
