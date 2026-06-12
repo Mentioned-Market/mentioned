@@ -555,6 +555,131 @@ export async function applyReferral(refereeWallet: string, referrerWallet: strin
   return result.rows.length > 0
 }
 
+// ── Event funding codes ──────────────────────────────────
+// Single-use codes that credit a wallet with real USDC + SOL at an event.
+// See scripts/migrate.ts (event_claim_codes) and lib/eventFunding.ts.
+
+export interface EventClaimRow {
+  id: number
+  code: string
+  status: 'unused' | 'reserved' | 'funded'
+  signature: string | null
+}
+
+export type EventReserveResult =
+  | { state: 'reserved'; id: number }
+  | { state: 'already_funded'; id: number; signature: string | null }
+  | { state: 'invalid' } // no such code in this campaign
+  | { state: 'taken' } // code exists but was used by someone else
+  | { state: 'conflict' } // this wallet raced two codes at once
+
+/** Return this wallet's existing claim in a campaign (reserved or funded), if any. */
+export async function getWalletEventClaim(
+  campaign: string,
+  wallet: string,
+): Promise<EventClaimRow | null> {
+  const result = await pool.query(
+    `SELECT id, code, status, signature FROM event_claim_codes
+     WHERE campaign = $1 AND redeemed_by = $2 LIMIT 1`,
+    [campaign, wallet],
+  )
+  return (result.rows[0] as EventClaimRow) ?? null
+}
+
+/**
+ * Atomically reserve a code for a wallet so its funding tx can be sent.
+ *
+ * Enforces one claim per wallet per campaign and single-use per code. If the
+ * wallet already holds a row (reserved or funded), that row is returned instead
+ * of grabbing a new code — so a retry after a failed/crashed funding picks up
+ * the same reservation rather than burning a second code. The partial unique
+ * index on (campaign, redeemed_by) is the backstop against same-wallet races.
+ */
+export async function reserveEventCode(
+  campaign: string,
+  code: string,
+  wallet: string,
+): Promise<EventReserveResult> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Does this wallet already hold a code in this campaign?
+    const mine = await client.query(
+      `SELECT id, status, signature FROM event_claim_codes
+       WHERE campaign = $1 AND redeemed_by = $2`,
+      [campaign, wallet],
+    )
+    if (mine.rows[0]) {
+      const r = mine.rows[0]
+      await client.query('COMMIT')
+      if (r.status === 'funded') {
+        return { state: 'already_funded', id: r.id, signature: r.signature }
+      }
+      // Reserved by this wallet already — resume that reservation.
+      return { state: 'reserved', id: r.id }
+    }
+
+    // Grab the requested code if it's still unused.
+    const upd = await client.query(
+      `UPDATE event_claim_codes
+       SET status = 'reserved', redeemed_by = $2, reserved_at = NOW()
+       WHERE campaign = $1 AND code = $3 AND status = 'unused'
+       RETURNING id`,
+      [campaign, wallet, code],
+    )
+    if (upd.rows[0]) {
+      await client.query('COMMIT')
+      return { state: 'reserved', id: upd.rows[0].id }
+    }
+
+    // Couldn't grab it — distinguish "no such code" from "already used".
+    const exists = await client.query(
+      `SELECT 1 FROM event_claim_codes WHERE campaign = $1 AND code = $2`,
+      [campaign, code],
+    )
+    await client.query('COMMIT')
+    return exists.rows[0] ? { state: 'taken' } : { state: 'invalid' }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    // 23505 = unique violation: this wallet tried two codes concurrently.
+    if ((err as { code?: string }).code === '23505') return { state: 'conflict' }
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/** Mark a reserved code as funded (terminal) after its tx confirms. */
+export async function markEventCodeFunded(
+  id: number,
+  signature: string,
+  usdcBaseUnits: bigint,
+  lamports: bigint,
+): Promise<void> {
+  await pool.query(
+    `UPDATE event_claim_codes
+     SET status = 'funded', signature = $2, usdc_base_units = $3,
+         lamports = $4, funded_at = NOW()
+     WHERE id = $1`,
+    [id, signature, usdcBaseUnits.toString(), lamports.toString()],
+  )
+}
+
+/**
+ * Release a reservation back to 'unused' (clearing the wallet binding) after a
+ * failed funding attempt, so the legitimate holder can retry the same code.
+ * No-op if the row already moved to 'funded'.
+ */
+export async function releaseEventCode(id: number): Promise<void> {
+  await pool.query(
+    `UPDATE event_claim_codes
+     SET status = 'unused', redeemed_by = NULL, reserved_at = NULL
+     WHERE id = $1 AND status = 'reserved'`,
+    [id],
+  )
+}
+
 /**
  * Get the referrer wallet for a given wallet (if any).
  */

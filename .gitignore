@@ -39,6 +39,10 @@ next-env.d.ts
 
 scratch
 
+# Event operations: treasury keypair, code generation, generated codes/QRs.
+# Local-only tooling and secrets that must never reach the public repo.
+/berlin_event
+
 # Internal-only docs that shouldn't be in the public repo.
 specs/scale_and_security_plan.md
 
