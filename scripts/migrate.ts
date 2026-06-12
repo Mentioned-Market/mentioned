@@ -29,10 +29,17 @@ CREATE TABLE IF NOT EXISTS trade_events (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Solana cluster a trade was indexed from. DEFAULT 'devnet' backfills the
+-- existing test rows; the webhook stamps new rows with the active cluster
+-- (lib/solanaConfig). Reads filter by the active cluster so devnet + mainnet
+-- trades coexist cleanly in one table across network switches.
+ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS cluster TEXT NOT NULL DEFAULT 'devnet';
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_sig_unique ON trade_events(signature, market_id, word_index, trader);
 CREATE INDEX IF NOT EXISTS idx_trade_market ON trade_events(market_id, block_time);
 CREATE INDEX IF NOT EXISTS idx_trade_trader ON trade_events(trader, block_time);
 CREATE INDEX IF NOT EXISTS idx_trade_word   ON trade_events(market_id, word_index);
+CREATE INDEX IF NOT EXISTS idx_trade_cluster ON trade_events(cluster, trader);
 
 CREATE TABLE IF NOT EXISTS market_transcripts (
   id            SERIAL PRIMARY KEY,
@@ -455,6 +462,19 @@ CREATE TABLE IF NOT EXISTS paid_market_metadata (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS slug TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paid_market_metadata_slug ON paid_market_metadata(slug);
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS event_start_time TIMESTAMPTZ;
+-- Cluster the market was created on. DEFAULT 'devnet' backfills existing test
+-- markets; new markets are stamped with the active cluster (lib/solanaConfig).
+-- Reads filter by the active cluster so devnet metadata doesn't bleed into the
+-- mainnet admin/market list, mirroring trade_events.
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS cluster TEXT NOT NULL DEFAULT 'devnet';
+CREATE INDEX IF NOT EXISTS idx_paid_market_metadata_cluster ON paid_market_metadata(cluster);
+-- Hidden by default so a freshly-created market (incl. mainnet test markets) does
+-- NOT appear on the public markets page until an admin explicitly makes it live.
+-- The admin UI shows hidden markets; the public list filters them out.
+ALTER TABLE paid_market_metadata ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT true;
 
 -- User feedback submissions
 CREATE TABLE IF NOT EXISTS feedback_submissions (
@@ -537,6 +557,13 @@ CREATE INDEX IF NOT EXISTS idx_word_mentions_event_active
   ON word_mentions(event_id, word_index) WHERE superseded = FALSE;
 CREATE INDEX IF NOT EXISTS idx_word_mentions_stream
   ON word_mentions(stream_id, created_at);
+
+-- Object-storage key for the saved audio clip of this mention (admin review).
+-- NULL until the transcript worker's deferred clip upload completes, or
+-- permanently NULL when clip capture is disabled / the upload failed. Clip
+-- objects are keyed clips/{stream_id}/{mention_id}.wav and expire via the
+-- bucket's lifecycle rule.
+ALTER TABLE word_mentions ADD COLUMN IF NOT EXISTS clip_key TEXT;
 
 -- Word-level resolution rules. Default 1 = any-mention semantics (no behavioral
 -- change for existing markets). Higher = count-based ("said 10+ times").

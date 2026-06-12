@@ -16,22 +16,28 @@ import {
   address as toAddress,
   type TransactionSendingSigner,
   createSolanaRpc,
-  mainnet,
   getTransactionEncoder,
 } from '@solana/kit'
 import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth'
 import {
   useWallets as usePrivySolanaWallets,
-  useSignAndSendTransaction,
+  useSignTransaction as usePrivySignTransaction,
   useCreateWallet as useCreateSolanaWallet,
 } from '@privy-io/react-auth/solana'
-import { setPrivySolanaProvider } from '@/lib/walletUtils'
+import { setPrivySolanaProvider, setPrivySignTx } from '@/lib/walletUtils'
+import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
+import { sendViaProxy, confirmSignature } from '@/lib/rpcSend'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
-const MAINNET_URL =
-  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const SOLANA_CHAIN = 'solana:mainnet-beta'       // Wallet Standard (Phantom)
 const PRIVY_SOLANA_CHAIN = 'solana:mainnet'       // Privy internal chain ID
-const RPC_SEND_PROXY = '/api/rpc/send'
+
+// Chain the paid-markets raw-sign path declares to the wallet. Follows the paid
+// cluster (lib/solanaConfig) so flipping to devnet re-points paid signing without
+// disturbing the app's other (always-mainnet) flows.
+const PAID_PHANTOM_CHAIN = SOLANA_CLUSTER === 'devnet' ? 'solana:devnet' : SOLANA_CHAIN
+const PAID_PRIVY_CHAIN = SOLANA_CLUSTER === 'devnet' ? 'solana:devnet' : PRIVY_SOLANA_CHAIN
 const LAMPORTS_PER_SOL = 1_000_000_000
 
 const FEAT_CONNECT = 'standard:connect'
@@ -83,7 +89,7 @@ interface WalletContextType {
   disconnect: () => void
   connected: boolean
   signer: TransactionSendingSigner | null
-  /** Sign raw transaction bytes via Phantom without simulate or send. For devnet use. */
+  /** Sign raw transaction bytes via the wallet without simulate or send (paid-cluster broadcast). */
   signOnly: ((txBytes: Uint8Array) => Promise<Uint8Array>) | null
   mode: 'normal' | 'pro'
   setMode: (mode: 'normal' | 'pro') => void
@@ -108,6 +114,8 @@ interface WalletContextType {
   profileLoading: boolean
   /** Force re-fetch cached profile (e.g. after user edits their profile) */
   refreshProfile: () => void
+  /** Immediately re-fetch the SOL balance (call after any send so the UI doesn't wait for the 30s poll) */
+  refreshBalance: () => void
   /** Directly update the cached username (e.g. after a successful save, before refetch) */
   setCachedUsername: (username: string | null) => void
   /** Whether the session has been verified server-side */
@@ -118,6 +126,17 @@ interface WalletContextType {
   connecting: boolean
   /** True once the Privy SDK is initialized and ready to accept logins */
   privyReady: boolean
+}
+
+const SSR_DEFAULT: WalletContextType = {
+  publicKey: null, balance: null, connected: false, signer: null, signOnly: null,
+  mode: 'normal', walletType: null, showConnectModal: false, username: null,
+  pfpEmoji: null, discordLinked: null, discordTooNew: false, lockedAt: null,
+  profileLoading: false, authenticated: false, walletReady: false, connecting: false,
+  privyReady: false,
+  connect: () => {}, disconnect: () => {}, setMode: () => {}, setShowConnectModal: () => {},
+  connectPhantom: async () => {}, connectPrivy: () => {}, connectGoogle: () => {}, connectX: () => {},
+  refreshProfile: () => {}, refreshBalance: () => {}, setCachedUsername: () => {},
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -138,7 +157,7 @@ function findPhantomWallet(wallets: readonly Wallet[]): Wallet | null {
 
 async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
   const base64Tx = btoa(String.fromCharCode(...txBytes))
-  const res = await fetch(MAINNET_URL, {
+  const res = await fetch(MAINNET_RPC_PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -163,21 +182,11 @@ async function preSimulateTx(txBytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Send a signed transaction via the server-side RPC proxy.
+ * Send a signed transaction via the same-origin RPC proxy.
  * Returns the base58 signature as a Uint8Array (text-encoded).
  */
 async function sendRawTx(signedTxBytes: Uint8Array): Promise<Uint8Array> {
-  const base64Tx = btoa(String.fromCharCode(...signedTxBytes))
-  const res = await fetch(RPC_SEND_PROXY, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ transaction: base64Tx }),
-  })
-  const json = await res.json()
-  if (!res.ok) {
-    throw new Error(`sendTransaction failed: ${json.error || 'Unknown error'}`)
-  }
-  const sigStr = json.signature as string
+  const sigStr = await sendViaProxy(signedTxBytes, MAINNET_RPC_PROXY)
   return new TextEncoder().encode(sigStr)
 }
 
@@ -260,7 +269,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const walletRef = useRef<Wallet | null>(null)
   const walletTypeRef = useRef<'phantom' | 'privy' | null>(null)
   const walletAccountRef = useRef<WalletAccount | null>(null)
-  const rpc = useRef(createSolanaRpc(mainnet(MAINNET_URL)))
+  const rpc = useRef(createSolanaRpc(MAINNET_RPC_PROXY))
   const disconnectingRef = useRef(false)
 
   // Privy hooks
@@ -274,16 +283,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { initOAuth } = useLoginWithOAuth()
   const { wallets: privySolanaWallets, ready: privySolanaReady } =
     usePrivySolanaWallets()
-  const { signAndSendTransaction: privySignAndSend } =
-    useSignAndSendTransaction()
   const { createWallet: createSolanaWallet } = useCreateSolanaWallet()
   const createSolanaWalletRef = useRef(createSolanaWallet)
   useEffect(() => { createSolanaWalletRef.current = createSolanaWallet }, [createSolanaWallet])
 
-  const privySignAndSendRef = useRef(privySignAndSend)
+  const { signTransaction: privySignTx } = usePrivySignTransaction()
+  const privySignTxRef = useRef(privySignTx)
   useEffect(() => {
-    privySignAndSendRef.current = privySignAndSend
-  }, [privySignAndSend])
+    privySignTxRef.current = privySignTx
+    // Mirror into lib/walletUtils so the non-React Jupiter flow can sign too.
+    setPrivySignTx(privySignTx as any)
+  }, [privySignTx])
 
   const privyWalletRef = useRef<any>(null)
 
@@ -478,6 +488,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWalletType('privy')
     setConnecting(false)
 
+    // Sign-only flow: Privy signs (pure crypto, no RPC), our same-origin proxy
+    // broadcasts and confirms. Privy never needs an RPC endpoint, so no keyed
+    // URL ships in the browser bundle. Confirmation is awaited because callers
+    // (e.g. PrivyFundsModal) refetch balances as soon as this resolves.
     const encoder = getTransactionEncoder()
     const privySigner: TransactionSendingSigner = {
       address: toAddress(embeddedWalletAddress),
@@ -485,12 +499,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const results = []
         for (const tx of transactions) {
           const txBytes = new Uint8Array(encoder.encode(tx))
-          const result = await privySignAndSendRef.current({
+          // Surface failures before signing (parity with the Phantom signer).
+          await preSimulateTx(txBytes)
+          const { signedTransaction } = await privySignTxRef.current({
             transaction: txBytes,
             wallet: privyWalletRef.current,
             chain: PRIVY_SOLANA_CHAIN as any,
           })
-          results.push(result.signature)
+          const signature = await sendViaProxy(
+            new Uint8Array(signedTransaction),
+            MAINNET_RPC_PROXY
+          )
+          await confirmSignature(signature, { proxyUrl: MAINNET_RPC_PROXY })
+          results.push(new TextEncoder().encode(signature))
         }
         return results as any
       },
@@ -510,23 +531,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // ── Balance polling ────────────────────────────────────
 
-  useEffect(() => {
+  const fetchBalance = useCallback(async () => {
     if (!pubkey) return
-
-    const addr = toAddress(pubkey)
-    const fetchBalance = async () => {
-      try {
-        const result = await rpc.current.getBalance(addr).send()
-        setBalance(Number(result.value) / LAMPORTS_PER_SOL)
-      } catch (e) {
-        console.error('Error fetching balance:', e)
-      }
+    try {
+      const result = await rpc.current.getBalance(toAddress(pubkey)).send()
+      setBalance(Number(result.value) / LAMPORTS_PER_SOL)
+    } catch (e) {
+      console.error('Error fetching balance:', e)
     }
-
-    fetchBalance()
-    const interval = setInterval(fetchBalance, 10_000)
-    return () => clearInterval(interval)
   }, [pubkey])
+
+  // Poll the balance only while the tab is visible — a backgrounded/minimized tab
+  // burns RPC credits for a balance the user can't see. The hook pauses on hidden
+  // and resumes (with an immediate fetch) when the tab is shown again.
+  //
+  // 30s is deliberate: SOL balance only changes when the user acts (covered by
+  // refreshBalance calls after sends + the immediate fetch on refocus/connect)
+  // or by external deposits, where 30s latency is invisible. This poll is the
+  // single largest RPC credit line at scale — keep it lean.
+  useVisibleInterval(fetchBalance, 30_000)
+
+  // Fetch immediately on connect / account switch rather than waiting for the next
+  // poll tick — useVisibleInterval only re-fires on visibility change, not on pubkey.
+  useEffect(() => {
+    fetchBalance()
+  }, [fetchBalance])
 
   // ── Profile cache ─────────────────────────────────────
 
@@ -789,9 +818,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [walletType, clearState, privyLogout])
 
-  // Sign raw tx bytes via Phantom's signTransaction feature — no simulate, no send.
-  // Used for devnet on-chain markets where the mainnet simulate/send proxy is wrong network.
+  // Sign raw tx bytes via the wallet's signTransaction feature — no simulate, no
+  // send. Used for the paid on-chain markets so we can broadcast straight to the
+  // paid-cluster RPC instead of going through the mainnet proxy. The declared
+  // chain follows the paid cluster (mainnet by default, devnet when configured).
   const signOnly = useCallback(async (txBytes: Uint8Array): Promise<Uint8Array> => {
+    // Privy embedded wallet path
+    if (walletTypeRef.current === 'privy') {
+      const result = await privySignTxRef.current({
+        transaction: txBytes,
+        wallet: privyWalletRef.current,
+        chain: PAID_PRIVY_CHAIN as any,
+      })
+      return result.signedTransaction as Uint8Array
+    }
+    // Phantom (or other Wallet Standard wallet) path
     const wallet = walletRef.current
     const account = walletAccountRef.current
     if (!wallet || !account) throw new Error('Wallet not connected')
@@ -799,7 +840,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const signFeature = wallet.features[FEAT_SIGN] as {
       signTransaction(...inputs: Array<{ transaction: Uint8Array; account: WalletAccount; chain?: string }>): Promise<Array<{ signedTransaction: Uint8Array }>>
     }
-    const [result] = await signFeature.signTransaction({ transaction: txBytes, account, chain: 'solana:devnet' })
+    const [result] = await signFeature.signTransaction({ transaction: txBytes, account, chain: PAID_PHANTOM_CHAIN })
     return result.signedTransaction
   }, [])
 
@@ -830,6 +871,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         profileLoading,
         walletReady,
         refreshProfile,
+        refreshBalance: fetchBalance,
         setCachedUsername: setUsername,
         authenticated,
         connecting,
@@ -843,8 +885,5 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
 export function useWallet() {
   const context = useContext(WalletContext)
-  if (context === undefined) {
-    throw new Error('useWallet must be used within a WalletProvider')
-  }
-  return context
+  return context ?? SSR_DEFAULT
 }

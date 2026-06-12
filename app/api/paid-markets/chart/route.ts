@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -12,10 +15,10 @@ export async function GET(req: NextRequest) {
   const result = await pool.query(
     `SELECT word_index, implied_price, block_time, cost
      FROM trade_events
-     WHERE market_id = $1
+     WHERE market_id = $1 AND cluster = $2
      ORDER BY block_time ASC
      LIMIT 2000`,
-    [id],
+    [id, SOLANA_CLUSTER],
   )
 
   const byWord = new Map<number, { t: number; p: number }[]>()

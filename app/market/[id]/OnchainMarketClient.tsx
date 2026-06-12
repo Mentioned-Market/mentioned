@@ -1,0 +1,1545 @@
+'use client'
+
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import Link from 'next/link'
+import Header from '@/components/Header'
+import Footer from '@/components/Footer'
+import FlashValue from '@/components/FlashValue'
+import EventPriceChart from '@/components/EventPriceChart'
+import MentionedSpinner from '@/components/MentionedSpinner'
+import MarketHowItWorks from '@/components/MarketHowItWorks'
+import { useWallet } from '@/contexts/WalletContext'
+import {
+  fetchMarketSnapshot,
+  fetchUsdcBalance,
+  fetchTokenAccountStates,
+  createAtaIx,
+  createBuyIx,
+  createSellIx,
+  buildReclaimPlan,
+  sendInstructions,
+  formatSol,
+  TOKEN_ACCOUNT_RENT_LAMPORTS,
+  impliedYesPrice,
+  estimateBuyCost,
+  estimateSellReturn,
+  sharesForUsdc,
+  formatUsdc,
+  statusLabel,
+  MarketStatus,
+  USDC_MINT,
+  USDC_PRECISION,
+  type UsdcMarketAccount,
+  type WordState,
+  type TokenAccountState,
+} from '@/lib/mentionMarketUsdc'
+import type { Address } from '@solana/kit'
+
+// ── Props ────────────────────────────────────────────────
+
+interface Props {
+  marketId: string
+}
+
+// ── Types ────────────────────────────────────────────────
+
+interface UserTokens {
+  yes: bigint
+  no: bigint
+}
+
+// Frontend-only cap on a single (word, side) position during early testing ($2).
+const MAX_POSITION_USDC = 2_000_000n
+
+// Minimum SOL a wallet needs to cover network fees + the rent to create the YES/NO
+// token account on a first trade. Embedded (Privy) wallets often hold USDC but no
+// SOL, so we guard against the confusing on-chain "ResultWithNegativeLamports" error.
+const MIN_SOL_FOR_FEES = 0.004
+
+interface OnchainTrade {
+  signature: string
+  wordIndex: number
+  direction: 'YES' | 'NO'
+  isBuy: boolean
+  quantity: number
+  cost: number
+  impliedPrice: number
+  trader: string
+  username: string | null
+  blockTime: string
+}
+
+// ── Helpers ──────────────────────────────────────────────
+
+// Turn raw on-chain / wallet error text into a clear, user-facing message. The
+// program surfaces Anchor messages like "Return is below min_return slippage
+// limit", which are accurate but jargon; map the ones a trader can actually hit.
+function friendlyTradeError(raw: string): string {
+  const m = raw.toLowerCase()
+  if (m.includes('min_return') || m.includes('max_cost') || m.includes('slippage'))
+    return 'The price moved while your trade was processing. Please try again.'
+  if (m.includes('not open for trading') || m.includes('market is paused') || m.includes('trading is locked') || m.includes('locks_at'))
+    return 'Trading is closed for this market right now.'
+  if (m.includes('already resolved'))
+    return 'This has already resolved, so it can no longer be traded.'
+  if (m.includes('parameter b is zero') || m.includes('pool has no balance') || m.includes('zeroliquidity'))
+    return 'This market has no liquidity to trade against yet.'
+  if (m.includes('no tokens to redeem'))
+    return 'There is nothing to redeem here.'
+  if (m.includes('not yet resolved'))
+    return 'This market has not resolved yet, so there is nothing to redeem.'
+  if (m.includes('direction does not match winning outcome'))
+    return 'These shares did not win, so there is nothing to redeem.'
+  if (m.includes('insufficient token balance'))
+    return 'You do not have enough shares to sell.'
+  if ((m.includes('insufficient') && m.includes('lamport')) || m.includes('resultwithnegativelamports'))
+    return 'You need a little SOL for network fees. Add SOL and try again.'
+  if (m.includes('insufficient balance') || m.includes('insufficient funds'))
+    return 'Insufficient balance for this trade.'
+  if (m.includes('user rejected') || m.includes('rejected the request') || m.includes('declined') || m.includes('user denied'))
+    return 'Transaction cancelled.'
+  // Confirmation timeout is NOT a failure — the tx may have landed (lib/rpcSend
+  // ConfirmationTimeoutError). Never tell the user to simply retry: with real
+  // USDC that invites a double-buy of a trade that already went through.
+  if (m.includes('may still go through') || m.includes('confirmation timed out'))
+    return 'Still confirming — your trade may have gone through. Check your positions in a moment before trying again.'
+  if (m.includes('blockhash') || m.includes('expired') || m.includes('block height exceeded'))
+    return 'The transaction expired before it landed. Please try again.'
+  // Fallback: don't dump raw program/JSON jargon at the user.
+  if (raw.length > 100 || m.includes('custom program error') || m.includes('instructionerror') || m.includes('0x'))
+    return 'Transaction failed. Please try again.'
+  return raw
+}
+
+function formatTokens(baseUnits: bigint): string {
+  const whole = baseUnits / USDC_PRECISION
+  const frac = baseUnits % USDC_PRECISION
+  const fracStr = frac.toString().padStart(6, '0').slice(0, 2)
+  if (frac === 0n) return whole.toString()
+  return `${whole}.${fracStr}`
+}
+
+function timeUntil(ts: bigint): string {
+  const diff = Number(ts) * 1000 - Date.now()
+  if (diff <= 0) return 'Resolved'
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+  if (hours > 24) {
+    const days = Math.floor(hours / 24)
+    return `${days}d ${hours % 24}h`
+  }
+  return `${hours}h ${minutes}m`
+}
+
+function formatResolveTime(ts: bigint): string {
+  const d = new Date(Number(ts) * 1000)
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
+function statusPillClasses(status: MarketStatus): string {
+  switch (status) {
+    case MarketStatus.Open:
+      return 'bg-apple-green/15 text-apple-green border-apple-green/30'
+    case MarketStatus.Paused:
+      return 'bg-yellow-400/15 text-yellow-400 border-yellow-400/30'
+    case MarketStatus.Resolved:
+      return 'bg-neutral-700/40 text-neutral-400 border-neutral-600/30'
+  }
+}
+
+const POLL_INTERVAL = 12_000
+
+interface PaidMarketMetadata {
+  market_id: string
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  stream_url: string | null
+  event_start_time: string | null
+}
+
+function toEmbedUrl(url: string): string {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  const twitchChannel = url.match(/twitch\.tv\/([^/?]+)/i)
+  if (twitchChannel) return `https://player.twitch.tv/?channel=${twitchChannel[1]}&parent=${hostname}&muted=true`
+  const twitchVod = url.match(/twitch\.tv\/videos\/(\d+)/i)
+  if (twitchVod) return `https://player.twitch.tv/?video=v${twitchVod[1]}&parent=${hostname}&muted=true`
+  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?]+)/)
+  if (ytMatch) return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1`
+  const ytLive = url.match(/youtube\.com\/live\/([^?&]+)/)
+  if (ytLive) return `https://www.youtube-nocookie.com/embed/${ytLive[1]}?autoplay=1&mute=1`
+  return url
+}
+
+function DescriptionBlock({ text, limit }: { text: string; limit: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const needsTrunc = text.length > limit
+  return (
+    <div className="mb-5 text-sm text-neutral-400 leading-relaxed">
+      {expanded || !needsTrunc ? text : `${text.slice(0, limit).trimEnd()}…`}
+      {needsTrunc && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="ml-1 text-neutral-500 hover:text-neutral-300 transition-colors"
+        >
+          {expanded ? 'less' : 'more'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────
+
+export default function OnchainMarketClient({ marketId }: Props) {
+  const id = useMemo(() => BigInt(marketId), [marketId])
+
+  const { publicKey, connected, connect, signer, signOnly, balance, refreshBalance } = useWallet()
+
+  // ── Data state ────────────────────────────────────────────
+  const [market, setMarket] = useState<UsdcMarketAccount | null>(null)
+  const [metadata, setMetadata] = useState<PaidMarketMetadata | null>(null)
+  const [chartData, setChartData] = useState<{ wordIndex: number; history: { t: number; p: number }[] }[]>([])
+  const [volumeBaseUnits, setVolumeBaseUnits] = useState(0)
+  const [chartLoading, setChartLoading] = useState(true)
+  const [vaultBalance, setVaultBalance] = useState<bigint>(0n)
+  const [userUsdc, setUserUsdc] = useState<bigint>(0n)
+  const [userTokens, setUserTokens] = useState<UserTokens[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [contentVisible, setContentVisible] = useState(false)
+
+  // ── Trading state ─────────────────────────────────────────
+  const [selectedWordIdx, setSelectedWordIdx] = useState(0)
+  const [side, setSide] = useState<'YES' | 'NO'>('YES')
+  const [tradeMode, setTradeMode] = useState<'buy' | 'sell'>('buy')
+  const [amount, setAmount] = useState('')
+  const [txPending, setTxPending] = useState(false)
+  const [tradeStatus, setTradeStatus] = useState<{ msg: string; error: boolean } | null>(null)
+  // True from a confirmed trade until the on-chain position/balances are re-read,
+  // so we can show a spinner while the new position catches up.
+  const [updatingPositions, setUpdatingPositions] = useState(false)
+
+  // ── Word ATA states ───────────────────────────────────────
+  // Existence + balance + rent lamports for every word ATA, indexed
+  // [w0.yes, w0.no, w1.yes, …]. Loaded with user data (same getMultipleAccounts
+  // read). Existence drives the first-trade rent notice on open markets and the
+  // rent-reclaim flow on resolved ones.
+  const [ataStates, setAtaStates] = useState<TokenAccountState[] | null>(null)
+  const [reclaimStatus, setReclaimStatus] = useState<{ msg: string; error: boolean } | null>(null)
+
+  // ── Mobile sheet ──────────────────────────────────────────
+  const [mobileTradeOpen, setMobileTradeOpen] = useState(false)
+
+  // ── Stream ────────────────────────────────────────────────
+  const [streamHidden, setStreamHidden] = useState(false)
+
+  // ── Recent trades ─────────────────────────────────────────
+  const [trades, setTrades] = useState<OnchainTrade[]>([])
+
+  // Net USDC spent per "<wordIndex>:<0|1>" (0=YES,1=NO) for the $2-per-position cap.
+  // `baseSpend` is the indexed history from the server (fetched once per load);
+  // `sessionSpend` is an immediate local overlay for trades made this session, so
+  // the cap reacts instantly without waiting for the webhook indexer to catch up.
+  const [baseSpend, setBaseSpend] = useState<Record<string, number>>({})
+  const [sessionSpend, setSessionSpend] = useState<Record<string, number>>({})
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // ── Data fetching ─────────────────────────────────────────
+
+  const loadMarket = useCallback(async () => {
+    try {
+      // Market account + vault come from the shared cached snapshot route (one
+      // upstream read per ~3s for ALL viewers) instead of per-viewer RPC reads.
+      const [snap, metaRes] = await Promise.all([
+        fetchMarketSnapshot(marketId),
+        fetch(`/api/paid-markets/metadata?id=${marketId}`).then(r => r.ok ? r.json() : null),
+      ])
+      if (!snap.market) { setError('Market not found'); setLoading(false); return }
+      setMarket(snap.market)
+      setVaultBalance(snap.vaultBalance)
+      if (metaRes && !metaRes.error) setMetadata(metaRes)
+      setError(null)
+    } catch (e) {
+      setError('Failed to load market')
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }, [id, marketId])
+
+  const loadUserData = useCallback(async (mkt: UsdcMarketAccount) => {
+    if (!publicKey) return
+    const wallet = publicKey as Address
+    try {
+      // One getMultipleAccounts call covers every word ATA (balance + existence
+      // + rent lamports) instead of 2-per-word getTokenAccountBalance reads.
+      // Existence feeds the first-trade rent notice and the reclaim flow.
+      const mints = mkt.words.flatMap((w: WordState) => [w.yesMint, w.noMint])
+      const [usdc, states] = await Promise.all([
+        fetchUsdcBalance(wallet),
+        fetchTokenAccountStates(wallet, mints),
+      ])
+      setUserUsdc(usdc)
+      setAtaStates(states)
+      const parsed: UserTokens[] = []
+      for (let i = 0; i < mkt.words.length; i++) {
+        parsed.push({ yes: states[i * 2].amount, no: states[i * 2 + 1].amount })
+      }
+      setUserTokens(parsed)
+    } catch (e) {
+      console.error('Failed to load user data', e)
+    }
+  }, [publicKey])
+
+  const loadChart = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/paid-markets/chart?id=${marketId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setChartData(data.words || [])
+        setVolumeBaseUnits(data.totalVolume || 0)
+      }
+    } catch { /* ignore */ } finally {
+      setChartLoading(false)
+    }
+  }, [marketId])
+
+  const fetchTrades = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/paid-markets/trades?id=${marketId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setTrades(data.trades || [])
+      }
+    } catch { /* ignore */ }
+  }, [marketId])
+
+  // Pull the wallet's indexed net-spend per (word, side). Resets the local session
+  // overlay, since the server figure now reflects everything up to this point.
+  const fetchSpend = useCallback(async () => {
+    if (!publicKey) { setBaseSpend({}); setSessionSpend({}); return }
+    try {
+      const res = await fetch(`/api/paid-markets/user-word-spend?wallet=${publicKey}&id=${marketId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBaseSpend(data.spend || {})
+        setSessionSpend({})
+      }
+    } catch { /* ignore — keep prior figures */ }
+  }, [publicKey, marketId])
+
+  useEffect(() => {
+    loadMarket()
+    pollRef.current = setInterval(loadMarket, POLL_INTERVAL)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [loadMarket])
+
+  useEffect(() => { loadChart() }, [loadChart])
+  useEffect(() => { fetchTrades() }, [fetchTrades])
+  useEffect(() => { fetchSpend() }, [fetchSpend])
+
+  useEffect(() => {
+    if (market) loadUserData(market)
+  }, [market, loadUserData])
+
+  // Fade-in after load
+  useEffect(() => {
+    if (!loading && market) {
+      requestAnimationFrame(() => setContentVisible(true))
+    }
+  }, [loading, market])
+
+  // ── Derived values ─────────────────────────────────────────
+
+  const word = market?.words[selectedWordIdx]
+  const amountNum = parseFloat(amount) || 0
+
+  const estimatedShares = useMemo<bigint>(() => {
+    if (!word || !market || amountNum <= 0 || tradeMode === 'sell') return 0n
+    const usdcUnits = BigInt(Math.floor(amountNum * 1_000_000))
+    return sharesForUsdc(word, market.liquidityParamB, side, usdcUnits)
+  }, [word, market, amountNum, tradeMode, side])
+
+  const estimatedCost = useMemo<bigint>(() => {
+    if (!word || !market || amountNum <= 0 || tradeMode === 'sell' || estimatedShares <= 0n) return 0n
+    return estimateBuyCost(word, market.liquidityParamB, side, estimatedShares)
+  }, [word, market, amountNum, tradeMode, side, estimatedShares])
+
+  const feeOnCost = useMemo<bigint>(() => {
+    if (!market || estimatedCost <= 0n) return 0n
+    return (estimatedCost * BigInt(market.tradeFeeBps)) / 10000n
+  }, [market, estimatedCost])
+
+  const sellShares = useMemo<bigint>(() => {
+    if (!word || tradeMode !== 'sell') return 0n
+    const raw = BigInt(Math.floor(amountNum * 1_000_000))
+    const held = side === 'YES'
+      ? (userTokens[selectedWordIdx]?.yes ?? 0n)
+      : (userTokens[selectedWordIdx]?.no ?? 0n)
+    return raw > held ? held : raw
+  }, [word, tradeMode, amountNum, side, userTokens, selectedWordIdx])
+
+  const estimatedReturn = useMemo<bigint>(() => {
+    if (!word || !market || tradeMode !== 'sell' || sellShares <= 0n) return 0n
+    return estimateSellReturn(word, market.liquidityParamB, side, sellShares)
+  }, [word, market, tradeMode, side, sellShares])
+
+  const heldForSide = side === 'YES'
+    ? (userTokens[selectedWordIdx]?.yes ?? 0n)
+    : (userTokens[selectedWordIdx]?.no ?? 0n)
+
+  // Frontend-only position cap: $2 max NET-SPEND per (word, side). Net spend =
+  // Σ buys − Σ sells (from indexed history + this session's local overlay), so it
+  // can't be gamed by price drift. Selling lowers it (re-entry allowed by design).
+  // Users could still bypass at the contract level — fine for early testing.
+  const spendKey = `${selectedWordIdx}:${side === 'YES' ? 0 : 1}`
+  const netSpentForSide = (baseSpend[spendKey] ?? 0) + (sessionSpend[spendKey] ?? 0)
+  const maxPos = Number(MAX_POSITION_USDC)
+  const remainingNum = Math.max(0, Math.min(maxPos, maxPos - netSpentForSide)) // base units
+  const remainingAllowance = BigInt(Math.floor(remainingNum))
+  const remainingDollars = remainingNum / 1_000_000
+  const positionFull = tradeMode === 'buy' && remainingAllowance <= 0n
+
+  const streamEmbedUrl = metadata?.stream_url ? toEmbedUrl(metadata.stream_url) : null
+  const DESC_LIMIT = 180
+
+  const chartMarkets = useMemo(() => {
+    if (!market) return []
+    return market.words.map((w, i) => ({
+      marketId: String(i),
+      title: w.label,
+      currentPrice: impliedYesPrice(w, market.liquidityParamB),
+    }))
+  }, [market])
+
+  const chartSeries = useMemo(() => {
+    if (!market) return []
+    return market.words.map((w, i) => {
+      const wordData = chartData.find(cd => cd.wordIndex === i)
+      const currentPrice = impliedYesPrice(w, market.liquidityParamB)
+      const data: { t: number; p: number }[] = wordData?.history.length
+        ? [...wordData.history]
+        : [{ t: Math.floor((Date.now() - 3600000) / 1000), p: 0.5 }]
+      if (market.status !== MarketStatus.Resolved) {
+        data.push({ t: Math.floor(Date.now() / 1000), p: currentPrice })
+      }
+      return { marketId: String(i), title: w.label, currentPrice, data }
+    })
+  }, [market, chartData])
+
+  const buyCap = userUsdc < remainingAllowance ? userUsdc : remainingAllowance
+  const sliderMax = tradeMode === 'buy' ? buyCap : heldForSide
+  const sliderValue = sliderMax > 0n ? Math.min(100, (amountNum * 1_000_000 / Number(sliderMax)) * 100) : 0
+
+  const isOpen = market?.status === MarketStatus.Open
+  const isResolved = market?.status === MarketStatus.Resolved
+  const wordLocked = word?.locked ?? false
+  const canTrade = isOpen && !wordLocked && !!publicKey && !!signer && !!signOnly
+
+  // What the wallet can get back from this resolved market: every existing word
+  // ATA is closable (after redeeming winners / burning dead losing tokens), each
+  // refunding its rent deposit. Mirrors buildReclaimPlan's selection exactly.
+  const reclaim = useMemo(() => {
+    if (!connected || !market || market.status !== MarketStatus.Resolved || !ataStates) return null
+    let lamports = 0n
+    let redeemUnits = 0n
+    let closes = 0
+    market.words.forEach((w, i) => {
+      if (w.outcome === null) return
+      for (const side of ['YES', 'NO'] as const) {
+        const state = ataStates[i * 2 + (side === 'YES' ? 0 : 1)]
+        if (!state?.exists) continue
+        if (state.amount > 0n && w.outcome === (side === 'YES')) redeemUnits += state.amount
+        lamports += state.lamports
+        closes += 1
+      }
+    })
+    if (closes === 0) return null
+    return { lamports, redeemUnits, closes }
+  }, [connected, market, ataStates])
+
+  const showBuyPreview = tradeMode === 'buy' && amountNum > 0 && estimatedShares > 0n
+  const showSellPreview = tradeMode === 'sell' && amountNum > 0 && estimatedReturn > 0n
+
+  // First buy on this (word, side) creates the token account, costing a one-time
+  // SOL rent deposit the user gets back via the reclaim flow after resolution.
+  // Only shown when ATA existence is actually known (states loaded).
+  const willCreateAta = tradeMode === 'buy' && ataStates !== null
+    ? !(ataStates[selectedWordIdx * 2 + (side === 'YES' ? 0 : 1)]?.exists ?? false)
+    : false
+
+  // Settlement view (resolved markets): one row per held position, from the
+  // holder's perspective. Winning side pays 1:1; losing side is worth $0.
+  const settlementRows = useMemo(() => {
+    if (!market || !connected || market.status !== MarketStatus.Resolved) return []
+    const rows: { label: string; side: 'YES' | 'NO'; amount: bigint; won: boolean }[] = []
+    market.words.forEach((w, i) => {
+      if (w.outcome === null) return
+      const tok = userTokens[i]
+      if (!tok) return
+      if (tok.yes >= 10_000n) rows.push({ label: w.label, side: 'YES', amount: tok.yes, won: w.outcome === true })
+      if (tok.no >= 10_000n) rows.push({ label: w.label, side: 'NO', amount: tok.no, won: w.outcome === false })
+    })
+    return rows
+  }, [market, connected, userTokens])
+
+  const totalWinnings = useMemo(
+    () => settlementRows.reduce((sum, r) => (r.won ? sum + r.amount : sum), 0n),
+    [settlementRows]
+  )
+
+  // Filter zero-quantity dust entries out of the trade feed ("sold 0.00 YES for
+  // $0.00" is noise from rounding-edge sells).
+  const visibleTrades = useMemo(() => trades.filter(t => t.quantity >= 10_000), [trades])
+
+  // ── Quick-amount preset handler ───────────────────────────
+
+  const handlePreset = useCallback((pct: number) => {
+    // For buys, cap the usable max at the remaining $2-per-position allowance.
+    const max = tradeMode === 'buy'
+      ? (userUsdc < remainingAllowance ? userUsdc : remainingAllowance)
+      : heldForSide
+    if (max <= 0n) return
+    const fraction = Number(max) * pct / 100
+    if (tradeMode === 'buy') {
+      // USDC: format to 2dp (max already capped at the remaining allowance)
+      const raw = Math.floor(fraction / 10_000) / 100
+      setAmount(raw.toString())
+    } else {
+      // Tokens: format to 2dp truncated
+      const tokens = fraction / 1_000_000
+      const truncated = Math.floor(tokens * 100) / 100
+      setAmount(truncated.toFixed(2))
+    }
+  }, [tradeMode, userUsdc, heldForSide, remainingAllowance])
+
+  // ── Word selection handler ────────────────────────────────
+
+  const handleWordClick = useCallback((idx: number) => {
+    if (!market) return
+    const w = market.words[idx]
+    if (w.outcome !== null) return // don't select resolved words for trading
+    setSelectedWordIdx(idx)
+    setAmount('')
+  }, [market])
+
+  // ── Transactions ──────────────────────────────────────────
+
+  const handleBuy = useCallback(async () => {
+    if (!market || !signer || !signOnly || !publicKey || !word || amountNum <= 0) return
+    // Block early with a clear message when the wallet can't cover fees + ATA rent,
+    // instead of letting it fail in on-chain simulation with a cryptic error.
+    if (balance !== null && balance < MIN_SOL_FOR_FEES) {
+      setTradeStatus({
+        msg: willCreateAta
+          ? 'You need ~0.004 SOL to cover network fees and a refundable account deposit (returned when the market resolves). Add SOL to your wallet to trade.'
+          : 'You need ~0.004 SOL for network fees, add SOL to your wallet to trade',
+        error: true,
+      })
+      return
+    }
+    // $2 cap per (word, side) on the USDC entered to spend. The fee/price-impact
+    // is excluded so a full $2 entry isn't blocked; the input is already clamped to
+    // the remaining allowance, so this is a consistent backstop.
+    if (netSpentForSide + Math.round(amountNum * 1_000_000) > maxPos) {
+      setTradeStatus({ msg: `Max $2 per position during testing, you can add up to $${remainingDollars.toFixed(2)} more on ${side}`, error: true })
+      return
+    }
+    setTxPending(true)
+    setTradeStatus(null)
+    try {
+      const wallet = publicKey as Address
+      const usdcUnits = BigInt(Math.floor(amountNum * 1_000_000))
+      const shares = sharesForUsdc(word, market.liquidityParamB, side, usdcUnits)
+      if (shares <= 0n) throw new Error('Amount too small')
+      const cost = estimateBuyCost(word, market.liquidityParamB, side, shares)
+      const fee = (cost * BigInt(market.tradeFeeBps)) / 10000n
+      const maxCost = cost + fee + (cost + fee) / 50n // 2% slippage
+
+      const usdcAtaIx = await createAtaIx(wallet, wallet, USDC_MINT)
+      const tokenAtaIx = await createAtaIx(wallet, wallet, side === 'YES' ? word.yesMint : word.noMint)
+      const buyIx = await createBuyIx(wallet, id, selectedWordIdx, side, shares, maxCost)
+      await sendInstructions(signer, signOnly, [usdcAtaIx, tokenAtaIx, buyIx])
+
+      setTradeStatus({ msg: `Bought ${formatTokens(shares)} ${side} tokens for "${word.label}"`, error: false })
+      setAmount('')
+      // Optimistically add this buy's all-in cost to the session overlay so the cap
+      // tightens immediately; fetchSpend later reconciles against indexed history.
+      setSessionSpend(prev => ({ ...prev, [spendKey]: (prev[spendKey] ?? 0) + Number(cost + fee) }))
+      setUpdatingPositions(true)
+      setTimeout(async () => {
+        await Promise.allSettled([loadMarket(), loadUserData(market), fetchTrades(), fetchSpend()])
+        setUpdatingPositions(false)
+      }, 4000)
+    } catch (e: unknown) {
+      setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
+    } finally {
+      setTxPending(false)
+      setTimeout(() => setTradeStatus(null), 8000)
+    }
+  }, [market, signer, signOnly, publicKey, word, amountNum, side, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, netSpentForSide, estimatedCost, feeOnCost, remainingDollars, maxPos, spendKey, balance, willCreateAta])
+
+  const handleSell = useCallback(async () => {
+    if (!market || !signer || !signOnly || !publicKey || !word || sellShares <= 0n) return
+    setTxPending(true)
+    setTradeStatus(null)
+    try {
+      const wallet = publicKey as Address
+      const ret = estimateSellReturn(word, market.liquidityParamB, side, sellShares)
+      const minReturn = ret - ret / 50n // 2% slippage
+      const usdcAtaIx = await createAtaIx(wallet, wallet, USDC_MINT)
+      const tokenAtaIx = await createAtaIx(wallet, wallet, side === 'YES' ? word.yesMint : word.noMint)
+      const sellIx = await createSellIx(wallet, id, selectedWordIdx, side, sellShares, minReturn)
+      await sendInstructions(signer, signOnly, [usdcAtaIx, tokenAtaIx, sellIx])
+
+      setTradeStatus({ msg: `Sold ${formatTokens(sellShares)} ${side} tokens`, error: false })
+      setAmount('')
+      // Selling returns USDC, so it lowers net spend on this (word, side).
+      setSessionSpend(prev => ({ ...prev, [spendKey]: (prev[spendKey] ?? 0) - Number(ret) }))
+      setUpdatingPositions(true)
+      setTimeout(async () => {
+        await Promise.allSettled([loadMarket(), loadUserData(market), fetchTrades(), fetchSpend()])
+        setUpdatingPositions(false)
+      }, 4000)
+    } catch (e: unknown) {
+      setTradeStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
+    } finally {
+      setTxPending(false)
+      setTimeout(() => setTradeStatus(null), 8000)
+    }
+  }, [market, signer, signOnly, publicKey, word, side, sellShares, id, selectedWordIdx, loadMarket, loadUserData, fetchTrades, fetchSpend, spendKey])
+
+  // Single claim path: handleReclaim's buildReclaimPlan covers redemption of
+  // winners, burning of dead losing tokens, and closing every word ATA. The
+  // old per-word redeem buttons are gone — three overlapping CTAs (redeem
+  // banner, row buttons, reclaim card) read as three different payouts.
+  const handleReclaim = useCallback(async () => {
+    if (!market || !signer || !signOnly || !publicKey) return
+    // The ~5k-lamport network fee is charged upfront, before the rent refund
+    // lands — a wallet at exactly 0 SOL can't execute the reclaim that would
+    // fund it. Catch this early with an actionable message.
+    if (balance !== null && balance < 0.0001) {
+      setReclaimStatus({ msg: 'You need a tiny amount of SOL (~0.0001) to cover the network fee — the reclaim returns much more than it costs.', error: true })
+      setTimeout(() => setReclaimStatus(null), 10000)
+      return
+    }
+    setTxPending(true)
+    setReclaimStatus(null)
+    try {
+      const wallet = publicKey as Address
+      // Re-fetch account states at click time so burn amounts are never stale.
+      // A mismatch would only make the transaction revert (atomic), but fresh
+      // reads avoid burning the user's signature on a doomed attempt.
+      const mints = market.words.flatMap((w: WordState) => [w.yesMint, w.noMint])
+      const fresh = await fetchTokenAccountStates(wallet, mints)
+      const plan = await buildReclaimPlan(wallet, market, fresh)
+      if (plan.txChunks.length === 0) {
+        setAtaStates(fresh)
+        setReclaimStatus({ msg: 'Nothing left to reclaim.', error: false })
+        return
+      }
+      for (let i = 0; i < plan.txChunks.length; i++) {
+        if (plan.txChunks.length > 1) {
+          setReclaimStatus({ msg: `Confirming transaction ${i + 1} of ${plan.txChunks.length}…`, error: false })
+        }
+        await sendInstructions(signer, signOnly, plan.txChunks[i])
+      }
+      const solStr = formatSol(plan.reclaimLamports)
+      setReclaimStatus({
+        msg: plan.redeemBaseUnits > 0n
+          ? `Redeemed $${formatUsdc(plan.redeemBaseUnits)} and reclaimed ~${solStr} SOL`
+          : `Reclaimed ~${solStr} SOL`,
+        error: false,
+      })
+      setUpdatingPositions(true)
+      setTimeout(async () => {
+        await Promise.allSettled([loadMarket(), loadUserData(market)])
+        refreshBalance()
+        setUpdatingPositions(false)
+      }, 2000)
+    } catch (e: unknown) {
+      setReclaimStatus({ msg: friendlyTradeError(e instanceof Error ? e.message : String(e)), error: true })
+      // Earlier chunks may have landed before the failure — re-read so the card
+      // reflects what's actually still reclaimable.
+      loadUserData(market).then(() => refreshBalance())
+    } finally {
+      setTxPending(false)
+      setTimeout(() => setReclaimStatus(null), 10000)
+    }
+  }, [market, signer, signOnly, publicKey, balance, loadMarket, loadUserData, refreshBalance])
+
+  // ── Trading Panel ─────────────────────────────────────────
+
+  const tradingPanel = word ? (
+    <>
+      {/* Header: market icon + selected word */}
+      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/10">
+        <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0">
+          {metadata?.cover_image_url ? (
+            <img src={metadata.cover_image_url} alt={word.label} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-base">🎯</div>
+          )}
+        </div>
+        <span className="text-white font-semibold text-base truncate">{word.label}</span>
+        <div className="ml-auto flex-shrink-0">
+          <MarketHowItWorks variant="paid" compact />
+        </div>
+      </div>
+
+      {/* Testing cap notice */}
+      <div className="mb-4 px-3 py-2 rounded-lg bg-[#F2B71F]/[0.08] border border-[#F2B71F]/20 text-[11px] text-[#F2B71F]/90 text-center leading-snug">
+        $2 max per position
+      </div>
+
+      {/* Buy / Sell tabs */}
+      <div className="flex items-center gap-5 mb-5">
+        <button
+          onClick={() => { setTradeMode('buy'); setAmount('') }}
+          className={`text-base font-semibold pb-1 border-b-2 transition-all duration-200 ${
+            tradeMode === 'buy' ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+          }`}
+        >
+          Buy
+        </button>
+        <button
+          onClick={() => { setTradeMode('sell'); setAmount('') }}
+          className={`text-base font-semibold pb-1 border-b-2 transition-all duration-200 ${
+            tradeMode === 'sell' ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+          }`}
+        >
+          Sell
+        </button>
+      </div>
+
+      {/* YES / NO direction buttons */}
+      {(() => {
+        const yesPrice = impliedYesPrice(word, market!.liquidityParamB)
+        const yesCents = Math.round(yesPrice * 100)
+        const noCents = 100 - yesCents
+        return (
+          <div className="flex gap-2 mb-5">
+            <button
+              onClick={() => { setSide('YES'); setAmount('') }}
+              className={`flex-1 py-3.5 rounded-xl text-base font-bold transition-all duration-200 ${
+                side === 'YES'
+                  ? 'bg-apple-green text-white'
+                  : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+              }`}
+            >
+              Yes <FlashValue value={`${yesCents}¢`} />
+            </button>
+            <button
+              onClick={() => { setSide('NO'); setAmount('') }}
+              className={`flex-1 py-3.5 rounded-xl text-base font-bold transition-all duration-200 ${
+                side === 'NO'
+                  ? 'bg-apple-red text-white'
+                  : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+              }`}
+            >
+              No <FlashValue value={`${noCents}¢`} />
+            </button>
+          </div>
+        )
+      })()}
+
+      {/* Amount section */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm text-neutral-400 font-medium">
+            {tradeMode === 'buy' ? 'USDC to spend' : 'Shares to sell'}
+          </span>
+          {connected && (
+            <div className="text-right">
+              {tradeMode === 'buy' ? (
+                <>
+                  <span className={`text-xs font-medium transition-colors ${showBuyPreview ? 'text-apple-red' : 'text-neutral-400'}`}>
+                    {showBuyPreview
+                      ? `$${formatUsdc(userUsdc > estimatedCost + feeOnCost ? userUsdc - estimatedCost - feeOnCost : 0n)} USDC`
+                      : `$${formatUsdc(userUsdc)} USDC`}
+                  </span>
+                  <span className="block text-[10px] text-neutral-600">
+                    {showBuyPreview ? 'remaining after trade' : 'available'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className={`text-xs font-medium transition-colors ${showSellPreview ? 'text-apple-green' : 'text-neutral-400'}`}>
+                    {formatTokens(heldForSide)} {side} held
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <input
+          type="text"
+          inputMode="decimal"
+          value={amount}
+          onChange={e => {
+            const raw = e.target.value.replace(/[^0-9.]/g, '')
+            const n = parseFloat(raw)
+            // Buys are capped at the remaining $2-per-position allowance; sells keep
+            // the existing per-trade ceiling.
+            const cap = tradeMode === 'buy' ? remainingDollars : 2
+            if (!isNaN(n) && n > cap) return
+            setAmount(raw)
+          }}
+          placeholder="0"
+          className="bg-transparent border-0 text-right text-4xl font-bold text-white w-full focus:outline-none focus:ring-0 placeholder:text-neutral-700 p-0 mb-1"
+        />
+        {tradeMode === 'buy' && (
+          <p className="text-[10px] text-neutral-600 text-right mb-3">
+            {positionFull
+              ? `Position full, $2.00 max on ${side}`
+              : `$${Math.max(0, remainingDollars - amountNum).toFixed(2)} left of $2.00 max on ${side}`}
+          </p>
+        )}
+
+        {/* Preset quick buttons */}
+        {(tradeMode === 'buy' || heldForSide > 0n) && (
+          <div className="flex gap-2">
+            {[25, 50, 75, 100].map(pct => (
+              <button
+                key={pct}
+                onClick={() => handlePreset(pct)}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-full bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-colors border border-white/10"
+              >
+                {pct === 100 ? 'Max' : `${pct}%`}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Buy preview — animated slide-down */}
+      <div
+        style={{
+          maxHeight: showBuyPreview ? (willCreateAta ? '200px' : '140px') : '0px',
+          opacity: showBuyPreview ? 1 : 0,
+          transform: showBuyPreview ? 'translateY(0)' : 'translateY(-10px)',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease-out, opacity 0.25s ease-out, transform 0.25s ease-out',
+          marginBottom: showBuyPreview ? '16px' : '0px',
+        }}
+      >
+        <div className="border-t border-white/10 pt-4">
+          <div className="flex items-end justify-between mb-1.5">
+            <span className="text-sm text-neutral-400">Est. shares</span>
+            <span className="text-3xl font-bold text-white">
+              {formatTokens(estimatedShares)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <span>
+              Avg price{' '}
+              {estimatedShares > 0n
+                ? Math.round((Number(estimatedCost + feeOnCost) / Number(estimatedShares)) * 100)
+                : 0}¢
+            </span>
+            <span className="text-neutral-400">
+              {market?.tradeFeeBps
+                ? `fee $${formatUsdc(feeOnCost)} (${market.tradeFeeBps / 100}%)`
+                : 'no fee'}
+            </span>
+          </div>
+          {willCreateAta && (
+            <div className="mt-2.5 px-2.5 py-2 rounded-lg bg-apple-blue/[0.08] border border-apple-blue/20 text-[11px] text-apple-blue/90 leading-snug">
+              First {side} trade on this word: includes a one-time ~{formatSol(TOKEN_ACCOUNT_RENT_LAMPORTS)} SOL
+              account deposit — you can claim it back after the market resolves.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sell preview — animated slide-down */}
+      <div
+        style={{
+          maxHeight: showSellPreview ? '80px' : '0px',
+          opacity: showSellPreview ? 1 : 0,
+          transform: showSellPreview ? 'translateY(0)' : 'translateY(-10px)',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease-out, opacity 0.25s ease-out, transform 0.25s ease-out',
+          marginBottom: showSellPreview ? '16px' : '0px',
+        }}
+      >
+        <div className="border-t border-white/10 pt-4">
+          <div className="flex items-end justify-between">
+            <span className="text-sm text-neutral-400">USDC returned ~</span>
+            <span className="text-2xl font-bold text-white">${formatUsdc(estimatedReturn)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Trade status message */}
+      {tradeStatus && (
+        <div className={`mb-3 p-3 rounded-lg text-xs ${
+          tradeStatus.error
+            ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+            : 'bg-green-500/10 border border-green-500/30 text-green-300'
+        }`}>
+          {tradeStatus.msg}
+        </div>
+      )}
+
+      {/* Action button */}
+      {!isOpen ? (
+        <button disabled className="w-full py-4 bg-white/10 text-neutral-400 font-bold text-base rounded-2xl cursor-not-allowed">
+          {market?.status === MarketStatus.Paused ? 'Market Paused' : 'Market Resolved'}
+        </button>
+      ) : wordLocked ? (
+        <button disabled className="w-full py-4 bg-yellow-500/10 text-yellow-400/60 font-bold text-base rounded-2xl cursor-not-allowed border border-yellow-500/20">
+          Pending Resolution
+        </button>
+      ) : !connected ? (
+        <button
+          onClick={connect}
+          className="w-full py-4 bg-white hover:bg-neutral-100 text-black font-bold text-base rounded-2xl transition-all duration-200"
+        >
+          Login to trade
+        </button>
+      ) : (
+        <button
+          onClick={tradeMode === 'buy' ? handleBuy : handleSell}
+          disabled={txPending || !canTrade || amountNum <= 0 || positionFull}
+          className={`w-full py-4 font-bold text-base rounded-2xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+            side === 'YES'
+              ? 'bg-apple-green hover:bg-apple-green/90 text-white'
+              : 'bg-apple-red hover:bg-apple-red/90 text-white'
+          }`}
+        >
+          {txPending ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Processing...
+            </span>
+          ) : positionFull ? (
+            `$2 max reached on ${side === 'YES' ? 'Yes' : 'No'}`
+          ) : (
+            `${tradeMode === 'buy' ? 'Buy' : 'Sell'} ${side === 'YES' ? 'Yes' : 'No'}`
+          )}
+        </button>
+      )}
+
+      {/* Post-trade: position is settling on-chain + indexing — show a spinner so
+          the user knows their position is on the way. */}
+      {updatingPositions && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <MentionedSpinner className="py-3" />
+        </div>
+      )}
+
+      {/* User positions */}
+      {connected && !updatingPositions && userTokens.some(t => t.yes >= 10_000n || t.no >= 10_000n) && market && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-3">
+            Your Positions
+          </div>
+          <div className="space-y-2">
+            {market.words.map((w, i) => {
+              const tok = userTokens[i]
+              if (!tok || (tok.yes < 10_000n && tok.no < 10_000n)) return null
+              const resolvedWord = w.outcome !== null
+              const yesPrice = impliedYesPrice(w, market.liquidityParamB)
+              const noPrice  = 1 - yesPrice
+              // Resolved: winning side redeems 1:1 ($1/share), losing side is worth $0.
+              // Unresolved: current LMSR sell value. Never value a losing position.
+              const yesReturn = resolvedWord
+                ? (w.outcome === true ? tok.yes : 0n)
+                : (() => { try { return tok.yes >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'YES', tok.yes) : 0n } catch { return 0n } })()
+              const noReturn  = resolvedWord
+                ? (w.outcome === false ? tok.no : 0n)
+                : (() => { try { return tok.no  >= 10_000n ? estimateSellReturn(w, market.liquidityParamB, 'NO',  tok.no)  : 0n } catch { return 0n } })()
+              // Badge reflects the HOLDER's outcome, not the word's winning side —
+              // a green "YES Won" above a losing NO position reads as a win.
+              const heldWinning = resolvedWord && (
+                (w.outcome === true && tok.yes >= 10_000n) || (w.outcome === false && tok.no >= 10_000n)
+              )
+              return (
+                <div key={i} className="glass rounded-xl p-3 space-y-2">
+                  {/* Word label + holder outcome / live value */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-white font-semibold text-xs truncate max-w-[160px]">{w.label}</span>
+                    {resolvedWord ? (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${heldWinning ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
+                        {heldWinning ? 'You Won' : 'You Lost'}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-neutral-600 font-medium">
+                        ${formatUsdc(yesReturn + noReturn)} value
+                      </span>
+                    )}
+                  </div>
+
+                  {/* YES side */}
+                  {tok.yes >= 10_000n && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-apple-green font-semibold text-sm tabular-nums">{formatTokens(tok.yes)}</span>
+                        <span className="text-apple-green text-xs ml-1">YES</span>
+                        <span className="text-neutral-500 text-xs ml-2 tabular-nums">
+                          @ {resolvedWord ? (w.outcome === true ? 100 : 0) : Math.round(yesPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(yesReturn)}</span>
+                        </span>
+                      </div>
+                      {!resolvedWord ? (
+                        <button
+                          onClick={() => { setSelectedWordIdx(i); setTradeMode('sell'); setSide('YES'); setAmount('') }}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-colors"
+                        >
+                          Sell
+                        </button>
+                      ) : w.outcome === true ? (
+                        <span className="text-[10px] font-bold text-apple-green">Won</span>
+                      ) : (
+                        <span className="text-[10px] text-neutral-600">Lost</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* NO side */}
+                  {tok.no >= 10_000n && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-apple-red font-semibold text-sm tabular-nums">{formatTokens(tok.no)}</span>
+                        <span className="text-apple-red text-xs ml-1">NO</span>
+                        <span className="text-neutral-500 text-xs ml-2 tabular-nums">
+                          @ {resolvedWord ? (w.outcome === false ? 100 : 0) : Math.round(noPrice * 100)}¢ = <span className="text-neutral-300">${formatUsdc(noReturn)}</span>
+                        </span>
+                      </div>
+                      {!resolvedWord ? (
+                        <button
+                          onClick={() => { setSelectedWordIdx(i); setTradeMode('sell'); setSide('NO'); setAmount('') }}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-colors"
+                        >
+                          Sell
+                        </button>
+                      ) : w.outcome === false ? (
+                        <span className="text-[10px] font-bold text-apple-green">Won</span>
+                      ) : (
+                        <span className="text-[10px] text-neutral-600">Lost</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  ) : null
+
+  // ── Settlement panel (replaces the trading panel once the market resolves;
+  //    no Buy/Sell chrome, no stale prices — results + one claim action) ─────
+
+  const settlementContent = market ? (
+    <>
+      {!connected ? (
+        <button
+          onClick={connect}
+          className="w-full py-4 bg-white hover:bg-neutral-100 text-black font-bold text-base rounded-2xl transition-all duration-200"
+        >
+          Login to see your results
+        </button>
+      ) : (
+        <>
+          {/* Per-position results, holder's perspective */}
+          {settlementRows.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {settlementRows.map((r, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-center justify-between rounded-xl px-3 py-2.5 border ${
+                    r.won ? 'bg-apple-green/[0.07] border-apple-green/20' : 'bg-white/[0.02] border-white/5'
+                  }`}
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span className="text-white text-sm font-semibold truncate">{r.label}</span>
+                    <span className={`text-xs font-medium flex-shrink-0 ${r.won ? 'text-apple-green' : 'text-neutral-500'}`}>
+                      {formatTokens(r.amount)} {r.side}
+                    </span>
+                  </div>
+                  {r.won ? (
+                    <span className="text-apple-green text-sm font-bold tabular-nums flex-shrink-0">+${formatUsdc(r.amount)}</span>
+                  ) : (
+                    <span className="text-apple-red/80 text-xs font-bold flex-shrink-0">Lost</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Net verdict */}
+          {settlementRows.length > 0 && (
+            <div className="flex items-center justify-between mb-4 px-1">
+              <span className="text-xs text-neutral-400">Your winnings</span>
+              <span className={`text-base font-bold tabular-nums ${totalWinnings > 0n ? 'text-apple-green' : 'text-neutral-400'}`}>
+                ${formatUsdc(totalWinnings)}
+              </span>
+            </div>
+          )}
+
+          {/* Single claim action: pays winnings, burns dead tokens, closes the
+              word token accounts and refunds their SOL deposits. */}
+          {reclaim ? (
+            <>
+              <button
+                onClick={handleReclaim}
+                disabled={txPending || updatingPositions}
+                className="w-full py-3.5 rounded-2xl text-base font-bold bg-apple-green hover:bg-apple-green/90 text-white disabled:opacity-50 transition-all"
+              >
+                {txPending || updatingPositions
+                  ? 'Processing…'
+                  : reclaim.redeemUnits > 0n
+                    ? `Claim $${formatUsdc(reclaim.redeemUnits)} + ~${formatSol(reclaim.lamports)} SOL`
+                    : `Reclaim ~${formatSol(reclaim.lamports)} SOL deposit`}
+              </button>
+              <p className="text-[10px] text-neutral-500 mt-2 text-center leading-snug">
+                {reclaim.redeemUnits > 0n ? 'Pays out your winnings and returns' : 'Returns'} the SOL
+                deposit{reclaim.closes === 1 ? '' : 's'} from {reclaim.closes} token account{reclaim.closes === 1 ? '' : 's'}.
+              </p>
+            </>
+          ) : settlementRows.length === 0 && !reclaimStatus && !updatingPositions ? (
+            <div className="text-xs text-neutral-500 text-center py-2">
+              {ataStates === null ? 'Loading your results…' : 'Nothing to claim here.'}
+            </div>
+          ) : null}
+
+          {updatingPositions && <MentionedSpinner className="py-3" />}
+
+          {reclaimStatus && (
+            <div className={`mt-3 p-3 rounded-lg text-xs ${
+              reclaimStatus.error
+                ? 'bg-red-500/10 border border-red-500/30 text-red-300'
+                : 'bg-green-500/10 border border-green-500/30 text-green-300'
+            }`}>
+              {reclaimStatus.msg}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  ) : null
+
+  const settlementPanel = market ? (
+    <>
+      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/10">
+        <div className="w-9 h-9 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0">
+          {metadata?.cover_image_url ? (
+            <img src={metadata.cover_image_url} alt={metadata?.title || 'Market'} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-base">🎯</div>
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="text-white font-semibold text-base truncate">Market Resolved</div>
+          <div className="text-[11px] text-neutral-500 truncate">{metadata?.title || market.label}</div>
+        </div>
+        <div className="ml-auto flex-shrink-0">
+          <MarketHowItWorks variant="paid" compact />
+        </div>
+      </div>
+      {settlementContent}
+    </>
+  ) : null
+
+  // ── Loading / Error ────────────────────────────────────────
+
+  if (loading || !market) {
+    if (error) { /* fall through */ } else return null
+  }
+
+  if (error || !market) {
+    return (
+      <div className="relative flex min-h-screen w-full flex-col bg-black">
+        <div className="flex h-full grow flex-col">
+          <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+            <div className="flex flex-col w-full max-w-7xl flex-1">
+              <Header />
+              <div className="flex flex-col items-center justify-center py-32 gap-3">
+                <span className="text-neutral-400 text-lg font-medium">{error || 'Market not found'}</span>
+                <Link href="/markets" className="mt-4 px-4 py-2 glass rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors">
+                  Back to Markets
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Full render ────────────────────────────────────────────
+
+  const isResolvingSoon = market.status === MarketStatus.Open && (Number(market.locksAt) * 1000 - Date.now()) > 0
+
+  return (
+    <div
+      className="relative flex min-h-screen w-full flex-col bg-black"
+      style={{ opacity: contentVisible ? 1 : 0, transition: 'opacity 0.45s ease' }}
+    >
+      <div className="flex h-full grow flex-col">
+        <div className="px-4 md:px-10 lg:px-20 flex flex-1 justify-center">
+          <div className="flex flex-col w-full max-w-7xl flex-1">
+            <Header />
+
+            <main className="py-4 md:py-6 flex-1">
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-2 text-xs text-neutral-500 mb-4">
+                <Link href="/markets" className="hover:text-white transition-colors">Markets</Link>
+                <span>/</span>
+                <span className="text-neutral-400">Paid Market</span>
+              </div>
+
+              {/* Market header */}
+              <div className="flex items-start gap-3 md:gap-4 mb-4 md:mb-5">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl overflow-hidden flex-shrink-0 bg-neutral-800">
+                  {metadata?.cover_image_url ? (
+                    <img src={metadata.cover_image_url} alt={market.label} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-2xl">🎯</div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-lg md:text-xl font-semibold text-white leading-tight">
+                    {market.label}
+                  </h1>
+                </div>
+              </div>
+
+              {/* Meta bar */}
+              <div className="flex items-center flex-wrap gap-3 mb-4 text-xs md:text-sm text-neutral-400">
+                {metadata?.event_start_time && (
+                  <>
+                    <span>
+                      {new Date(metadata.event_start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                    <span className="text-neutral-700">·</span>
+                  </>
+                )}
+                <span>${formatUsdc(BigInt(Math.round(volumeBaseUnits)))} volume</span>
+                <span className="text-neutral-700">·</span>
+                <span>{market.words.length} word{market.words.length !== 1 ? 's' : ''}</span>
+                <span className="text-neutral-700">·</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${statusPillClasses(market.status)}`}>
+                  {statusLabel(market.status)}
+                </span>
+                {isResolvingSoon && (
+                  <>
+                    <span className="text-neutral-700">·</span>
+                    <span>Locks {formatResolveTime(market.locksAt)}</span>
+                    <span className="text-neutral-700">·</span>
+                    <span>{timeUntil(market.locksAt)} left</span>
+                  </>
+                )}
+              </div>
+
+              {/* Stream label row */}
+              {streamEmbedUrl && !streamHidden && (
+                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse flex-shrink-0" />
+                  <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">Live Stream</span>
+                  <button onClick={() => setStreamHidden(true)} className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                    Hide stream
+                  </button>
+                </div>
+              )}
+              {streamEmbedUrl && streamHidden && (
+                <button
+                  onClick={() => setStreamHidden(false)}
+                  className="flex items-center gap-2 mb-4 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <div className="w-2 h-2 rounded-full bg-apple-red animate-pulse" />
+                  <span className="text-xs font-medium text-neutral-300">Show live stream</span>
+                </button>
+              )}
+
+              {/* Two-column layout */}
+              <div className="flex gap-6">
+                {/* Left column */}
+                <div className="flex-1 min-w-0">
+                  {/* Stream embed */}
+                  {streamEmbedUrl && !streamHidden && (
+                    <div className="mb-5">
+                      <div className="relative w-full rounded-xl overflow-hidden border border-white/5 aspect-video">
+                        <iframe
+                          src={streamEmbedUrl}
+                          className="absolute inset-0 w-full h-full"
+                          allowFullScreen
+                          allow="autoplay; encrypted-media"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Price chart */}
+                  {chartLoading ? (
+                    <div className="mb-5 w-full h-[280px] rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
+                      <MentionedSpinner className="" />
+                    </div>
+                  ) : chartMarkets.length > 0 && (
+                    <div className="mb-5">
+                      <EventPriceChart
+                        eventId={`paid_${marketId}`}
+                        markets={chartMarkets}
+                        selectedMarketId={String(selectedWordIdx)}
+                        hoveredMarketId={null}
+                        preloadedSeries={chartSeries.length > 0 ? chartSeries : undefined}
+                      />
+                    </div>
+                  )}
+
+                  {/* Words table */}
+                  <div className="mb-6">
+                    {/* Table header */}
+                    <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-white/10">
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium w-2/5">Word</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center flex-1">Chance</span>
+                      <span className="text-xs md:text-sm text-neutral-400 font-medium text-center w-[148px] md:w-[232px]">Trade</span>
+                    </div>
+
+                    {market.words.map((w, i) => {
+                      const isResolved = w.outcome !== null
+                      const yesPrice = impliedYesPrice(w, market.liquidityParamB)
+                      const pct = isResolved
+                        ? (w.outcome ? 100 : 0)
+                        : Math.round(yesPrice * 100)
+                      const yesCents = isResolved
+                        ? (w.outcome ? 100 : 0)
+                        : Math.round(yesPrice * 100)
+                      const noCents = 100 - yesCents
+                      const isSelected = i === selectedWordIdx
+                      const winDir: 'YES' | 'NO' | null = w.outcome === true ? 'YES' : w.outcome === false ? 'NO' : null
+                      const userYes = userTokens[i]?.yes ?? 0n
+                      const userNo = userTokens[i]?.no ?? 0n
+
+                      return (
+                        <div key={i}>
+                          <button
+                            onClick={() => {
+                              handleWordClick(i)
+                              if (window.innerWidth < 1024 && !isResolved) setMobileTradeOpen(true)
+                            }}
+                            className={`w-full flex items-center justify-between px-3 md:px-4 py-3 md:py-4 border-b border-white/5 transition-all duration-200 hover:bg-white/[0.03] ${
+                              isSelected ? 'bg-white/[0.05]' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 md:gap-3 w-2/5">
+                              <span className="text-white font-semibold text-sm md:text-[15px] text-left">{w.label}</span>
+                              {w.locked && !isResolved && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase flex-shrink-0 bg-yellow-500/15 text-yellow-400">
+                                  Pending
+                                </span>
+                              )}
+                              {isResolved && (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase flex-shrink-0 ${
+                                  w.outcome
+                                    ? 'bg-apple-green/15 text-apple-green'
+                                    : 'bg-apple-red/15 text-apple-red'
+                                }`}>
+                                  {w.outcome ? 'YES' : 'NO'}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 md:gap-2 flex-1 justify-center">
+                              <FlashValue value={`${pct}%`} className="text-white font-bold text-base md:text-lg" />
+                            </div>
+
+                            <div className="flex items-center gap-1.5 md:gap-2 w-[148px] md:w-[232px] justify-end">
+                              {isResolved ? (
+                                <span className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border ${
+                                  w.outcome
+                                    ? 'bg-apple-green/10 border-apple-green/30 text-apple-green'
+                                    : 'bg-apple-red/10 border-apple-red/30 text-apple-red'
+                                }`}>
+                                  Resolved {w.outcome ? 'Yes' : 'No'}
+                                </span>
+                              ) : (
+                                <>
+                                  <span
+                                    className={`w-[70px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
+                                      isSelected && side === 'YES'
+                                        ? 'bg-apple-green/15 border-apple-green text-apple-green'
+                                        : 'border-white/10 text-apple-green hover:border-apple-green/30'
+                                    }`}
+                                    onClick={e => {
+                                      e.stopPropagation()
+                                      setSelectedWordIdx(i)
+                                      setSide('YES')
+                                      setAmount('')
+                                      if (window.innerWidth < 1024) setMobileTradeOpen(true)
+                                    }}
+                                  >
+                                    Yes <FlashValue value={`${yesCents}¢`} />
+                                  </span>
+                                  <span
+                                    className={`w-[70px] md:w-[110px] py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-semibold border transition-all duration-200 flex items-center justify-center gap-1 tabular-nums ${
+                                      isSelected && side === 'NO'
+                                        ? 'bg-apple-red/15 border-apple-red text-apple-red'
+                                        : 'border-white/10 text-apple-red hover:border-apple-red/30'
+                                    }`}
+                                    onClick={e => {
+                                      e.stopPropagation()
+                                      setSelectedWordIdx(i)
+                                      setSide('NO')
+                                      setAmount('')
+                                      if (window.innerWidth < 1024) setMobileTradeOpen(true)
+                                    }}
+                                  >
+                                    No <FlashValue value={`${noCents}¢`} />
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </button>
+
+                          {/* Word resolved while the market is still open: the payout
+                              can't be claimed yet (the contract's redeem requires
+                              MarketStatus::Resolved — partial-word redemption would
+                              drain the shared vault), so show a "you won" notice.
+                              Once the whole market resolves, the settlement panel's
+                              single claim button takes over — no per-word CTA. */}
+                          {isResolved && winDir && connected && market.status !== MarketStatus.Resolved && (
+                            (() => {
+                              const winTokens = winDir === 'YES' ? userYes : userNo
+                              if (winTokens <= 0n) return null
+                              return (
+                                <div className="px-3 md:px-4 py-2 border-b border-white/5 bg-apple-green/5">
+                                  <div className="w-full py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold bg-apple-green/10 border border-apple-green/30 text-apple-green flex items-center justify-center gap-1.5 text-center">
+                                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span>You won ${formatUsdc(winTokens)} on {winDir} — claimable once the whole market resolves</span>
+                                  </div>
+                                </div>
+                              )
+                            })()
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Settlement card (mobile only — desktop gets the same content in
+                      the right panel). The trading sheet is gone once resolved, so
+                      this is where mobile users see results and claim. */}
+                  {isResolved && (
+                    <div className="lg:hidden glass rounded-2xl p-4 mb-6">
+                      <div className="text-white text-sm font-semibold mb-3">Your results</div>
+                      {settlementContent}
+                    </div>
+                  )}
+
+                  {/* Description */}
+                  {metadata?.description && (
+                    <div className="mb-5">
+                      <DescriptionBlock text={metadata.description} limit={DESC_LIMIT} />
+                    </div>
+                  )}
+
+                  {/* Recent trades */}
+                  {visibleTrades.length > 0 && (
+                    <div className="mb-6">
+                      <h2 className="text-base font-semibold text-white mb-3">Recent Trades</h2>
+                      <div className="glass rounded-2xl p-4">
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                          {visibleTrades.map(t => {
+                            const wordLabel = market?.words[t.wordIndex]?.label ?? `Word ${t.wordIndex}`
+                            const displayName = t.username || `${t.trader.slice(0, 4)}...${t.trader.slice(-4)}`
+                            return (
+                              <div key={t.signature} className="flex items-center justify-between text-xs py-1">
+                                <div className="flex items-center gap-1.5 text-neutral-400 min-w-0 flex-1">
+                                  <Link
+                                    href={`/profile/${t.username || t.trader}`}
+                                    className="text-neutral-300 font-medium hover:text-apple-blue transition-colors flex-shrink-0"
+                                  >
+                                    {displayName}
+                                  </Link>
+                                  <span className="flex-shrink-0">{t.isBuy ? 'bought' : 'sold'}</span>
+                                  <span className={`flex-shrink-0 font-medium ${t.direction === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+                                    {(t.quantity / 1e6).toFixed(2)} {t.direction}
+                                  </span>
+                                  <span className="flex-shrink-0">for</span>
+                                  <span className="flex-shrink-0 text-neutral-300">${formatUsdc(BigInt(Math.round(t.cost)))}</span>
+                                  <span className="truncate">on {wordLabel}</span>
+                                </div>
+                                <span className="text-neutral-600 flex-shrink-0 ml-3 pr-1">{Math.round(t.impliedPrice * 100)}¢</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Spacer for mobile bottom bar */}
+                  <div className="h-20 lg:hidden" />
+                </div>
+
+                {/* Right column — sticky panel (desktop only): trading while the
+                    market is live, settlement view once it resolves */}
+                <div className="w-[340px] flex-shrink-0 hidden lg:block">
+                  <div className="sticky top-28">
+                    <div className="glass rounded-2xl p-5">
+                      {isResolved ? settlementPanel : tradingPanel}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+
+            <Footer />
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Trade Bar — hidden once resolved (no trading; the settlement
+          card in the main column is the claim surface) */}
+      {!isResolved && (
+      <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40">
+        {mobileTradeOpen ? (
+          <>
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileTradeOpen(false)} />
+            <div className="relative z-50 bg-neutral-900 border-t border-white/10 rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto animate-slide-up">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-sm font-semibold text-white">Trade</span>
+                <button onClick={() => setMobileTradeOpen(false)} className="text-neutral-400 hover:text-white">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {tradingPanel}
+            </div>
+          </>
+        ) : (
+          <div className="bg-neutral-900/95 backdrop-blur-md border-t border-white/10 px-4 pt-2 pb-3">
+            <button
+              onClick={() => setMobileTradeOpen(true)}
+              className={`w-full py-3 font-semibold text-white rounded-xl transition-all ${
+                side === 'YES' ? 'bg-apple-green' : 'bg-apple-red'
+              }`}
+            >
+              {word ? `Trade ${word.label}` : 'Trade'}
+            </button>
+          </div>
+        )}
+      </div>
+      )}
+    </div>
+  )
+}

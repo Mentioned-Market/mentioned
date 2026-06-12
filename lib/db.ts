@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import pg from 'pg'
 import type { ParsedTradeEvent } from './tradeParser'
 import { virtualImpliedPrice, virtualBuyCost, virtualSellReturn, sharesForTokens } from './virtualLmsr'
+import { SOLANA_CLUSTER } from './solanaConfig'
 
 const dbUrl = process.env.DATABASE_URL ?? ''
 const sslDisabled = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')
@@ -88,12 +89,13 @@ export async function insertTradeEvent(
   event: ParsedTradeEvent,
   signature: string,
   isBuy: boolean,
+  cluster: string,
 ): Promise<boolean> {
   const result = await pool.query(
     `INSERT INTO trade_events
        (signature, market_id, word_index, direction, is_buy, quantity, cost, fee,
-        new_yes_qty, new_no_qty, implied_price, trader, block_time)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13))
+        new_yes_qty, new_no_qty, implied_price, trader, block_time, cluster)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14)
      ON CONFLICT (signature, market_id, word_index, trader) DO NOTHING`,
     [
       signature,
@@ -109,9 +111,43 @@ export async function insertTradeEvent(
       event.impliedPrice,
       event.trader,
       event.timestamp,
+      cluster,
     ],
   )
   return (result.rowCount ?? 0) > 0
+}
+
+/**
+ * For a set of market+word keys, return the most recent new_yes_qty / new_no_qty from trade_events.
+ * Used to seed buy/sell detection in the webhook handler.
+ */
+export async function getLatestPoolQtys(
+  keys: { marketId: string; wordIndex: number }[],
+  cluster: string,
+): Promise<Map<string, { yes: number; no: number }>> {
+  if (keys.length === 0) return new Map()
+
+  // $1 is the cluster; market/word params follow.
+  const conditions = keys.map((k, i) => `(market_id = $${i * 2 + 2} AND word_index = $${i * 2 + 3})`).join(' OR ')
+  const params = [cluster, ...keys.flatMap(k => [k.marketId, k.wordIndex])]
+
+  const result = await pool.query<{ market_id: string; word_index: number; new_yes_qty: string; new_no_qty: string }>(
+    `SELECT DISTINCT ON (market_id, word_index)
+       market_id, word_index, new_yes_qty, new_no_qty
+     FROM trade_events
+     WHERE cluster = $1 AND (${conditions})
+     ORDER BY market_id, word_index, block_time DESC`,
+    params,
+  )
+
+  const map = new Map<string, { yes: number; no: number }>()
+  for (const row of result.rows) {
+    map.set(`${row.market_id}-${row.word_index}`, {
+      yes: Number(row.new_yes_qty),
+      no: Number(row.new_no_qty),
+    })
+  }
+  return map
 }
 
 /**
@@ -928,6 +964,8 @@ export interface WordMentionRow {
   confidence: number | null
   superseded: boolean
   created_at: string
+  /** Object-storage key for this mention's audio clip; null until uploaded. */
+  clip_key: string | null
 }
 
 export interface MentionWordSummary {
@@ -1009,7 +1047,7 @@ export async function getMentionsForStream(streamId: number): Promise<MentionWor
     pool.query<WordMentionRow & { rn: string }>(
       `SELECT * FROM (
          SELECT id, stream_id, word_index, word, matched_text, segment_id,
-                stream_offset_ms, snippet, confidence, superseded, created_at,
+                stream_offset_ms, snippet, confidence, superseded, created_at, clip_key,
                 ROW_NUMBER() OVER (PARTITION BY word_index ORDER BY created_at DESC) AS rn
            FROM word_mentions
           WHERE stream_id = $1 AND superseded = FALSE
@@ -1072,14 +1110,14 @@ export async function dismissWordMention(
             superseded_at = NOW()
       WHERE id = $1 AND superseded = FALSE
       RETURNING id, stream_id, word_index, word, matched_text, segment_id,
-                stream_offset_ms, snippet, confidence, superseded, created_at`,
+                stream_offset_ms, snippet, confidence, superseded, created_at, clip_key`,
     [mentionId, adminWallet],
   )
   if (result.rows.length === 0) {
     // Already-dismissed or doesn't exist — fetch to disambiguate.
     const cur = await pool.query<WordMentionRow>(
       `SELECT id, stream_id, word_index, word, matched_text, segment_id,
-              stream_offset_ms, snippet, confidence, superseded, created_at
+              stream_offset_ms, snippet, confidence, superseded, created_at, clip_key
          FROM word_mentions WHERE id = $1`,
       [mentionId],
     )
@@ -1095,6 +1133,19 @@ export async function dismissWordMention(
     }),
   ])
   return result.rows[0]
+}
+
+/**
+ * Look up the object-storage key for a mention's audio clip. Returns the key,
+ * or null when the mention doesn't exist or has no clip yet. Used by the admin
+ * clip route to presign a download URL.
+ */
+export async function getMentionClipKey(mentionId: number): Promise<string | null> {
+  const res = await pool.query<{ clip_key: string | null }>(
+    `SELECT clip_key FROM word_mentions WHERE id = $1`,
+    [mentionId],
+  )
+  return res.rows[0]?.clip_key ?? null
 }
 
 export async function getAllEventStreams(): Promise<{ eventId: string; streamUrl: string; updatedAt: string }[]> {
@@ -3648,6 +3699,9 @@ export interface PaidMarketMetadata {
   description: string | null
   cover_image_url: string | null
   stream_url: string | null
+  slug: string | null
+  event_start_time: string | null
+  hidden: boolean
   created_at: string
   updated_at: string
 }
@@ -3659,36 +3713,76 @@ export async function upsertPaidMarketMetadata(
     description?: string | null
     coverImageUrl?: string | null
     streamUrl?: string | null
+    urlPrefix?: string | null
+    eventStartTime?: string | null
   },
 ): Promise<PaidMarketMetadata> {
+  const slug = data.urlPrefix?.trim() ? generateSlug(data.urlPrefix.trim().toUpperCase()) : null
   const result = await pool.query<PaidMarketMetadata>(
-    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, updated_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
+    `INSERT INTO paid_market_metadata (market_id, title, description, cover_image_url, stream_url, slug, event_start_time, cluster, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
      ON CONFLICT (market_id) DO UPDATE SET
-       title           = EXCLUDED.title,
-       description     = EXCLUDED.description,
-       cover_image_url = EXCLUDED.cover_image_url,
-       stream_url      = EXCLUDED.stream_url,
-       updated_at      = NOW()
+       title            = EXCLUDED.title,
+       description      = EXCLUDED.description,
+       cover_image_url  = EXCLUDED.cover_image_url,
+       stream_url       = EXCLUDED.stream_url,
+       slug             = COALESCE(paid_market_metadata.slug, EXCLUDED.slug),
+       event_start_time = EXCLUDED.event_start_time,
+       updated_at       = NOW()
      RETURNING *`,
-    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null],
+    [marketId.toString(), data.title, data.description ?? null, data.coverImageUrl ?? null, data.streamUrl ?? null, slug, data.eventStartTime ?? null, SOLANA_CLUSTER],
   )
   return result.rows[0]
 }
 
 export async function getPaidMarketMetadata(marketId: bigint): Promise<PaidMarketMetadata | null> {
   const result = await pool.query<PaidMarketMetadata>(
-    `SELECT * FROM paid_market_metadata WHERE market_id = $1`,
-    [marketId.toString()],
+    `SELECT * FROM paid_market_metadata WHERE market_id = $1 AND cluster = $2`,
+    [marketId.toString(), SOLANA_CLUSTER],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getPaidMarketMetadataBySlug(slug: string): Promise<PaidMarketMetadata | null> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `SELECT * FROM paid_market_metadata WHERE slug = $1 AND cluster = $2`,
+    [slug, SOLANA_CLUSTER],
   )
   return result.rows[0] ?? null
 }
 
 export async function getAllPaidMarketMetadata(): Promise<PaidMarketMetadata[]> {
   const result = await pool.query<PaidMarketMetadata>(
-    `SELECT * FROM paid_market_metadata ORDER BY created_at DESC`,
+    `SELECT * FROM paid_market_metadata WHERE cluster = $1 ORDER BY created_at DESC`,
+    [SOLANA_CLUSTER],
   )
   return result.rows
+}
+
+/** Toggle a paid market's public visibility (admin-only; cluster-scoped). */
+export async function setPaidMarketHidden(marketId: bigint, hidden: boolean): Promise<PaidMarketMetadata | null> {
+  const result = await pool.query<PaidMarketMetadata>(
+    `UPDATE paid_market_metadata SET hidden = $1, updated_at = NOW()
+     WHERE market_id = $2 AND cluster = $3 RETURNING *`,
+    [hidden, marketId.toString(), SOLANA_CLUSTER],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getPaidMarketTraderCounts(marketIds: string[]): Promise<Map<string, number>> {
+  if (marketIds.length === 0) return new Map()
+  const result = await pool.query<{ market_id: string; trader_count: string }>(
+    `SELECT market_id, COUNT(DISTINCT trader)::text AS trader_count
+     FROM trade_events
+     WHERE market_id = ANY($1) AND cluster = $2
+     GROUP BY market_id`,
+    [marketIds, SOLANA_CLUSTER],
+  )
+  const map = new Map<string, number>()
+  for (const row of result.rows) {
+    map.set(row.market_id, parseInt(row.trader_count, 10))
+  }
+  return map
 }
 
 // ── Feedback ─────────────────────────────────────────────────────────────────

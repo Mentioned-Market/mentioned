@@ -129,7 +129,7 @@ function ScrollingSentimentList({ words, marketUrl }: { words: WordPrice[]; mark
   )
 }
 
-export default function CustomEventCard({ market }: { market: CustomMarketSummary }) {
+export default function CustomEventCard({ market, showTypeBadge }: { market: CustomMarketSummary; showTypeBadge?: boolean }) {
   const [imgError, setImgError] = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
   const [wordsReady, setWordsReady] = useState(!market.cover_image_url)
@@ -174,10 +174,15 @@ export default function CustomEventCard({ market }: { market: CustomMarketSummar
             onError={() => { setImgError(true); setWordsReady(true) }}
           />
         )}
-        <div className="absolute top-3 left-3">
+        <div className="absolute top-3 left-3 flex items-center gap-1.5">
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm whitespace-nowrap ${getDisplayStatusOverlayClasses(displayStatus)}`}>
             {getDisplayStatusLabel(displayStatus)}
           </span>
+          {showTypeBadge && (
+            <span className="px-2 py-0.5 rounded-full bg-[#F2B71F]/25 text-[#F2B71F] text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
+              Free
+            </span>
+          )}
         </div>
         {isLive && (
           <div className="absolute top-3 right-3">

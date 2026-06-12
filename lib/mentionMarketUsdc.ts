@@ -8,7 +8,6 @@ import {
   getProgramDerivedAddress,
   getAddressEncoder,
   createSolanaRpc,
-  devnet,
   pipe,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
@@ -18,15 +17,16 @@ import {
   compileTransaction,
   getTransactionEncoder,
 } from '@solana/kit'
+import { PAID_PROGRAM_ID, PAID_USDC_MINT, PAID_RPC_URL } from './solanaConfig'
+import { sendViaProxy, confirmSignature } from './rpcSend'
+import { fetchWith429Retry } from './fetchRetry'
 
 // ── Constants ────────────────────────────────────────────
 
-export const PROGRAM_ID = toAddress(
-  '9kSuebrHKKnFsgFcv5fc8S2gBazHA9Gki2NEWt2ft9tk'
-)
-export const USDC_MINT = toAddress(
-  'CxRN4jp8ki3o3Bs16Ld6JsKsAP8rG8Jrp6dq48TYig9L'
-)
+// Program ID + USDC mint are cluster-selected in lib/solanaConfig.ts (mainnet by
+// default; flip NEXT_PUBLIC_SOLANA_CLUSTER=devnet to target the devnet program).
+export const PROGRAM_ID = toAddress(PAID_PROGRAM_ID)
+export const USDC_MINT = toAddress(PAID_USDC_MINT)
 export const TOKEN_PROGRAM = toAddress(
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 )
@@ -42,16 +42,20 @@ export const ASSOCIATED_TOKEN_PROGRAM = toAddress(
 export const TOKEN_METADATA_PROGRAM = toAddress(
   'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
 )
-// Dedicated devnet RPC to avoid "base64 encoded too large" on the public endpoint.
-// Set NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL in .env to your Helius devnet URL:
-//   https://devnet.helius-rpc.com/?api-key=YOUR_KEY
-export const DEVNET_URL =
-  (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_HELIUS_DEVNET_RPC_URL) ||
-  'https://api.devnet.solana.com'
+// RPC endpoint for the active cluster. Resolved (server key → browser key →
+// public fallback) in lib/solanaConfig.ts so the server's unrestricted key never
+// ships to the browser and the network is switchable via one env var.
+export const RPC_URL = PAID_RPC_URL
 
 // USDC has 6 decimals; 1 USDC = 1_000_000 base units
 export const USDC_DECIMALS = 6
 export const USDC_PRECISION = 1_000_000n
+
+// Rent-exempt deposit for a 165-byte SPL token account. Paid by the user when a
+// first trade creates a word ATA; refunded in full when the account is closed
+// via the rent-reclaim flow. Display/estimation only — reclaim flows always use
+// the actual lamports read from the chain.
+export const TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280n
 
 // Anchor instruction discriminators
 const DISC = {
@@ -64,6 +68,7 @@ const DISC = {
   sell:              new Uint8Array([51, 230, 133, 164, 1, 127, 131, 173]),
   redeem:            new Uint8Array([184, 12, 86, 149, 70, 196, 97, 225]),
   withdrawFees:      new Uint8Array([198, 212, 171, 109, 144, 215, 174, 89]),
+  lockWord:          new Uint8Array([201, 76, 214, 115, 128, 187, 227, 106]),
 }
 
 // Account discriminators
@@ -97,6 +102,7 @@ export interface WordState {
   yesQuantity: bigint
   noQuantity: bigint
   outcome: boolean | null
+  locked: boolean
 }
 
 export interface UsdcMarketAccount {
@@ -114,7 +120,7 @@ export interface UsdcMarketAccount {
   words: WordState[]
   status: MarketStatus
   createdAt: bigint
-  resolvesAt: bigint
+  locksAt: bigint
   resolvedAt: bigint | null
   tradeFeeBps: number
   protocolFeeBps: number
@@ -264,7 +270,7 @@ export async function createCreateMarketIx(
   marketId: bigint,
   label: string,
   wordLabels: string[],
-  resolvesAt: bigint,
+  locksAt: bigint,
   resolver: Address,
   tradeFeeBps: number,
   initialB: bigint,
@@ -305,7 +311,7 @@ export async function createCreateMarketIx(
       u64LE(marketId),
       encodeString(label),
       encodedWordLabels,
-      i64LE(resolvesAt),
+      i64LE(locksAt),
       new Uint8Array(addrEncoder.encode(resolver)),
       u16LE(tradeFeeBps),
       u64LE(initialB),
@@ -346,6 +352,27 @@ export async function createResolveWordIx(
       DISC.resolveWord,
       new Uint8Array([wordIndex]),
       new Uint8Array([outcome ? 1 : 0])
+    ),
+  }
+}
+
+export async function createLockWordIx(
+  authority: Address,
+  marketId: bigint,
+  wordIndex: number,
+  locked: boolean
+): Promise<Instruction> {
+  const [marketPda] = await getMarketPDA(marketId)
+  return {
+    programAddress: PROGRAM_ID,
+    accounts: [
+      { address: authority, role: AccountRole.READONLY_SIGNER },
+      { address: marketPda, role: AccountRole.WRITABLE },
+    ] as AccountMeta[],
+    data: concat(
+      DISC.lockWord,
+      new Uint8Array([wordIndex]),
+      new Uint8Array([locked ? 1 : 0])
     ),
   }
 }
@@ -439,6 +466,54 @@ export async function createAtaIx(
     ] as AccountMeta[],
     // discriminator 1 = create_idempotent (no-op if ATA already exists)
     data: new Uint8Array([1]),
+  }
+}
+
+/**
+ * SPL Token Burn — destroys `amount` tokens from the owner's ATA for `mint`.
+ * Requires only the owner's signature (not the mint authority), so users can
+ * burn worthless losing-side tokens themselves after a word resolves.
+ */
+export async function createBurnTokensIx(
+  owner: Address,
+  mint: Address,
+  amount: bigint
+): Promise<Instruction> {
+  const ata = await getAssociatedTokenAddress(mint, owner)
+  return {
+    programAddress: TOKEN_PROGRAM,
+    accounts: [
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: mint, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
+    ] as AccountMeta[],
+    // SPL Token instruction 8 = Burn { amount: u64 }
+    data: concat(new Uint8Array([8]), u64LE(amount)),
+  }
+}
+
+/**
+ * SPL Token CloseAccount — deallocates the owner's ATA for `mint` and refunds
+ * its full lamport balance (the ~0.00204 SOL rent-exempt deposit) to
+ * `destination`. The token balance must be exactly 0 at execution time, so a
+ * burn of the full balance must precede this in the same transaction when the
+ * account still holds tokens.
+ */
+export async function createCloseTokenAccountIx(
+  owner: Address,
+  mint: Address,
+  destination: Address
+): Promise<Instruction> {
+  const ata = await getAssociatedTokenAddress(mint, owner)
+  return {
+    programAddress: TOKEN_PROGRAM,
+    accounts: [
+      { address: ata, role: AccountRole.WRITABLE },
+      { address: destination, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
+    ] as AccountMeta[],
+    // SPL Token instruction 9 = CloseAccount
+    data: new Uint8Array([9]),
   }
 }
 
@@ -568,6 +643,159 @@ export async function fetchTokenBalance(
 /** Fetch user's USDC ATA balance in base units */
 export async function fetchUsdcBalance(owner: Address): Promise<bigint> {
   return fetchTokenBalance(USDC_MINT, owner)
+}
+
+export interface TokenAccountState {
+  mint: Address
+  ata: Address
+  /** Account exists on-chain (a missing ATA must never be passed to CloseAccount) */
+  exists: boolean
+  /** Token balance in base units; 0n when the account is missing */
+  amount: bigint
+  /** Lamports held by the account — the rent deposit refunded on close */
+  lamports: bigint
+}
+
+/**
+ * Fetch existence + token balance + lamports for the owner's ATA of each mint,
+ * in ONE getMultipleAccounts call (vs N per-account reads). Existence matters:
+ * fetchTokenBalance conflates "missing" with "balance 0", but CloseAccount on a
+ * missing account fails the whole transaction, so reclaim flows need the
+ * distinction. Results are positionally aligned with `mints`.
+ */
+export async function fetchTokenAccountStates(
+  owner: Address,
+  mints: Address[]
+): Promise<TokenAccountState[]> {
+  const atas = await Promise.all(
+    mints.map((mint) => getAssociatedTokenAddress(mint, owner))
+  )
+  const rpc = createRpc()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await (rpc as any)
+    .getMultipleAccounts(atas, { encoding: 'base64' })
+    .send()
+  const values: Array<{ data: unknown; lamports: bigint | number } | null> =
+    result?.value ?? []
+
+  return mints.map((mint, i) => {
+    const info = values[i]
+    if (!info) {
+      return { mint, ata: atas[i], exists: false, amount: 0n, lamports: 0n }
+    }
+    const bytes = decodeBase64(info.data)
+    // SPL token account layout: mint(32) + owner(32) + amount(u64 LE @ 64)
+    const amount = bytes.length >= 72 ? readU64(bytes, 64) : 0n
+    return {
+      mint,
+      ata: atas[i],
+      exists: true,
+      amount,
+      lamports: BigInt(info.lamports),
+    }
+  })
+}
+
+// ── Rent reclaim (burn dead tokens + close empty ATAs) ─────────────────────
+
+export interface ReclaimPlan {
+  /** Instruction batches, each sized to fit a single transaction */
+  txChunks: Instruction[][]
+  /** Total rent-exempt lamports refunded by the CloseAccount instructions */
+  reclaimLamports: bigint
+  /** USDC base units paid out by redeem instructions included in the plan */
+  redeemBaseUnits: bigint
+  /** Number of token accounts the plan closes */
+  accountsToClose: number
+}
+
+// Words per transaction. Worst case a word contributes redeem+close+burn+close
+// (4 instructions) and 4 fresh addresses (2 mints + 2 ATAs ≈ 128 bytes); four
+// words plus the shared accounts (market, vault, USDC ATA, owner, programs)
+// stays comfortably under the 1232-byte packet limit.
+const RECLAIM_WORDS_PER_TX = 4
+
+/**
+ * Build the full post-resolution cleanup for a wallet on one market:
+ *  - winning side with balance  → redeem (program burns all) + close ATA
+ *  - losing side with balance   → burn full balance + close ATA
+ *  - any empty leftover ATA     → close
+ * Every close refunds its rent deposit to `owner`.
+ *
+ * SAFETY: must only be called when `market.status === Resolved` — the terminal
+ * state in which buy/sell/redeem-losing are all rejected on-chain, so burning a
+ * losing balance can never destroy value. Words without an on-chain outcome are
+ * skipped entirely as defense in depth.
+ *
+ * `states` comes from fetchTokenAccountStates over [w0.yes, w0.no, w1.yes, …]
+ * and should be FRESH (fetched at click time): a stale amount makes the burn or
+ * close fail and the whole transaction revert — never an over- or under-burn.
+ */
+export async function buildReclaimPlan(
+  owner: Address,
+  market: UsdcMarketAccount,
+  states: TokenAccountState[]
+): Promise<ReclaimPlan> {
+  if (market.status !== MarketStatus.Resolved) {
+    return { txChunks: [], reclaimLamports: 0n, redeemBaseUnits: 0n, accountsToClose: 0 }
+  }
+
+  const wordGroups: Instruction[][] = []
+  let reclaimLamports = 0n
+  let redeemBaseUnits = 0n
+  let accountsToClose = 0
+
+  for (let i = 0; i < market.words.length; i++) {
+    const word = market.words[i]
+    if (word.outcome === null) continue
+
+    const yes = states[i * 2]
+    const no = states[i * 2 + 1]
+    if (!yes || !no) continue
+
+    const group: Instruction[] = []
+    for (const side of ['YES', 'NO'] as const) {
+      const state = side === 'YES' ? yes : no
+      if (!state.exists) continue
+      const mint = side === 'YES' ? word.yesMint : word.noMint
+      const won = word.outcome === (side === 'YES')
+
+      if (state.amount > 0n) {
+        if (won) {
+          // redeem burns the full balance and pays 1:1 USDC
+          group.push(await createRedeemIx(owner, market.marketId, i, side))
+          redeemBaseUnits += state.amount
+        } else {
+          group.push(await createBurnTokensIx(owner, mint, state.amount))
+        }
+      }
+      group.push(await createCloseTokenAccountIx(owner, mint, owner))
+      reclaimLamports += state.lamports
+      accountsToClose += 1
+    }
+    if (group.length > 0) wordGroups.push(group)
+  }
+
+  const txChunks: Instruction[][] = []
+  for (let i = 0; i < wordGroups.length; i += RECLAIM_WORDS_PER_TX) {
+    txChunks.push(wordGroups.slice(i, i + RECLAIM_WORDS_PER_TX).flat())
+  }
+
+  // Redeem pays USDC into the owner's USDC ATA, which must exist. It always
+  // does for anyone who traded, but guard anyway — create_idempotent is a no-op
+  // when present and a few lamports of rent (paid to themselves) when not.
+  if (redeemBaseUnits > 0n && txChunks.length > 0) {
+    txChunks[0].unshift(await createAtaIx(owner, owner, USDC_MINT))
+  }
+
+  return { txChunks, reclaimLamports, redeemBaseUnits, accountsToClose }
+}
+
+/** Format lamports as a trimmed SOL string (e.g. 4_078_560n -> "0.0041") */
+export function formatSol(lamports: bigint): string {
+  const sol = Number(lamports) / 1e9
+  if (sol === 0) return '0'
+  return sol.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
 }
 
 // ── Exact fixed-point LMSR math (mirrors on-chain Rust) ────────────────────
@@ -737,18 +965,21 @@ export function sharesForUsdc(
 // ── Transaction sending ──────────────────────────────────
 
 /**
- * Build, sign, and send a set of instructions to devnet.
+ * Build, sign, and send a set of instructions to the configured cluster.
  *
- * Uses `signOnly` (Phantom's raw signTransaction, no simulate) to avoid the
+ * Uses `signOnly` (the wallet's raw signTransaction, no simulate) to avoid the
  * "base64 encoded too large" error from the mainnet preSimulate in the normal
- * signing flow. Broadcasts directly to the Helius devnet RPC.
+ * signing flow. Broadcast + confirmation go through the shared lib/rpcSend
+ * helpers (RPC_URL resolves to the /api/paid-rpc proxy in the browser, where
+ * this always runs) so every send in the app has identical retry and
+ * indeterminate-timeout semantics.
  */
 export async function sendInstructions(
   signer: TransactionSendingSigner,
   signOnly: (txBytes: Uint8Array) => Promise<Uint8Array>,
   instructions: Instruction[]
 ): Promise<void> {
-  const rpc = createSolanaRpc(devnet(DEVNET_URL))
+  const rpc = createSolanaRpc(RPC_URL)
   const { value: blockhash } = await rpc.getLatestBlockhash().send()
 
   const txMsg = pipe(
@@ -760,13 +991,13 @@ export async function sendInstructions(
   )
 
   // Compile to bytes (signatures empty), sign via raw Phantom signTransaction,
-  // then broadcast directly to devnet — bypasses the mainnet preSimulate proxy.
+  // then broadcast directly to the cluster RPC — bypasses the app mainnet proxy.
   const compiled = compileTransaction(txMsg)
   const txBytes = new Uint8Array(getTransactionEncoder().encode(compiled))
 
   // Simulate first with unsigned tx to surface program logs on failure.
   const unsignedBase64 = btoa(String.fromCharCode(...txBytes))
-  const simRes = await fetch(DEVNET_URL, {
+  const simRes = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -791,21 +1022,12 @@ export async function sendInstructions(
 
   const signedBytes = await signOnly(txBytes)
 
-  const base64Tx = btoa(String.fromCharCode(...signedBytes))
-  const res = await fetch(DEVNET_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'sendTransaction',
-      params: [base64Tx, { encoding: 'base64', skipPreflight: true, preflightCommitment: 'confirmed' }],
-    }),
-  })
-  const json = await res.json()
-  if (json.error) {
-    throw new Error(json.error.message || JSON.stringify(json.error))
-  }
+  // Broadcast (with safe transient retry) and poll until confirmed so callers
+  // can trust the tx landed. A confirmation timeout throws
+  // ConfirmationTimeoutError, which is explicit that the tx may still land —
+  // never present it to the user as a definite failure.
+  const signature = await sendViaProxy(signedBytes, RPC_URL)
+  await confirmSignature(signature, { proxyUrl: RPC_URL })
 }
 
 // ── Account deserialization ──────────────────────────────
@@ -912,14 +1134,15 @@ export function deserializeMarketAccount(data: Uint8Array): UsdcMarketAccount | 
     const noQuantity = readI64(data, off); off += 8
     let outcome: boolean | null
     ;[outcome, off] = readOptionBool(data, off)
-    off += 32 // _reserved
+    const locked = data[off] !== 0; off += 1
+    off += 31 // _reserved
 
-    words.push({ wordIndex, label: wordLabel, yesMint, noMint, yesQuantity, noQuantity, outcome })
+    words.push({ wordIndex, label: wordLabel, yesMint, noMint, yesQuantity, noQuantity, outcome, locked })
   }
 
   const status = data[off] as MarketStatus; off += 1
   const createdAt = readI64(data, off); off += 8
-  const resolvesAt = readI64(data, off); off += 8
+  const locksAt = readI64(data, off); off += 8
   let resolvedAt: bigint | null
   ;[resolvedAt, off] = readOptionI64(data, off)
   const tradeFeeBps = readU16(data, off); off += 2
@@ -930,7 +1153,7 @@ export function deserializeMarketAccount(data: Uint8Array): UsdcMarketAccount | 
     version, bump, marketId, label, authority, resolver, usdcMint,
     totalLpShares, liquidityParamB, baseBPerUsdc,
     numWords, words: words.slice(0, numWords),
-    status, createdAt, resolvesAt, resolvedAt,
+    status, createdAt, locksAt, resolvedAt,
     tradeFeeBps, protocolFeeBps, accumulatedFees,
   }
 }
@@ -951,7 +1174,7 @@ export function deserializeLpPosition(data: Uint8Array): LpPosition | null {
 }
 
 export function createRpc() {
-  return createSolanaRpc(devnet(DEVNET_URL))
+  return createSolanaRpc(RPC_URL)
 }
 
 function decodeBase64(raw: unknown): Uint8Array {
@@ -977,15 +1200,25 @@ export async function fetchAllMarkets(): Promise<
 
   const discB64 = btoa(String.fromCharCode(...ACCT_DISC.marketAccount))
 
+  // getProgramAccounts is heavily rate-limited and can have caching gaps on
+  // Helius — a transient failure must NOT wipe the whole market list. Return []
+  // on error so callers that pass known market IDs (fetchAllMarketsWithFallback)
+  // can backfill every market via the far-more-reliable getAccountInfo path.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await (rpc as any)
-    .getProgramAccounts(PROGRAM_ID, {
-      encoding: 'base64',
-      filters: [
-        { memcmp: { offset: 0n, bytes: discB64 as any, encoding: 'base64' } },
-      ],
-    })
-    .send()
+  let result: any[]
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    result = await (rpc as any)
+      .getProgramAccounts(PROGRAM_ID, {
+        encoding: 'base64',
+        filters: [
+          { memcmp: { offset: 0n, bytes: discB64 as any, encoding: 'base64' } },
+        ],
+      })
+      .send()
+  } catch {
+    return []
+  }
 
   const markets: Array<{ pubkey: Address; account: UsdcMarketAccount }> = []
   for (const item of result) {
@@ -1001,6 +1234,38 @@ export async function fetchAllMarkets(): Promise<
   )
 }
 
+/**
+ * Fetch every DB-known market by ID via getAccountInfo (per account).
+ *
+ * We deliberately do NOT use getProgramAccounts here: on Helius it can return a
+ * STALE snapshot of an account (e.g. a market's state right after creation, with
+ * liquidity_param_b = 0 and zero quantities, even after liquidity + trades have
+ * landed). That stale read silently values every position at $0 and shows 50¢
+ * prices. getAccountInfo is authoritative and not subject to that caching lag.
+ *
+ * Callers seed `knownMarketIds` from the full paid_market_metadata set, so this
+ * covers every market we care about (and we only surface admin/metadata markets
+ * anyway), making program-account discovery unnecessary.
+ */
+export async function fetchAllMarketsWithFallback(
+  knownMarketIds: string[]
+): Promise<Array<{ pubkey: Address; account: UsdcMarketAccount }>> {
+  const ids = [...new Set(knownMarketIds)]
+  const results = await Promise.all(
+    ids.map(async id => {
+      try {
+        const account = await fetchMarket(BigInt(id))
+        return account ? { pubkey: id as Address, account } : null
+      } catch {
+        return null
+      }
+    })
+  )
+  return results
+    .filter((m): m is { pubkey: Address; account: UsdcMarketAccount } => m !== null)
+    .sort((a, b) => Number(b.account.createdAt - a.account.createdAt))
+}
+
 export async function fetchLpPosition(
   marketId: bigint,
   lpWallet: Address
@@ -1011,6 +1276,28 @@ export async function fetchLpPosition(
   if (!result.value) return null
   const bytes = decodeBase64(result.value.data)
   return deserializeLpPosition(bytes)
+}
+
+/**
+ * BROWSER-ONLY: market account + vault balance via the shared cached API route
+ * (/api/paid-markets/market/[id]) instead of two direct per-viewer RPC reads.
+ * The route returns the raw base64 account bytes, decoded here with the exact
+ * same deserializer as the direct-RPC path — byte-for-byte equivalent data,
+ * shared across all viewers server-side. Retries once on a 429 so a viewer on
+ * a crowded IP gets a delayed load instead of an error.
+ */
+export async function fetchMarketSnapshot(
+  marketId: string
+): Promise<{ market: UsdcMarketAccount | null; vaultBalance: bigint }> {
+  const res = await fetchWith429Retry(`/api/paid-markets/market/${marketId}`)
+  if (res.status === 404) return { market: null, vaultBalance: 0n }
+  if (!res.ok) throw new Error(`Failed to load market (${res.status})`)
+  const json = await res.json()
+  if (typeof json.account !== 'string') return { market: null, vaultBalance: 0n }
+  return {
+    market: deserializeMarketAccount(decodeBase64(json.account)),
+    vaultBalance: BigInt(json.vaultAmount ?? '0'),
+  }
 }
 
 /** Fetch vault USDC balance in base units (6 decimals) */
@@ -1028,9 +1315,11 @@ export async function fetchVaultBalance(marketId: bigint): Promise<bigint> {
 
 /** Format USDC base units to human-readable string (e.g. 1_000_000 -> "1.00") */
 export function formatUsdc(baseUnits: bigint): string {
-  const whole = baseUnits / USDC_PRECISION
-  const frac = baseUnits % USDC_PRECISION
-  return `${whole}.${frac.toString().padStart(6, '0').slice(0, 2)}`
+  const neg = baseUnits < 0n
+  const abs = neg ? -baseUnits : baseUnits
+  const whole = abs / USDC_PRECISION
+  const frac = abs % USDC_PRECISION
+  return `${neg ? '-' : ''}${whole}.${frac.toString().padStart(6, '0').slice(0, 2)}`
 }
 
 export function statusLabel(status: MarketStatus): string {

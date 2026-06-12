@@ -61,6 +61,9 @@ lib/
 ├── points.ts             # Point system (trades, holds, chat, achievements)
 ├── discordBot.ts         # Rate-limited Discord bot DM sender (shared 25/s scheduler, 429-aware, per-user DM-channel cache)
 ├── priceAlerts.ts        # Free-market price-alert detection + DM dispatch (trade-path hook)
+├── rpcSend.ts            # Client: broadcast signed txs via same-origin proxy + confirmation polling
+├── rpcUpstream.ts        # Server: RPC upstream forwarder (timeout + public-endpoint failover)
+├── rateLimit.ts          # Per-IP sliding-window limiter shared by API routes (globalThis buckets)
 └── ...
 
 solana_contracts/         # Anchor programs (Rust)
@@ -84,6 +87,7 @@ services/                 # Sibling Node services (own package.json, own Railway
 - **API routes proxy Jupiter.** Polymarket routes forward to `api.jup.ag` with API key + client IP.
 - **Helius webhook indexing.** On-chain trades indexed via `POST /api/webhook` → `tradeParser.ts` → `db.insertTradeEvent()`.
 - **Wallet auth only.** No sessions/JWT. Wallet public key is the identity. Admin checks via `ADMIN_WALLETS` env var.
+- **No RPC keys in the browser.** All browser RPC traffic goes through same-origin proxies (`/api/rpc/mainnet`, `/api/paid-rpc`) with method allowlists, batch rejection, body caps, and per-IP limits (`lib/rateLimit`); the proxies fail over to the public cluster endpoint on Helius outage (`lib/rpcUpstream`). Wallets only ever **sign** (Phantom `signTransaction`, Privy sign-only `signTransaction`) — broadcast + confirmation run through `lib/rpcSend`. Privy's `rpcs` config in `WalletProviderWrapper` must stay keyless (public endpoints): anything referenced there ships in the bundle.
 - **Fire-and-forget side effects.** Points, achievements, and scoring awarded in API handlers without awaiting.
 - **Transactions for free market trades.** `executeVirtualTrade` in `lib/db.ts` uses `pool.connect()` + `BEGIN/COMMIT/ROLLBACK` with `SELECT FOR UPDATE` for pool concurrency.
 - **LMSR math:** On-chain in `lib/mentionMarketUsdc.ts` (bigint, USDC base units 1e6). Free markets in `lib/virtualLmsr.ts` (float). Same formulas. Legacy SOL-AMM client `lib/mentionMarket.ts` still on disk (only `PrivyFundsModal` uses its `sendIxs` for SOL transfers — no longer interacts with the on-chain market program).
@@ -99,7 +103,7 @@ services/                 # Sibling Node services (own package.json, own Railway
 
 ### 2. On-Chain Mention Markets (USDC, devnet)
 - Custom LMSR AMM deployed on Solana **devnet**, settled in **devnet USDC** (6 decimals).
-- Trades signed via Phantom's `signTransaction` (raw-bytes path on `WalletContext.signOnly`) and broadcast directly to Helius devnet RPC — bypasses the mainnet simulate/send proxy.
+- Trades signed via the wallet's raw-bytes sign-only path (`WalletContext.signOnly`, Phantom or Privy) and broadcast through the `/api/paid-rpc` proxy — separate from the mainnet proxy so the paid cluster can differ.
 - **UI lives on `feat/add-paid-markets` branch, not main.** When that branch ships, it adds `/market/[id]` (detail/trading: `OnchainMarketClient`) and `/paidcustomadmin` (admin create/liquidity/resolve), plus paid-market sections of `app/positions` and `app/profile/[username]`. Main has the contract source + SDK + read API only.
 - API on main: `/api/paid-markets/*` (chart, trades, metadata, user-positions), `/api/webhook` (Helius → `tradeParser.ts` → `trade_events`).
 - Legacy `/api/trades/*` routes are unmaintained — they still read `trade_events` but expect the old SOL/1e9 units; the parser now emits raw USDC base units (1e6) so any external caller will be off by ~1e6×. Only `TradeTicker` calls `/api/trades/recent`, which reads from `polymarket_trades` / `custom_market_trades` and is unaffected.
@@ -238,6 +242,7 @@ Achievements rotate weekly. Each week's set is defined in `lib/achievements.ts` 
   - `lib/chatStream.ts` (channel `chat_new`) — global + per-event chat. GlobalChat only opens SSE when the chat panel is expanded; when collapsed, it polls a lightweight `/api/chat/latest-id` endpoint every 30s for the unread badge. EventChat connects SSE on mount and supports backward cursor pagination (`?before=` param). Both fall back to 30s polling if SSE fails.
   - `lib/mentionStream.ts` (channel `word_mention`) — admin live word-mention counter in `/customadmin`. Worker emits "fat" NOTIFY payloads (full mention row + `type: 'mention' | 'dismiss'` discriminator) so the SSE route is a pure pass-through with zero extra DB hits per event.
   Both singletons survive Next.js hot reloads via `globalThis` and reconnect on disconnect.
+- **Paid-market RPC reads are cached server-side, scaling with market count not user count.** `lib/paidMarketsServer.ts` (`getMarketsAndMetadataCached`, 5s TTL / 60s stale-on-error via `lib/ttlCache`) is the single source for metadata + on-chain market accounts in all paid read routes. The market detail page polls `GET /api/paid-markets/market/[id]` (3s TTL — under the +4s post-trade refetch — returning RAW base64 account bytes decoded client-side by `fetchMarketSnapshot`, so there's no serialization schema to drift). Treat cached snapshots as immutable — routes must never sort/mutate the shared arrays in place. SOL balance polls at 30s with `refreshBalance()` from WalletContext called after sends.
 - **Lazy tab data loading.** Positions page and profile page only fetch data for the active tab. Orders and history fetch/poll when their tab becomes active; intervals are cleaned up when switching away. Follow the pattern: `useEffect` guarded by `tab !== 'x'` with interval inside.
 - **CSS display:none for tabs.** Tab content on positions and profile pages uses `style={{ display: active ? undefined : 'none' }}` instead of conditional rendering (`{tab === 'x' && (...)}`). DOM stays mounted across tab switches for instant switching and preserved scroll position.
 - **Memoized PNL map.** Profile page pre-computes `pnlMap` via `useMemo` over `activeHistory`, then uses `getPnl(h)` (a `Map.get` lookup) instead of calling `eventPnl(h)` repeatedly. All derived values (`periodPnl`, `biggestWin`, history row rendering) use `getPnl`.

@@ -9,7 +9,6 @@ import {
   getProgramDerivedAddress,
   getAddressEncoder,
   createSolanaRpc,
-  mainnet,
 } from '@solana/kit'
 import {
   sendIxs,
@@ -17,11 +16,9 @@ import {
   TOKEN_PROGRAM,
   ASSOCIATED_TOKEN_PROGRAM,
 } from '@/lib/mentionMarket'
+import { MAINNET_RPC_PROXY } from '@/lib/rpcProxy'
 
 // ── Token config ─────────────────────────────────────────
-
-const MAINNET_URL =
-  process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
 const TOKENS = {
   SOL: { symbol: 'SOL', name: 'Solana', decimals: 9, mint: null as null },
@@ -99,6 +96,33 @@ async function buildCreateAtaIx(
   }
 }
 
+// Keep a sliver of SOL un-sendable so the transaction fee (~0.000005 SOL) can
+// always be paid; "Max" on SOL is clamped to balance minus this buffer.
+const SOL_FEE_BUFFER = 0.0001
+
+// Map raw signer/RPC errors to actionable copy. The big one: AccountNotFound
+// means the wallet's system account doesn't exist on-chain (zero SOL, never
+// funded) — the fee debit has nowhere to come from, which is common for
+// embedded wallets that received USDC but never SOL.
+function friendlySendError(raw: string): string {
+  const m = raw.toLowerCase()
+  if (m.includes('accountnotfound') || m.includes('account not found'))
+    return 'Your wallet has no SOL to pay the network fee. Deposit a small amount of SOL (~0.001) to your wallet address first, then try again.'
+  if (m.includes('insufficientfundsforfee') || (m.includes('insufficient') && m.includes('fee')))
+    return 'Not enough SOL left to cover the network fee. Lower the amount slightly or add a little SOL.'
+  if (m.includes('insufficient lamports'))
+    return 'Not enough SOL to complete this transfer. Note: sending tokens to a wallet that does not hold them yet costs ~0.002 SOL extra for account setup.'
+  if (m.includes('insufficient funds'))
+    return 'Insufficient balance for this transfer.'
+  if (m.includes('user rejected') || m.includes('rejected the request') || m.includes('declined') || m.includes('user denied'))
+    return 'Transaction cancelled.'
+  if (m.includes('blockhash') || m.includes('expired') || m.includes('block height exceeded'))
+    return 'The transaction expired before it landed. Please try again.'
+  if (raw.length > 120 || m.includes('simulation failed') || m.includes('custom program error') || m.includes('0x'))
+    return 'Transaction failed. Please try again.'
+  return raw
+}
+
 async function deriveAta(owner: string, mint: string): Promise<string> {
   const encoder = getAddressEncoder()
   const [ata] = await getProgramDerivedAddress({
@@ -120,7 +144,7 @@ interface PrivyFundsModalProps {
 }
 
 export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps) {
-  const { publicKey, balance, signer } = useWallet()
+  const { publicKey, balance, signer, refreshBalance } = useWallet()
 
   const [tab, setTab] = useState<'deposit' | 'withdraw'>('deposit')
   const [selectedToken, setSelectedToken] = useState<TokenKey>('SOL')
@@ -142,7 +166,7 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
     if (!publicKey) return
     setBalancesLoading(true)
     try {
-      const rpc = createSolanaRpc(mainnet(MAINNET_URL))
+      const rpc = createSolanaRpc(MAINNET_RPC_PROXY)
       const result = await rpc
         .getTokenAccountsByOwner(
           toAddress(publicKey),
@@ -209,7 +233,9 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
       ? (usdcBalance ?? 0)
       : (jupUsdBalance ?? 0)
 
-  const maxSol = solBalance
+  // SOL "Max" leaves the fee buffer behind — sending the full balance can never
+  // succeed (the fee is debited from the same account). Floor, never round up.
+  const maxSol = Math.max(0, Math.floor((solBalance - SOL_FEE_BUFFER) * 10_000) / 10_000)
   const maxToken = selectedToken === 'SOL' ? maxSol : tokenBalance
 
   const handleCopy = async () => {
@@ -237,6 +263,18 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
       setError('Enter a valid amount')
       return
     }
+    // Every withdrawal pays its network fee in SOL from this wallet — catch the
+    // unfunded-wallet case here instead of surfacing a cryptic AccountNotFound
+    // from simulation. (balance === null means still loading; let it attempt and
+    // rely on the error mapping.)
+    if (balance !== null && solBalance < SOL_FEE_BUFFER) {
+      setError('Your wallet needs a small amount of SOL (~0.001) to pay the network fee. Deposit SOL to your wallet address first.')
+      return
+    }
+    if (selectedToken === 'SOL' && qty > maxSol && qty <= solBalance) {
+      setError('Leave a little SOL for the network fee — use the Max button.')
+      return
+    }
     if (qty > maxToken) {
       setError(`Insufficient ${selectedToken} balance`)
       return
@@ -261,14 +299,17 @@ export default function PrivyFundsModal({ open, onClose }: PrivyFundsModalProps)
         ixs.push(buildSplTransferIx(sourceAta, destAta, publicKey, rawAmount))
       }
 
-      await sendIxs(signer, ixs, MAINNET_URL)
+      await sendIxs(signer, ixs, MAINNET_RPC_PROXY)
+      // Refresh both balances now rather than waiting for the 30s poll — the
+      // user is looking at these numbers when the send completes.
+      refreshBalance()
       await fetchTokenBalances()
 
       setSuccess(`Sent ${qty} ${selectedToken} successfully`)
       setRecipient('')
       setAmount('')
     } catch (e: any) {
-      setError(e?.message ?? 'Transaction failed')
+      setError(friendlySendError(e?.message ?? 'Transaction failed'))
     } finally {
       setLoading(false)
     }

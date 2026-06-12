@@ -18,6 +18,7 @@ import LoadingScreen from '@/components/LoadingScreen'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import { fetchWith429Retry } from '@/lib/fetchRetry'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import Pagination, { usePagination } from '@/components/Pagination'
 
@@ -166,6 +167,37 @@ interface FreeMarketGroup {
   pnl: number
 }
 
+interface OnchainPosition {
+  marketId: string
+  marketTitle: string
+  marketStatus: number   // 0=Open 1=Paused 2=Resolved
+  coverImageUrl: string | null
+  wordIndex: number
+  wordLabel: string
+  yesShares: string
+  noShares: string
+  yesPrice: number
+  noPrice: number
+  outcome: boolean | null
+  estValueUsdc: string   // LMSR sell return in base units, stringified bigint
+}
+
+interface OnchainTrade {
+  signature: string
+  marketId: string
+  marketTitle: string
+  coverImageUrl: string | null
+  wordIndex: number
+  wordLabel: string
+  direction: 'YES' | 'NO'
+  isBuy: boolean
+  quantity: number
+  cost: number
+  fee: number
+  impliedPrice: number
+  blockTime: string
+}
+
 interface PointHistoryEntry {
   points: number
   created_at: string
@@ -186,11 +218,13 @@ interface PublicProfile {
 
 type OwnerTab = 'positions' | 'orders' | 'history' | 'achievements'
 type PublicTab = 'positions' | 'activity' | 'achievements'
+type OnchainOwnerTab = 'positions' | 'history' | 'achievements'
+type OnchainPublicTab = 'positions' | 'activity' | 'achievements'
 type FreeOwnerTab = 'positions' | 'history' | 'achievements'
 type FreePublicTab = 'positions' | 'activity' | 'achievements'
 type PositionFilter = 'active' | 'closed'
 type PnlPeriod = '1D' | '1W' | '1M' | 'ALL'
-type ProfileMode = 'paid' | 'free'
+type ProfileMode = 'onchain' | 'free'
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -491,8 +525,14 @@ export default function ProfilePage() {
   const [closingPubkey, setClosingPubkey] = useState<string | null>(null)
   const [closeStatus, setCloseStatus] = useState<{ msg: string; error: boolean } | null>(null)
 
-  // ── Profile mode (paid vs free) ────────────────────────
-  const [profileMode, setProfileMode] = useState<ProfileMode>('free')
+  // ── Profile mode (onchain vs free) ─────────────────────
+  const [profileMode, setProfileMode] = useState<ProfileMode>('onchain')
+  const [onchainOwnerTab, setOnchainOwnerTab] = useState<OnchainOwnerTab>('positions')
+  const [onchainPublicTab, setOnchainPublicTab] = useState<OnchainPublicTab>('positions')
+  const [onchainPositions, setOnchainPositions] = useState<OnchainPosition[]>([])
+  const [loadingOnchainPositions, setLoadingOnchainPositions] = useState(false)
+  const [onchainHistory, setOnchainHistory] = useState<OnchainTrade[]>([])
+  const [loadingOnchainHistory, setLoadingOnchainHistory] = useState(false)
   const [freeOwnerTab, setFreeOwnerTab] = useState<FreeOwnerTab>('positions')
   const [freePublicTab, setFreePublicTab] = useState<FreePublicTab>('positions')
   const [expandedMarkets, setExpandedMarkets] = useState<Set<number>>(new Set())
@@ -710,6 +750,26 @@ export default function ProfilePage() {
     setLoadingOwnerHistory(false)
   }, [publicKey])
 
+  const fetchOnchainPositions = useCallback(async () => {
+    if (!profile?.wallet) return
+    setLoadingOnchainPositions(true)
+    try {
+      const res = await fetchWith429Retry(`/api/paid-markets/user-positions?wallet=${profile.wallet}`)
+      if (res.ok) setOnchainPositions((await res.json()).positions || [])
+    } catch { /* ignore */ }
+    setLoadingOnchainPositions(false)
+  }, [profile?.wallet])
+
+  const fetchOnchainHistory = useCallback(async () => {
+    if (!profile?.wallet) return
+    setLoadingOnchainHistory(true)
+    try {
+      const res = await fetchWith429Retry(`/api/paid-markets/user-history?wallet=${profile.wallet}`)
+      if (res.ok) setOnchainHistory((await res.json()).trades || [])
+    } catch { /* ignore */ }
+    setLoadingOnchainHistory(false)
+  }, [profile?.wallet])
+
   // Always fetch positions (default tab); lazy-fetch orders/history when their tab is active
   useEffect(() => {
     if (!isOwnProfile) return
@@ -737,10 +797,23 @@ export default function ProfilePage() {
     return () => clearInterval(histInterval)
   }, [isOwnProfile, ownerTab, fetchOwnerHistory])
 
+  // Fetch onchain data whenever profile is loaded and mode is onchain
+  useEffect(() => {
+    if (!profile?.wallet) return
+    fetchOnchainPositions()
+  }, [profile?.wallet, fetchOnchainPositions])
+
+  useEffect(() => {
+    if (!profile?.wallet) return
+    fetchOnchainHistory()
+  }, [profile?.wallet, fetchOnchainHistory])
+
   // Reset tabs when toggling public preview or profile mode
   useEffect(() => {
     setOwnerTab('positions')
     setPublicTab('positions')
+    setOnchainOwnerTab('positions')
+    setOnchainPublicTab('positions')
     setFreeOwnerTab('positions')
     setFreePublicTab('positions')
     setPosFilter('active')
@@ -998,14 +1071,17 @@ export default function ProfilePage() {
   const publicHistPg = usePagination(profile?.history ?? [])
   const freeOpenPg = usePagination(freeOpenMarkets)
   const freeHistoryPg = usePagination(freeHistoryMarkets)
+  const onchainPosPg = usePagination(onchainPositions)
+  const onchainHistPg = usePagination(onchainHistory)
 
   // Reset to page 1 on tab / mode changes
   useEffect(() => {
     ownerPosPg.setPage(1); ownerOrdersPg.setPage(1); ownerHistPg.setPage(1)
     publicPosPg.setPage(1); publicHistPg.setPage(1)
     freeOpenPg.setPage(1); freeHistoryPg.setPage(1)
+    onchainPosPg.setPage(1); onchainHistPg.setPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerTab, publicTab, freeOwnerTab, freePublicTab, profileMode])
+  }, [ownerTab, publicTab, onchainOwnerTab, onchainPublicTab, freeOwnerTab, freePublicTab, profileMode])
 
   // Reset public positions page when filter/search changes
   useEffect(() => {
@@ -1059,12 +1135,12 @@ export default function ProfilePage() {
 
       {/* ── Profile mode toggle + weekly points ────────── */}
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
-        {/* Paid / Free toggle */}
+        {/* Onchain / Free toggle */}
         <div className="flex items-center rounded-lg border border-white/10 overflow-hidden">
           <button
-            onClick={() => setProfileMode('paid')}
+            onClick={() => setProfileMode('onchain')}
             className={`px-4 py-2 text-xs font-semibold transition-colors ${
-              profileMode === 'paid' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
+              profileMode === 'onchain' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'
             }`}
           >
             Paid Markets
@@ -1294,21 +1370,19 @@ export default function ProfilePage() {
           </div>
 
           {/* Stats row */}
-          {profileMode === 'paid' ? (
+          {profileMode === 'onchain' ? (
             <div className="grid grid-cols-3 gap-4 pt-5 mt-5 border-t border-white/5">
               <div>
-                <div className="text-white text-lg font-bold">{microToUsd(stats.totalValue)}</div>
-                <div className="text-neutral-500 text-xs mt-0.5">Positions Value</div>
+                <div className="text-white text-lg font-bold">{onchainPositions.length}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Open Positions</div>
               </div>
               <div>
-                <div className={`text-lg font-bold ${biggestWin > 0 ? 'text-apple-green' : 'text-neutral-400'}`}>
-                  {biggestWin > 0 ? microToUsd(biggestWin, true) : '—'}
-                </div>
-                <div className="text-neutral-500 text-xs mt-0.5">Biggest Win</div>
+                <div className="text-white text-lg font-bold">{new Set(onchainPositions.map(p => p.marketId)).size}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Markets</div>
               </div>
               <div>
-                <div className="text-white text-lg font-bold">{stats.tradesCount}</div>
-                <div className="text-neutral-500 text-xs mt-0.5">Predictions</div>
+                <div className="text-white text-lg font-bold">{onchainHistory.length}</div>
+                <div className="text-neutral-500 text-xs mt-0.5">Trades</div>
               </div>
             </div>
           ) : (
@@ -1336,12 +1410,11 @@ export default function ProfilePage() {
               </svg>
               <span className="text-yellow-400 text-xs font-semibold">{stats.allTimePoints.toLocaleString()} pts all-time</span>
             </div>
-            {profileMode === 'paid' && biggestWin > 0 && (
+            {profileMode === 'onchain' && onchainPositions.some(p => p.outcome === true && BigInt(p.yesShares) > 0n || p.outcome === false && BigInt(p.noShares) > 0n) && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-apple-green/5 border border-apple-green/10">
-                <svg className="w-3.5 h-3.5 text-apple-green" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
-                </svg>
-                <span className="text-apple-green text-xs font-semibold">Best P&L {microToUsd(biggestWin, true)}</span>
+                <span className="text-apple-green text-xs font-semibold">
+                  {onchainPositions.filter(p => p.outcome === true && BigInt(p.yesShares) > 0n || p.outcome === false && BigInt(p.noShares) > 0n).length} redeemable
+                </span>
               </div>
             )}
             {profileMode === 'free' && profile.freeMarket.stats.totalPoints > 0 && (
@@ -1354,34 +1427,34 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* P&L card (paid) / Points card (free) */}
-        {profileMode === 'paid' ? (
+        {/* P&L card (onchain) / Points card (free) */}
+        {profileMode === 'onchain' ? (
           <div className="glass rounded-2xl p-6 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${pnlPositive ? 'bg-apple-green' : 'bg-apple-red'}`} />
-                <span className="text-neutral-400 text-sm font-medium">Profit / Loss</span>
-              </div>
-              <div className="flex items-center gap-0.5">
-                {(['1D', '1W', '1M', 'ALL'] as PnlPeriod[]).map(p => (
-                  <button
-                    key={p}
-                    onClick={() => setPnlPeriod(p)}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all duration-150 ${
-                      pnlPeriod === p ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-neutral-300'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-2 h-2 rounded-full bg-apple-blue" />
+              <span className="text-neutral-400 text-sm font-medium">Paid Markets</span>
             </div>
-            <div className={`text-3xl font-bold mb-0.5 ${pnlPositive ? 'text-apple-green' : 'text-apple-red'}`}>
-              {microToUsd(periodPnl, true)}
+            <div className="text-3xl font-bold mb-0.5 text-white">
+              ${onchainPositions.reduce((sum, p) =>
+                sum + Number(BigInt(p.estValueUsdc ?? '0')) / 1e6
+              , 0).toFixed(2)}
             </div>
-            <div className="text-neutral-500 text-xs mb-4">{periodLabel(pnlPeriod)}</div>
-            <div className="flex-1">
-              <Sparkline history={activeHistory} period={pnlPeriod} pnlValue={periodPnl} />
+            <div className="text-neutral-500 text-xs mb-4">Est. portfolio value</div>
+            <div className="flex-1 flex flex-col justify-end gap-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-neutral-500">Positions</span>
+                <span className="text-white font-medium">{onchainPositions.length}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-neutral-500">Trades</span>
+                <span className="text-white font-medium">{onchainHistory.length}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-neutral-500">Redeemable</span>
+                <span className={`font-medium ${onchainPositions.some(p => (p.outcome === true && BigInt(p.yesShares) > 0n) || (p.outcome === false && BigInt(p.noShares) > 0n)) ? 'text-apple-green' : 'text-neutral-500'}`}>
+                  {onchainPositions.filter(p => (p.outcome === true && BigInt(p.yesShares) > 0n) || (p.outcome === false && BigInt(p.noShares) > 0n)).length}
+                </span>
+              </div>
             </div>
           </div>
         ) : (
@@ -1664,25 +1737,29 @@ export default function ProfilePage() {
           )}
 
           {/* Summary cards */}
-          {profileMode === 'paid' ? (
+          {profileMode === 'onchain' ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <div className="glass rounded-xl p-4">
                 <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Positions</div>
-                <div className="text-white text-xl font-bold">{ownerPositions.length}</div>
+                <div className="text-white text-xl font-bold">{onchainPositions.length}</div>
               </div>
               <div className="glass rounded-xl p-4">
-                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Total Value</div>
-                <div className="text-white text-xl font-bold">{microToUsd(ownerTotalValue)}</div>
-              </div>
-              <div className="glass rounded-xl p-4">
-                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">All-time P&L</div>
-                <div className={`text-xl font-bold ${ownerTotalPnl >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                  {microToUsd(ownerTotalPnl, true)}
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Est. Value</div>
+                <div className="text-white text-xl font-bold">
+                  ${onchainPositions.reduce((sum, p) =>
+                    sum + Number(BigInt(p.estValueUsdc ?? '0')) / 1e6
+                  , 0).toFixed(2)}
                 </div>
               </div>
               <div className="glass rounded-xl p-4">
-                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Open Orders</div>
-                <div className="text-white text-xl font-bold">{openOrders.length}</div>
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Markets</div>
+                <div className="text-white text-xl font-bold">{new Set(onchainPositions.map(p => p.marketId)).size}</div>
+              </div>
+              <div className="glass rounded-xl p-4">
+                <div className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mb-1">Redeemable</div>
+                <div className="text-white text-xl font-bold">
+                  {onchainPositions.filter(p => (p.outcome === true && BigInt(p.yesShares) > 0n) || (p.outcome === false && BigInt(p.noShares) > 0n)).length}
+                </div>
               </div>
             </div>
           ) : (
@@ -1712,25 +1789,24 @@ export default function ProfilePage() {
 
       {/* ── Tabs ──────────────────────────────────────── */}
       <div className="flex items-center gap-1 mb-4 border-b border-white/10">
-        {profileMode === 'paid' ? (
+        {profileMode === 'onchain' ? (
           isOwnerView ? (
             ([
-              ['positions', 'Positions', ownerPositions.length],
-              ['orders', 'Open Orders', openOrders.length],
-              ['history', 'History', ownerHistory.length],
+              ['positions', 'Open Positions', onchainPositions.length],
+              ['history', 'History', onchainHistory.length],
               ['achievements', 'Achievements', unlockedCount],
-            ] as [OwnerTab, string, number][]).map(([key, label, count]) => (
+            ] as [OnchainOwnerTab, string, number][]).map(([key, label, count]) => (
               <button
                 key={key}
-                onClick={() => setOwnerTab(key)}
+                onClick={() => setOnchainOwnerTab(key)}
                 className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
-                  ownerTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                  onchainOwnerTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
                 }`}
               >
                 {label}
                 {count > 0 && (
                   <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    ownerTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                    onchainOwnerTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
                   }`}>{count}</span>
                 )}
               </button>
@@ -1740,18 +1816,18 @@ export default function ProfilePage() {
               ['positions', 'Positions'],
               ['activity', 'Activity'],
               ['achievements', 'Achievements'],
-            ] as [PublicTab, string][]).map(([key, label]) => (
+            ] as [OnchainPublicTab, string][]).map(([key, label]) => (
               <button
                 key={key}
-                onClick={() => setPublicTab(key)}
+                onClick={() => setOnchainPublicTab(key)}
                 className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
-                  publicTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                  onchainPublicTab === key ? 'text-white border-white' : 'text-neutral-500 border-transparent hover:text-neutral-300'
                 }`}
               >
                 {label}
                 {key === 'achievements' && unlockedCount > 0 && (
                   <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    publicTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
+                    onchainPublicTab === key ? 'bg-white/15 text-white' : 'bg-white/5 text-neutral-500'
                   }`}>{unlockedCount}</span>
                 )}
               </button>
@@ -1805,493 +1881,288 @@ export default function ProfilePage() {
       </div>
 
       {/* ════════════════════════════════════════════════
-          PAID OWNER TAB CONTENT
+          ONCHAIN OWNER TAB CONTENT
           ════════════════════════════════════════════════ */}
 
-      {/* Owner: Positions (paid) */}
-      <div style={{ display: profileMode === 'paid' && isOwnerView && ownerTab === 'positions' ? undefined : 'none' }}>
-          {loadingOwnerPositions ? (
+      {/* Onchain: Positions */}
+      <div style={{ display: profileMode === 'onchain' && isOwnerView && onchainOwnerTab === 'positions' ? undefined : 'none' }}>
+          {loadingOnchainPositions ? (
             <div className="flex items-center justify-center py-16"><Spinner /></div>
-          ) : ownerPositions.length === 0 ? (
+          ) : onchainPositions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <span className="text-neutral-500 text-sm">No open positions</span>
-              <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">Browse markets</Link>
+              <span className="text-neutral-500 text-sm">No mention market positions yet</span>
+              <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">Browse markets</Link>
             </div>
           ) : (
             <>
-              {closeStatus && (
-                <div className={`mb-3 p-3 rounded-lg text-xs ${
-                  closeStatus.error
-                    ? 'bg-red-500/10 border border-red-500/30 text-red-300'
-                    : 'bg-green-500/10 border border-green-500/30 text-green-300'
-                }`}>
-                  {closeStatus.msg}
-                </div>
-              )}
-              <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                <span>Event</span>
-                <span className="text-right">Size</span>
-                <span className="text-right">Value</span>
-                <span className="text-right">Avg. Price</span>
-                <span className="text-right">Mark Price</span>
-                <span className="text-right">PNL</span>
-                <span className="text-right">Payout if right</span>
-                <span className="text-right">Settlement</span>
-                <span />
+              <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+                <span>Market / Word</span>
+                <span className="text-right">YES Shares</span>
+                <span className="text-right">NO Shares</span>
+                <span className="text-right">Price</span>
+                <span className="text-right">Est. Value</span>
+                <span className="text-right">Status</span>
               </div>
-              {ownerPosPg.paged.map(pos => {
-                const contracts = Number(pos.contracts || 0)
-                const payoutIfRight = contracts * 1_000_000
-                const isClosing = closingPubkey === pos.pubkey
+              {onchainPosPg.paged.map((pos, i) => {
+                const yes = BigInt(pos.yesShares)
+                const no  = BigInt(pos.noShares)
+                const estValue = Number(BigInt(pos.estValueUsdc ?? '0')) / 1e6
+                const isResolved = pos.marketStatus === 2
+                const canRedeem = (pos.outcome === true && yes > 0n) || (pos.outcome === false && no > 0n)
                 return (
                   <div
-                    key={pos.pubkey}
-                    className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_80px] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                    key={`${pos.marketId}-${pos.wordIndex}`}
+                    className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                    style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : undefined }}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${pos.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                        {pos.isYes ? 'YES' : 'NO'}
-                      </span>
-                      <Link href={pos.eventId ? `/polymarkets/event/${pos.eventId}` : '#'} className="text-white text-sm font-medium truncate hover:underline">
-                        {pos.marketMetadata?.title || pos.marketId.slice(0, 12) + '...'}
-                      </Link>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Size</span>
-                      <span className="text-white text-sm font-medium">{pos.contracts}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Value</span>
-                      <span className="text-white text-sm font-medium">{microToUsd(pos.sizeUsd)}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Avg. Price</span>
-                      <span className="text-neutral-300 text-sm">{microToCents(pos.avgPriceUsd)}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Mark Price</span>
-                      <span className="text-neutral-300 text-sm">{microToCents(pos.markPriceUsd)}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">PNL</span>
-                      <div>
-                        <span className={`text-sm font-semibold ${Number(pos.pnlUsd) >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                          {Number(pos.pnlUsd) >= 0 ? '+' : ''}{microToUsd(pos.pnlUsd)}
-                        </span>
-                        <span className={`block text-[10px] ${Number(pos.pnlUsdPercent) >= 0 ? 'text-apple-green/70' : 'text-apple-red/70'}`}>
-                          {Number(pos.pnlUsdPercent) >= 0 ? '+' : ''}{((Number(pos.pnlUsdPercent) || 0) / 100).toFixed(1)}%
-                        </span>
+                      {pos.coverImageUrl && <img src={pos.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />}
+                      <div className="min-w-0">
+                        <Link href={`/market/${pos.marketId}`} className="text-white text-sm font-semibold hover:underline truncate block">{pos.marketTitle}</Link>
+                        <span className="text-neutral-500 text-xs truncate block">{pos.wordLabel}</span>
                       </div>
                     </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Payout</span>
-                      <span className="text-white text-sm font-medium">{microToUsd(payoutIfRight)}</span>
+                    <div className="flex md:block justify-between md:text-right items-center">
+                      <span className="text-neutral-500 text-xs md:hidden">YES Shares</span>
+                      <span className={`text-sm tabular-nums ${yes > 0n ? 'text-apple-green font-medium' : 'text-neutral-600'}`}>{yes > 0n ? (Number(yes)/1e6).toFixed(2) : '—'}</span>
                     </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Settlement</span>
-                      <span className="text-neutral-400 text-sm">
-                        {pos.eventMetadata?.closeTime ? formatCloseTime(pos.eventMetadata.closeTime) : '—'}
-                      </span>
+                    <div className="flex md:block justify-between md:text-right items-center">
+                      <span className="text-neutral-500 text-xs md:hidden">NO Shares</span>
+                      <span className={`text-sm tabular-nums ${no > 0n ? 'text-apple-red font-medium' : 'text-neutral-600'}`}>{no > 0n ? (Number(no)/1e6).toFixed(2) : '—'}</span>
                     </div>
-                    <div className="flex items-center justify-end">
-                      {pos.claimable && !pos.claimed ? (
-                        <button
-                          onClick={() => handleClaimPosition(pos)}
-                          disabled={isClosing || !!closingPubkey}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-green/30 text-apple-green hover:bg-apple-green/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {isClosing ? (
-                            <span className="flex items-center gap-1.5">
-                              <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                              Claiming
-                            </span>
-                          ) : 'Claim'}
-                        </button>
+                    <div className="flex md:block justify-between md:text-right items-center">
+                      <span className="text-neutral-500 text-xs md:hidden">Price</span>
+                      <div className="text-sm tabular-nums space-y-0.5">
+                        {yes > 0n && <div className="text-apple-green">{Math.round(pos.yesPrice*100)}¢ YES</div>}
+                        {no  > 0n && <div className="text-apple-red">{Math.round(pos.noPrice*100)}¢ NO</div>}
+                      </div>
+                    </div>
+                    <div className="flex md:block justify-between md:text-right items-center">
+                      <span className="text-neutral-500 text-xs md:hidden">Est. Value</span>
+                      <span className="text-white text-sm tabular-nums">${estValue.toFixed(2)}</span>
+                    </div>
+                    <div className="flex md:justify-end items-center">
+                      <span className="text-neutral-500 text-xs md:hidden mr-auto">Status</span>
+                      {canRedeem ? (
+                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-apple-green/15 text-apple-green">Won</span>
+                      ) : isResolved ? (
+                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-white/5 text-neutral-500">Lost</span>
                       ) : (
-                        <button
-                          onClick={() => handleClosePosition(pos)}
-                          disabled={isClosing || !!closingPubkey}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-apple-red/30 text-apple-red hover:bg-apple-red/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {isClosing ? (
-                            <span className="flex items-center gap-1.5">
-                              <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                              Closing
-                            </span>
-                          ) : 'Close'}
-                        </button>
+                        <Link href="/positions" className="text-[10px] font-bold px-2 py-1 rounded bg-apple-blue/10 text-apple-blue hover:bg-apple-blue/20 transition-colors">
+                          Sell →
+                        </Link>
                       )}
                     </div>
                   </div>
                 )
               })}
-              <Pagination page={ownerPosPg.page} totalPages={ownerPosPg.totalPages} totalItems={ownerPosPg.totalItems} onPageChange={ownerPosPg.setPage} />
+              <Pagination page={onchainPosPg.page} totalPages={onchainPosPg.totalPages} totalItems={onchainPosPg.totalItems} onPageChange={onchainPosPg.setPage} />
             </>
           )}
         </div>
 
-      {/* Owner: Open Orders (paid) */}
-      <div style={{ display: profileMode === 'paid' && isOwnerView && ownerTab === 'orders' ? undefined : 'none' }}>
-          {loadingOrders ? (
-            <div className="flex items-center justify-center py-16"><Spinner /></div>
-          ) : openOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <span className="text-neutral-500 text-sm">No open orders</span>
-              <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">Browse markets</Link>
+      {/* Onchain: History */}
+      <div style={{ display: profileMode === 'onchain' && isOwnerView && onchainOwnerTab === 'history' ? undefined : 'none' }}>
+        {loadingOnchainHistory ? (
+          <div className="flex items-center justify-center py-16"><Spinner /></div>
+        ) : onchainHistory.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="text-neutral-500 text-sm">No trade history yet</span>
+            <Link href="/markets" className="text-apple-blue text-sm font-medium hover:underline">Browse markets</Link>
+          </div>
+        ) : (
+          <>
+            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+              <span>Market / Word</span>
+              <span className="text-right">Action</span>
+              <span className="text-right">Shares</span>
+              <span className="text-right">Cost</span>
+              <span className="text-right">Price After</span>
+              <span className="text-right">Time</span>
             </div>
-          ) : (
-            <>
-              <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                <span>Market</span>
-                <span className="text-center">Side</span>
-                <span className="text-right">Contracts</span>
-                <span className="text-right">Max Price</span>
-                <span className="text-right">Size</span>
-                <span className="text-right">Created</span>
-              </div>
-              {ownerOrdersPg.paged.map(order => (
-                <div
-                  key={order.pubkey}
-                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${order.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                      {order.isYes ? 'YES' : 'NO'}
-                    </span>
-                    <Link href={order.eventId ? `/polymarkets/event/${order.eventId}` : '#'} className="text-white text-sm font-medium truncate hover:underline">
-                      {order.marketMetadata?.title || order.marketId.slice(0, 12) + '...'}
-                    </Link>
-                  </div>
-                  <div className="flex md:block justify-between md:text-center">
-                    <span className="text-neutral-500 text-xs md:hidden">Side</span>
-                    <span className={`text-sm font-semibold ${order.isBuy ? 'text-apple-green' : 'text-apple-red'}`}>
-                      {order.isBuy ? 'Buy' : 'Sell'}
-                    </span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Contracts</span>
-                    <span className="text-white text-sm">{order.contracts}</span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Max Price</span>
-                    <span className="text-neutral-300 text-sm">{microToUsd(order.maxFillPriceUsd)}</span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Size</span>
-                    <span className="text-white text-sm font-medium">{microToUsd(order.sizeUsd)}</span>
-                  </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Created</span>
-                    <span className="text-neutral-400 text-xs">{formatDate(order.createdAt)}</span>
+            {onchainHistPg.paged.map((t, i) => (
+              <div
+                key={t.signature}
+                className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors"
+                style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.015)' : undefined }}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {t.coverImageUrl && <img src={t.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />}
+                  <div className="min-w-0">
+                    <Link href={`/market/${t.marketId}`} className="text-white text-sm font-semibold hover:underline truncate block">{t.marketTitle}</Link>
+                    <span className="text-neutral-500 text-xs truncate block">{t.wordLabel}</span>
                   </div>
                 </div>
-              ))}
-              <Pagination page={ownerOrdersPg.page} totalPages={ownerOrdersPg.totalPages} totalItems={ownerOrdersPg.totalItems} onPageChange={ownerOrdersPg.setPage} />
-            </>
-          )}
-        </div>
-
-      {/* Owner: History (paid) */}
-      <div style={{ display: profileMode === 'paid' && isOwnerView && ownerTab === 'history' ? undefined : 'none' }}>
-        <div>
-          {loadingOwnerHistory ? (
-            <div className="flex items-center justify-center py-16"><Spinner /></div>
-          ) : ownerHistory.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <span className="text-neutral-500 text-sm">No trade history yet</span>
-              <Link href="/" className="text-apple-blue text-sm font-medium hover:underline">Browse markets</Link>
-            </div>
-          ) : (
-            <>
-              <div className="hidden md:grid grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
-                <span>Event</span>
-                <span className="text-center">Action</span>
-                <span className="text-center">Status</span>
-                <span className="text-right">Price</span>
-                <span className="text-right">Deposit / Withdraw</span>
-                <span className="text-right">PNL</span>
-                <span className="text-right">Fee</span>
-              </div>
-              {ownerHistPg.paged.map(h => {
-                const { label, color } = eventLabel(h.eventType)
-                let depositWithdraw = '-'
-                if (h.depositAmountUsd > 0)      depositWithdraw = `-${microToUsd(h.depositAmountUsd)}`
-                else if (h.netProceedsUsd > 0)   depositWithdraw = `+${microToUsd(h.netProceedsUsd)}`
-                else if (h.grossProceedsUsd > 0) depositWithdraw = `+${microToUsd(h.grossProceedsUsd)}`
-                else if (h.payoutAmountUsd > 0)  depositWithdraw = `+${microToUsd(h.payoutAmountUsd)}`
-                const depositPos = depositWithdraw.startsWith('+')
-                const price = h.avgFillPriceUsd ? microToCents(h.avgFillPriceUsd)
-                  : h.maxBuyPriceUsd ? microToCents(h.maxBuyPriceUsd)
-                  : h.minSellPriceUsd ? microToCents(h.minSellPriceUsd) : '-'
-                const pnlVal = h.realizedPnl ? microToUsd(h.realizedPnl, true) : '-'
-                const pnlPos = h.realizedPnl ? h.realizedPnl > 0 : false
-                const fee = h.feeUsd > 0 ? microToUsd(h.feeUsd) : '-'
-                return (
-                  <div key={h.id} className="grid grid-cols-1 md:grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr_0.8fr] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${h.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                          {h.isYes ? 'Yes' : 'No'}
-                        </span>
-                        <Link href={h.eventId ? `/polymarkets/event/${h.eventId}` : '#'} className="text-white text-sm font-medium truncate hover:underline">
-                          {h.marketMetadata?.title || h.marketId?.slice(0, 12) + '...'}
-                        </Link>
-                      </div>
-                      <div className="text-neutral-500 text-[11px]">{formatDateFull(h.timestamp)}</div>
-                    </div>
-                    <div className="flex md:block justify-between md:text-center">
-                      <span className="text-neutral-500 text-xs md:hidden">Action</span>
-                      <span className="text-white text-sm font-medium">{h.isBuy ? 'Buy' : 'Sell'}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-center">
-                      <span className="text-neutral-500 text-xs md:hidden">Status</span>
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${color}`}>{label}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Price</span>
-                      <span className="text-white text-sm">{price}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Deposit / Withdraw</span>
-                      <span className={`text-sm font-medium ${depositPos ? 'text-apple-green' : depositWithdraw === '-' ? 'text-neutral-500' : 'text-white'}`}>
-                        {depositWithdraw}
-                      </span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">PNL</span>
-                      <span className={`text-sm font-semibold ${pnlVal === '-' ? 'text-neutral-500' : pnlPos ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {pnlVal}
-                      </span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Fee</span>
-                      <span className="text-neutral-400 text-sm">{fee}</span>
-                    </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Action</span>
+                  <div className="flex md:justify-end items-center gap-1.5">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.direction === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>{t.direction}</span>
+                    <span className="text-neutral-400 text-xs">{t.isBuy ? 'Buy' : 'Sell'}</span>
                   </div>
-                )
-              })}
-              <Pagination page={ownerHistPg.page} totalPages={ownerHistPg.totalPages} totalItems={ownerHistPg.totalItems} onPageChange={ownerHistPg.setPage} />
-            </>
-          )}
-        </div>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Shares</span>
+                  <span className="text-neutral-300 text-sm tabular-nums">{(t.quantity / 1e6).toFixed(2)}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Cost</span>
+                  <span className="text-white text-sm font-medium tabular-nums">${(t.cost / 1e6).toFixed(4)}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Price After</span>
+                  <span className="text-neutral-400 text-sm tabular-nums">{Math.round(t.impliedPrice * 100)}¢</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Time</span>
+                  <span className="text-neutral-500 text-xs tabular-nums">
+                    {new Date(t.blockTime).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </div>
+              </div>
+            ))}
+            <Pagination page={onchainHistPg.page} totalPages={onchainHistPg.totalPages} totalItems={onchainHistPg.totalItems} onPageChange={onchainHistPg.setPage} />
+          </>
+        )}
       </div>
 
       {/* ════════════════════════════════════════════════
-          PAID PUBLIC TAB CONTENT
+          ONCHAIN PUBLIC TAB CONTENT
           ════════════════════════════════════════════════ */}
 
-      {/* Public: Positions (paid) */}
-      <div style={{ display: profileMode === 'paid' && !isOwnerView && publicTab === 'positions' ? undefined : 'none' }}>
-        <>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex rounded-lg border border-white/10 overflow-hidden">
-              <button
-                onClick={() => { setPosFilter('active'); setSearch('') }}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${posFilter === 'active' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
-              >
-                Active
-              </button>
-              <button
-                onClick={() => { setPosFilter('closed'); setSearch('') }}
-                className={`px-4 py-2 text-xs font-semibold transition-colors border-l border-white/10 ${posFilter === 'closed' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
-              >
-                Closed
-              </button>
-            </div>
-            <div className="flex-1 relative">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search positions..."
-                className="w-full h-9 pl-9 pr-4 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/20 transition-colors"
-              />
-            </div>
-          </div>
-
-          {posFilter === 'active' && (
-            filteredPublicPositions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2">
-                <span className="text-neutral-500 text-sm">
-                  {search ? 'No positions match your search' : 'No open positions'}
-                </span>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-white/5 overflow-hidden">
-                <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5 bg-white/[0.02]">
-                  <span>Market</span>
-                  <span className="text-right">Avg</span>
-                  <span className="text-right">Current</span>
-                  <span className="text-right">Value</span>
-                  <span className="text-right">Settlement</span>
-                </div>
-                {(publicPosPg.paged as PublicPosition[]).map(pos => (
-                  <div key={pos.pubkey} className="grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3.5 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${pos.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                        {pos.isYes ? 'YES' : 'NO'}
-                      </span>
-                      <Link href={pos.eventId ? `/polymarkets/event/${pos.eventId}` : '#'} className="text-white text-sm font-medium truncate hover:underline">
-                        {pos.marketMetadata?.title || pos.marketId.slice(0, 16) + '...'}
-                      </Link>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Avg</span>
-                      <span className="text-neutral-300 text-sm">{microToCents(pos.avgPriceUsd)}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Current</span>
-                      <span className={`text-sm font-medium ${Number(pos.pnlUsd) >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                        {microToCents(pos.markPriceUsd)}
-                      </span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Value</span>
-                      <span className="text-white text-sm font-medium">{microToUsd(pos.sizeUsd)}</span>
-                    </div>
-                    <div className="flex md:block justify-between md:text-right">
-                      <span className="text-neutral-500 text-xs md:hidden">Settlement</span>
-                      <span className="text-neutral-400 text-sm">
-                        {pos.eventMetadata?.closeTime ? formatCloseTime(pos.eventMetadata.closeTime) : '—'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                <Pagination page={publicPosPg.page} totalPages={publicPosPg.totalPages} totalItems={publicPosPg.totalItems} onPageChange={publicPosPg.setPage} />
-              </div>
-            )
-          )}
-
-          {posFilter === 'closed' && (
-            filteredPublicPositions.length === 0 ? (
-              <div className="flex items-center justify-center py-16">
-                <span className="text-neutral-500 text-sm">
-                  {search ? 'No positions match your search' : 'No closed positions'}
-                </span>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-white/5 overflow-hidden">
-                <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5 bg-white/[0.02]">
-                  <span>Market</span>
-                  <span className="text-center">Status</span>
-                  <span className="text-right">P&L</span>
-                  <span className="text-right">Date</span>
-                </div>
-                {(publicPosPg.paged as HistoryEvent[]).map(h => {
-                  const { label, color } = eventLabel(h.eventType)
-                  const pnl = h.realizedPnl
-                  return (
-                    <div key={h.id} className="grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3.5 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${h.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                          {h.isYes ? 'YES' : 'NO'}
-                        </span>
-                        <Link href={h.eventId ? `/polymarkets/event/${h.eventId}` : '#'} className="text-white text-sm font-medium truncate hover:underline">
-                          {h.marketMetadata?.title || h.marketId?.slice(0, 16) + '...'}
-                        </Link>
-                      </div>
-                      <div className="flex md:block justify-between md:text-center">
-                        <span className="text-neutral-500 text-xs md:hidden">Status</span>
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${color}`}>{label}</span>
-                      </div>
-                      <div className="flex md:block justify-between md:text-right">
-                        <span className="text-neutral-500 text-xs md:hidden">P&L</span>
-                        <span className={`text-sm font-semibold ${pnl > 0 ? 'text-apple-green' : pnl < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
-                          {pnl ? microToUsd(pnl, true) : '—'}
-                        </span>
-                      </div>
-                      <div className="flex md:block justify-between md:text-right">
-                        <span className="text-neutral-500 text-xs md:hidden">Date</span>
-                        <span className="text-neutral-500 text-xs">{formatDate(h.timestamp)}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-                <Pagination page={publicPosPg.page} totalPages={publicPosPg.totalPages} totalItems={publicPosPg.totalItems} onPageChange={publicPosPg.setPage} />
-              </div>
-            )
-          )}
-        </>
-      </div>
-
-      {/* Public: Activity (paid) */}
-      <div style={{ display: profileMode === 'paid' && !isOwnerView && publicTab === 'activity' ? undefined : 'none' }}>
-        {profile.history.length === 0 ? (
-          <div className="flex items-center justify-center py-16">
-            <span className="text-neutral-500 text-sm">No activity yet</span>
+      {/* Onchain: Public Positions */}
+      <div style={{ display: profileMode === 'onchain' && !isOwnerView && onchainPublicTab === 'positions' ? undefined : 'none' }}>
+        {loadingOnchainPositions ? (
+          <div className="flex items-center justify-center py-16"><Spinner /></div>
+        ) : onchainPositions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="text-neutral-500 text-sm">No mention market positions yet</span>
           </div>
         ) : (
-          <div className="rounded-xl border border-white/5 overflow-hidden">
-            <div className="hidden md:grid grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5 bg-white/[0.02]">
-              <span>Event</span>
-              <span className="text-center">Action</span>
-              <span className="text-center">Status</span>
+          <>
+            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+              <span>Market / Word</span>
+              <span className="text-right">YES Shares</span>
+              <span className="text-right">NO Shares</span>
               <span className="text-right">Price</span>
-              <span className="text-right">Amount</span>
-              <span className="text-right">P&L</span>
+              <span className="text-right">Est. Value</span>
+              <span className="text-right">Status</span>
             </div>
-            {publicHistPg.paged.map(h => {
-              const { label, color } = eventLabel(h.eventType)
-              let amount = '—'
-              if (h.depositAmountUsd > 0)      amount = `-${microToUsd(h.depositAmountUsd)}`
-              else if (h.netProceedsUsd > 0)   amount = `+${microToUsd(h.netProceedsUsd)}`
-              else if (h.grossProceedsUsd > 0) amount = `+${microToUsd(h.grossProceedsUsd)}`
-              else if (h.payoutAmountUsd > 0)  amount = `+${microToUsd(h.payoutAmountUsd)}`
-              const amountPos = amount.startsWith('+')
-              const price = h.avgFillPriceUsd ? microToCents(h.avgFillPriceUsd)
-                : h.maxBuyPriceUsd ? microToCents(h.maxBuyPriceUsd)
-                : h.minSellPriceUsd ? microToCents(h.minSellPriceUsd) : '—'
-              const pnl = getPnl(h)
+            {onchainPosPg.paged.map((pos, i) => {
+              const yes = BigInt(pos.yesShares)
+              const no  = BigInt(pos.noShares)
+              const estValue = Number(BigInt(pos.estValueUsdc ?? '0')) / 1e6
+              const isResolved = pos.marketStatus === 2
+              const canRedeem = (pos.outcome === true && yes > 0n) || (pos.outcome === false && no > 0n)
               return (
-                <div key={h.id} className="grid grid-cols-1 md:grid-cols-[2.5fr_0.8fr_0.8fr_0.8fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3.5 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${h.isYes ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>
-                        {h.isYes ? 'Yes' : 'No'}
-                      </span>
-                      <Link href={h.eventId ? `/polymarkets/event/${h.eventId}` : '#'} className="text-white text-sm font-medium truncate hover:underline">
-                        {h.marketMetadata?.title || h.marketId?.slice(0, 16) + '...'}
-                      </Link>
+                <div
+                  key={`${pos.marketId}-${pos.wordIndex}`}
+                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-1 md:gap-3 px-4 py-3 md:py-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                  style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : undefined }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {pos.coverImageUrl && <img src={pos.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />}
+                    <div className="min-w-0">
+                      <Link href={`/market/${pos.marketId}`} className="text-white text-sm font-semibold hover:underline truncate block">{pos.marketTitle}</Link>
+                      <span className="text-neutral-500 text-xs truncate block">{pos.wordLabel}</span>
                     </div>
-                    <div className="text-neutral-600 text-[11px]">{formatDate(h.timestamp)}</div>
                   </div>
-                  <div className="flex md:block justify-between md:text-center">
-                    <span className="text-neutral-500 text-xs md:hidden">Action</span>
-                    <span className="text-white text-sm">{h.isBuy ? 'Buy' : 'Sell'}</span>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-500 text-xs md:hidden">YES Shares</span>
+                    <span className={`text-sm tabular-nums ${yes > 0n ? 'text-apple-green font-medium' : 'text-neutral-600'}`}>{yes > 0n ? (Number(yes)/1e6).toFixed(2) : '—'}</span>
                   </div>
-                  <div className="flex md:block justify-between md:text-center">
-                    <span className="text-neutral-500 text-xs md:hidden">Status</span>
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${color}`}>{label}</span>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-500 text-xs md:hidden">NO Shares</span>
+                    <span className={`text-sm tabular-nums ${no > 0n ? 'text-apple-red font-medium' : 'text-neutral-600'}`}>{no > 0n ? (Number(no)/1e6).toFixed(2) : '—'}</span>
                   </div>
-                  <div className="flex md:block justify-between md:text-right">
+                  <div className="flex md:block justify-between md:text-right items-center">
                     <span className="text-neutral-500 text-xs md:hidden">Price</span>
-                    <span className="text-neutral-300 text-sm">{price}</span>
+                    <div className="text-sm tabular-nums space-y-0.5">
+                      {yes > 0n && <div className="text-apple-green">{Math.round(pos.yesPrice*100)}¢ YES</div>}
+                      {no  > 0n && <div className="text-apple-red">{Math.round(pos.noPrice*100)}¢ NO</div>}
+                    </div>
                   </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">Amount</span>
-                    <span className={`text-sm font-medium ${amountPos ? 'text-apple-green' : amount === '—' ? 'text-neutral-500' : 'text-white'}`}>
-                      {amount}
-                    </span>
+                  <div className="flex md:block justify-between md:text-right items-center">
+                    <span className="text-neutral-500 text-xs md:hidden">Est. Value</span>
+                    <span className="text-white text-sm tabular-nums">${estValue.toFixed(2)}</span>
                   </div>
-                  <div className="flex md:block justify-between md:text-right">
-                    <span className="text-neutral-500 text-xs md:hidden">P&L</span>
-                    <span className={`text-sm font-semibold ${pnl === 0 ? 'text-neutral-500' : pnl > 0 ? 'text-apple-green' : 'text-apple-red'}`}>
-                      {pnl !== 0 ? microToUsd(pnl, true) : '—'}
-                    </span>
+                  <div className="flex md:justify-end items-center">
+                    <span className="text-neutral-500 text-xs md:hidden mr-auto">Status</span>
+                    {canRedeem ? (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded bg-apple-green/15 text-apple-green">Won</span>
+                    ) : isResolved ? (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded bg-white/5 text-neutral-500">Lost</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded bg-white/5 text-neutral-500">Open</span>
+                    )}
                   </div>
                 </div>
               )
             })}
-            <Pagination page={publicHistPg.page} totalPages={publicHistPg.totalPages} totalItems={publicHistPg.totalItems} onPageChange={publicHistPg.setPage} />
+            <Pagination page={onchainPosPg.page} totalPages={onchainPosPg.totalPages} totalItems={onchainPosPg.totalItems} onPageChange={onchainPosPg.setPage} />
+          </>
+        )}
+      </div>
+
+      {/* Onchain: Public Activity */}
+      <div style={{ display: profileMode === 'onchain' && !isOwnerView && onchainPublicTab === 'activity' ? undefined : 'none' }}>
+        {loadingOnchainHistory ? (
+          <div className="flex items-center justify-center py-16"><Spinner /></div>
+        ) : onchainHistory.length === 0 ? (
+          <div className="flex items-center justify-center py-16">
+            <span className="text-neutral-500 text-sm">No trade history yet</span>
           </div>
+        ) : (
+          <>
+            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-500 font-medium uppercase tracking-wider border-b border-white/5">
+              <span>Market / Word</span>
+              <span className="text-right">Action</span>
+              <span className="text-right">Shares</span>
+              <span className="text-right">Cost</span>
+              <span className="text-right">Price After</span>
+              <span className="text-right">Time</span>
+            </div>
+            {onchainHistPg.paged.map((t, i) => (
+              <div
+                key={t.signature}
+                className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] transition-colors"
+                style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.015)' : undefined }}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {t.coverImageUrl && <img src={t.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />}
+                  <div className="min-w-0">
+                    <Link href={`/market/${t.marketId}`} className="text-white text-sm font-semibold hover:underline truncate block">{t.marketTitle}</Link>
+                    <span className="text-neutral-500 text-xs truncate block">{t.wordLabel}</span>
+                  </div>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Action</span>
+                  <div className="flex md:justify-end items-center gap-1.5">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.direction === 'YES' ? 'bg-apple-green/15 text-apple-green' : 'bg-apple-red/15 text-apple-red'}`}>{t.direction}</span>
+                    <span className="text-neutral-400 text-xs">{t.isBuy ? 'Buy' : 'Sell'}</span>
+                  </div>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Shares</span>
+                  <span className="text-neutral-300 text-sm tabular-nums">{(t.quantity / 1e6).toFixed(2)}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Cost</span>
+                  <span className="text-white text-sm font-medium tabular-nums">${(t.cost / 1e6).toFixed(4)}</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Price After</span>
+                  <span className="text-neutral-400 text-sm tabular-nums">{Math.round(t.impliedPrice * 100)}¢</span>
+                </div>
+                <div className="flex md:block justify-between md:text-right items-center">
+                  <span className="text-neutral-500 text-xs md:hidden">Time</span>
+                  <span className="text-neutral-500 text-xs tabular-nums">
+                    {new Date(t.blockTime).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </div>
+              </div>
+            ))}
+            <Pagination page={onchainHistPg.page} totalPages={onchainHistPg.totalPages} totalItems={onchainHistPg.totalItems} onPageChange={onchainHistPg.setPage} />
+          </>
         )}
       </div>
 
@@ -2541,8 +2412,8 @@ export default function ProfilePage() {
 
       {/* Achievements (shared — shown to both owner and public viewers, both modes) */}
       <div style={{ display: (
-        profileMode === 'paid'
-          ? (isOwnerView ? ownerTab === 'achievements' : publicTab === 'achievements')
+        profileMode === 'onchain'
+          ? (isOwnerView ? onchainOwnerTab === 'achievements' : onchainPublicTab === 'achievements')
           : (isOwnerView ? freeOwnerTab === 'achievements' : freePublicTab === 'achievements')
       ) ? undefined : 'none' }}>
         <div>

@@ -1,14 +1,23 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { useWallet } from '@/contexts/WalletContext'
 import { useAchievements } from '@/contexts/AchievementContext'
 import { signAndSendTx } from '@/lib/walletUtils'
+import { fetchWith429Retry } from '@/lib/fetchRetry'
 import MentionedSpinner from '@/components/MentionedSpinner'
 import Pagination, { usePagination } from '@/components/Pagination'
+import {
+  fetchMarket,
+  createSellIx,
+  sendInstructions,
+  estimateSellReturn,
+  formatUsdc,
+} from '@/lib/mentionMarketUsdc'
+import type { Address } from '@solana/kit'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -85,7 +94,37 @@ interface HistoryEvent {
 }
 
 type Tab = 'positions' | 'orders' | 'history'
-type MarketMode = 'paid' | 'free'
+type MarketMode = 'paid' | 'free' | 'onchain'
+
+interface OnchainPosition {
+  marketId: string
+  marketTitle: string
+  marketStatus: number   // 0=Open 1=Paused 2=Resolved
+  coverImageUrl: string | null
+  wordIndex: number
+  wordLabel: string
+  yesShares: string      // bigint base units (1e6), stringified
+  noShares: string
+  yesPrice: number       // 0–1
+  noPrice: number
+  outcome: boolean | null
+  estValueUsdc: string   // LMSR sell return in base units, stringified bigint
+  costBasisUsdc: string  // avg-cost basis of currently-held shares, base units
+}
+
+// Realized P&L summary for a closed/resolved Mention Market position.
+interface ClosedPosition {
+  marketId: string
+  marketTitle: string
+  coverImageUrl: string | null
+  wordIndex: number
+  wordLabel: string
+  outcomeLabel: 'Won' | 'Lost' | 'Sold'
+  costBasisUsdc: number
+  proceedsUsdc: number
+  realizedPnlUsdc: number
+  closedAt: string
+}
 
 interface FreePosition {
   id: number
@@ -208,7 +247,7 @@ function eventTypeToStatus(eventType: string): { label: string; color: string } 
 // ── Page ───────────────────────────────────────────────────
 
 export default function PositionsPage() {
-  const { connected, connect, publicKey, walletType } = useWallet()
+  const { connected, connect, publicKey, walletType, signer, signOnly } = useWallet()
   const { showAchievementToast } = useAchievements()
 
   const [tab, setTab] = useState<Tab>('positions')
@@ -228,6 +267,25 @@ export default function PositionsPage() {
   const [freePointsEarned, setFreePointsEarned] = useState<number>(0)
   const [loadingFree, setLoadingFree] = useState(false)
   const [expandedMarkets, setExpandedMarkets] = useState<Set<number>>(new Set())
+
+  // On-chain mention market data
+  const [onchainPositions, setOnchainPositions] = useState<OnchainPosition[]>([])
+  const [loadingOnchain, setLoadingOnchain] = useState(false)
+  const [onchainHistory, setOnchainHistory] = useState<ClosedPosition[]>([])
+  const [loadingOnchainHistory, setLoadingOnchainHistory] = useState(false)
+
+  // Close position modal
+  const [closeModal, setCloseModal] = useState<{
+    pos: OnchainPosition
+    side: 'YES' | 'NO'
+    shares: bigint
+    estimatedReturn: bigint | null
+    txPending: boolean
+    error: string | null
+  } | null>(null)
+
+  // Keys of positions sold this session — filtered from API responses until RPC catches up
+  const recentlySold = useRef(new Set<string>())
 
   // ── Fetch positions ───────────────────────────────────────
 
@@ -307,6 +365,88 @@ export default function PositionsPage() {
     setLoadingFree(false)
   }, [publicKey])
 
+  const fetchOnchainPositions = useCallback(async () => {
+    if (!publicKey) {
+      setOnchainPositions([])
+      setLoadingOnchain(false)
+      return
+    }
+    setLoadingOnchain(true)
+    try {
+      const res = await fetchWith429Retry(`/api/paid-markets/user-positions?wallet=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        const positions = (json.positions || []).filter(
+          (p: OnchainPosition) => !recentlySold.current.has(`${p.marketId}:${p.wordIndex}`)
+        )
+        setOnchainPositions(positions)
+      }
+    } catch { /* ignore */ }
+    setLoadingOnchain(false)
+  }, [publicKey])
+
+  const fetchOnchainHistory = useCallback(async () => {
+    if (!publicKey) {
+      setOnchainHistory([])
+      setLoadingOnchainHistory(false)
+      return
+    }
+    setLoadingOnchainHistory(true)
+    try {
+      const res = await fetchWith429Retry(`/api/paid-markets/user-history?wallet=${publicKey}`)
+      if (res.ok) {
+        const json = await res.json()
+        setOnchainHistory(json.closedPositions || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingOnchainHistory(false)
+  }, [publicKey])
+
+  const openCloseModal = useCallback(async (pos: OnchainPosition, side: 'YES' | 'NO') => {
+    const shares = BigInt(side === 'YES' ? pos.yesShares : pos.noShares)
+    setCloseModal({ pos, side, shares, estimatedReturn: null, txPending: false, error: null })
+    try {
+      const mkt = await fetchMarket(BigInt(pos.marketId))
+      if (!mkt) throw new Error('Market not found')
+      const word = mkt.words[pos.wordIndex]
+      const ret = estimateSellReturn(word, mkt.liquidityParamB, side, shares)
+      setCloseModal(m => m ? { ...m, estimatedReturn: ret } : null)
+    } catch (e) {
+      setCloseModal(m => m ? { ...m, error: e instanceof Error ? e.message : 'Failed to load market' } : null)
+    }
+  }, [])
+
+  const executeClose = useCallback(async () => {
+    if (!closeModal || !publicKey || !signer || !signOnly) return
+    setCloseModal(m => m ? { ...m, txPending: true, error: null } : null)
+    try {
+      const mkt = await fetchMarket(BigInt(closeModal.pos.marketId))
+      if (!mkt) throw new Error('Market not found')
+      const word = mkt.words[closeModal.pos.wordIndex]
+      const ret = estimateSellReturn(word, mkt.liquidityParamB, closeModal.side, closeModal.shares)
+      const minReturn = ret - ret / 50n // 2% slippage
+      const sellIx = await createSellIx(
+        publicKey as Address,
+        BigInt(closeModal.pos.marketId),
+        closeModal.pos.wordIndex,
+        closeModal.side,
+        closeModal.shares,
+        minReturn,
+      )
+      await sendInstructions(signer, signOnly, [sellIx])
+      const soldMarketId = closeModal.pos.marketId
+      const soldWordIndex = closeModal.pos.wordIndex
+      const soldKey = `${soldMarketId}:${soldWordIndex}`
+      recentlySold.current.add(soldKey)
+      setTimeout(() => recentlySold.current.delete(soldKey), 30_000)
+      setCloseModal(null)
+      setOnchainPositions(prev => prev.filter(p => p.marketId !== soldMarketId || p.wordIndex !== soldWordIndex))
+      setTimeout(() => fetchOnchainPositions(), 4000)
+    } catch (e) {
+      setCloseModal(m => m ? { ...m, txPending: false, error: e instanceof Error ? e.message : 'Transaction failed' } : null)
+    }
+  }, [closeModal, publicKey, signer, signOnly, fetchOnchainPositions])
+
   // Always fetch positions (default tab), lazy-fetch orders/history only when tab is active
   useEffect(() => {
     setLoadingPositions(true)
@@ -335,6 +475,16 @@ export default function PositionsPage() {
     if (marketMode !== 'free') return
     fetchFreeActivity()
   }, [marketMode, fetchFreeActivity])
+
+  useEffect(() => {
+    if (marketMode !== 'onchain') return
+    fetchOnchainPositions()
+  }, [marketMode, fetchOnchainPositions])
+
+  useEffect(() => {
+    if (marketMode !== 'onchain' || tab !== 'history') return
+    fetchOnchainHistory()
+  }, [marketMode, tab, fetchOnchainHistory])
 
   // ── Close position ─────────────────────────────────────────
 
@@ -541,21 +691,28 @@ export default function PositionsPage() {
   const historyPg = usePagination(history)
   const freeOpenPg = usePagination(freeOpenMarkets)
   const freeHistoryPg = usePagination(freeHistoryMarkets)
+  const onchainPg = usePagination(onchainPositions)
+  const onchainHistoryPg = usePagination(onchainHistory)
 
   // Reset to page 1 on tab or market mode change
   useEffect(() => {
     posPg.setPage(1); ordersPg.setPage(1); historyPg.setPage(1)
-    freeOpenPg.setPage(1); freeHistoryPg.setPage(1)
+    freeOpenPg.setPage(1); freeHistoryPg.setPage(1); onchainPg.setPage(1); onchainHistoryPg.setPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, marketMode])
 
   // ── Tab counts ────────────────────────────────────────────
 
-  const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'positions', label: marketMode === 'free' ? 'Open Positions' : 'Positions', count: marketMode === 'paid' ? positions.length : freeOpenMarkets.length },
-    { key: 'orders', label: 'Open Orders', count: openOrders.length },
-    { key: 'history', label: 'History', count: marketMode === 'paid' ? history.length : freeHistoryMarkets.length },
-  ]
+  const tabs: { key: Tab; label: string; count: number }[] = marketMode === 'onchain'
+    ? [
+        { key: 'positions', label: 'Open Positions', count: onchainPositions.length },
+        { key: 'history',   label: 'History',        count: onchainHistory.length },
+      ]
+    : [
+        { key: 'positions', label: marketMode === 'free' ? 'Open Positions' : 'Positions', count: marketMode === 'paid' ? positions.length : freeOpenMarkets.length },
+        { key: 'orders', label: 'Open Orders', count: openOrders.length },
+        { key: 'history', label: 'History', count: marketMode === 'paid' ? history.length : freeHistoryMarkets.length },
+      ]
 
   // ── Render ────────────────────────────────────────────────
 
@@ -579,15 +736,16 @@ export default function PositionsPage() {
                 </h1>
                 <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.05]">
                   <button
-                    onClick={() => setMarketMode('paid')}
+                    onClick={() => setMarketMode('onchain')}
                     className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
-                    style={marketMode === 'paid'
+                    style={marketMode === 'onchain'
                       ? { background: 'rgba(242,183,31,0.15)', color: '#F2B71F' }
                       : { color: '#6b7280' }
                     }
                   >
                     Paid Markets
                   </button>
+                  {/* Polymarkets tab hidden while phasing out */}
                   <button
                     onClick={() => setMarketMode('free')}
                     className="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150"
@@ -605,7 +763,9 @@ export default function PositionsPage() {
                 className="text-neutral-700 text-xs pb-2 animate-fade-in"
                 style={{ animationDelay: '60ms', animationFillMode: 'both' }}
               >
-                {marketMode === 'paid'
+                {marketMode === 'onchain'
+                  ? 'Your on-chain mention market positions'
+                  : marketMode === 'paid'
                   ? 'Your Polymarket positions, open orders, and trade history'
                   : 'Your free market positions and trade history'}
               </p>
@@ -628,7 +788,37 @@ export default function PositionsPage() {
                     className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 animate-fade-in"
                     style={{ animationDelay: '120ms', animationFillMode: 'both' }}
                   >
-                    {marketMode === 'paid' ? (
+                    {marketMode === 'onchain' ? (
+                      <>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
+                          <div className="text-white text-xl font-bold tabular-nums">{onchainPositions.length}</div>
+                        </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Est. Value</div>
+                          <div className="text-white text-xl font-bold tabular-nums">
+                            ${onchainPositions.reduce((sum, p) =>
+                              sum + Number(BigInt(p.estValueUsdc ?? '0')) / 1e6
+                            , 0).toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Markets</div>
+                          <div className="text-white text-xl font-bold tabular-nums">
+                            {new Set(onchainPositions.map(p => p.marketId)).size}
+                          </div>
+                        </div>
+                        <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Redeemable</div>
+                          <div className="text-white text-xl font-bold tabular-nums">
+                            {onchainPositions.filter(p =>
+                              (p.outcome === true  && BigInt(p.yesShares) > 0n) ||
+                              (p.outcome === false && BigInt(p.noShares)  > 0n)
+                            ).length}
+                          </div>
+                        </div>
+                      </>
+                    ) : marketMode === 'paid' ? (
                       <>
                         <div className="rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
                           <div className="text-[10px] text-neutral-600 font-medium uppercase tracking-widest mb-1">Positions</div>
@@ -701,6 +891,220 @@ export default function PositionsPage() {
                         ))}
                       </div>
                     </div>
+                  </div>
+
+                  {/* ── On-Chain Mention Market Positions Tab ──────── */}
+                  <div style={{ display: marketMode === 'onchain' && tab === 'positions' ? undefined : 'none' }}>
+                    {loadingOnchain ? (
+                      <MentionedSpinner className="py-20" />
+                    ) : onchainPositions.length === 0 ? (
+                      <div className="flex flex-col items-center py-20 gap-3">
+                        <p className="text-neutral-500 text-sm">No on-chain positions found</p>
+                        <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
+                          Browse markets
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="hidden md:grid grid-cols-[1.6fr_0.9fr_0.9fr_1fr_1fr_1fr_84px_92px] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                            <div>Market / Word</div>
+                            <div className="text-right">YES Shares</div>
+                            <div className="text-right">NO Shares</div>
+                            <div className="text-right">Current Price</div>
+                            <div className="text-right">Est. Value</div>
+                            <div className="text-right">P&amp;L</div>
+                            <div className="text-right">Status</div>
+                            <div className="text-right">Action</div>
+                          </div>
+                          {onchainPg.paged.map((pos, i) => {
+                            const yes = BigInt(pos.yesShares)
+                            const no  = BigInt(pos.noShares)
+                            const estValue = Number(BigInt(pos.estValueUsdc ?? '0')) / 1e6
+                            const costBasis = Number(BigInt(pos.costBasisUsdc ?? '0')) / 1e6
+                            const pnl = estValue - costBasis
+                            const isResolved = pos.marketStatus === 2
+                            const winYes = pos.outcome === true
+                            const winNo  = pos.outcome === false
+                            const canRedeem = (winYes && yes > 0n) || (winNo && no > 0n)
+                            const sellSide = yes > 0n ? 'YES' : 'NO'
+                            return (
+                              <div
+                                key={`${pos.marketId}-${pos.wordIndex}`}
+                                className="grid grid-cols-1 md:grid-cols-[1.6fr_0.9fr_0.9fr_1fr_1fr_1fr_84px_92px] gap-1 md:gap-3 px-4 py-4 border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] transition-colors"
+                                style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {pos.coverImageUrl && (
+                                    <img src={pos.coverImageUrl} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                                  )}
+                                  <div className="min-w-0">
+                                    <Link
+                                      href={`/market/${pos.marketId}`}
+                                      className="text-white text-sm font-semibold hover:underline truncate block leading-snug"
+                                    >
+                                      {pos.marketTitle}
+                                    </Link>
+                                    <span className="text-neutral-500 text-xs truncate block">{pos.wordLabel}</span>
+                                  </div>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">YES Shares</span>
+                                  <span className={`text-sm font-medium tabular-nums ${yes > 0n ? 'text-apple-green' : 'text-neutral-600'}`}>
+                                    {yes > 0n ? (Number(yes) / 1e6).toFixed(2) : '—'}
+                                  </span>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">NO Shares</span>
+                                  <span className={`text-sm font-medium tabular-nums ${no > 0n ? 'text-apple-red' : 'text-neutral-600'}`}>
+                                    {no > 0n ? (Number(no) / 1e6).toFixed(2) : '—'}
+                                  </span>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Current Price</span>
+                                  <div className="text-sm tabular-nums space-y-0.5">
+                                    {yes > 0n && <div className="text-apple-green">{Math.round(pos.yesPrice * 100)}¢ YES</div>}
+                                    {no  > 0n && <div className="text-apple-red">{Math.round(pos.noPrice * 100)}¢ NO</div>}
+                                  </div>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Est. Value</span>
+                                  <span className="text-white text-sm font-medium tabular-nums">
+                                    ${estValue.toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">P&amp;L</span>
+                                  <span className={`text-sm font-medium tabular-nums ${pnl > 0 ? 'text-apple-green' : pnl < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                                    {pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex md:block justify-between md:text-right items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden">Status</span>
+                                  {canRedeem ? (
+                                    <span className="text-[10px] font-bold px-2 py-1 rounded bg-apple-green/15 text-apple-green">Won</span>
+                                  ) : isResolved ? (
+                                    <span className="text-[10px] font-bold px-2 py-1 rounded bg-white/5 text-neutral-500">Lost</span>
+                                  ) : (
+                                    <span className={`text-[10px] font-bold px-2 py-1 rounded ${pos.marketStatus === 1 ? 'bg-yellow-500/10 text-yellow-400' : 'bg-apple-blue/10 text-apple-blue'}`}>
+                                      {pos.marketStatus === 1 ? 'Paused' : 'Open'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex md:justify-end items-center">
+                                  <span className="text-neutral-600 text-xs md:hidden mr-auto">Action</span>
+                                  {canRedeem ? (
+                                    <Link
+                                      href={`/market/${pos.marketId}`}
+                                      className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-apple-green hover:bg-apple-green/90 text-white transition-colors"
+                                    >
+                                      Redeem →
+                                    </Link>
+                                  ) : !isResolved ? (
+                                    <button
+                                      onClick={() => openCloseModal(pos, sellSide)}
+                                      className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-colors ${
+                                        sellSide === 'YES'
+                                          ? 'bg-apple-green/15 text-apple-green hover:bg-apple-green/25 border border-apple-green/30'
+                                          : 'bg-apple-red/15 text-apple-red hover:bg-apple-red/25 border border-apple-red/30'
+                                      }`}
+                                    >
+                                      Sell {sellSide}
+                                    </button>
+                                  ) : (
+                                    <span className="text-neutral-600 text-xs">—</span>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <Pagination page={onchainPg.page} totalPages={onchainPg.totalPages} totalItems={onchainPg.totalItems} onPageChange={onchainPg.setPage} />
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── On-Chain Mention Market History Tab ───────── */}
+                  <div style={{ display: marketMode === 'onchain' && tab === 'history' ? undefined : 'none' }}>
+                    {loadingOnchainHistory ? (
+                      <MentionedSpinner className="py-20" />
+                    ) : onchainHistory.length === 0 ? (
+                      <div className="flex flex-col items-center py-20 gap-3">
+                        <p className="text-neutral-500 text-sm">No closed positions yet</p>
+                        <Link href="/markets" className="text-sm font-medium hover:underline" style={{ color: '#F2B71F' }}>
+                          Browse markets
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mt-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.012)' }}>
+                          <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 px-4 py-2.5 text-[10px] text-neutral-600 uppercase tracking-widest font-medium border-b border-white/[0.06]">
+                            <div>Market / Word</div>
+                            <div className="text-right">Outcome</div>
+                            <div className="text-right">Cost Basis</div>
+                            <div className="text-right">Proceeds</div>
+                            <div className="text-right">P&amp;L</div>
+                            <div className="text-right">Closed</div>
+                          </div>
+                          {onchainHistoryPg.paged.map((c, i) => {
+                            const cost = c.costBasisUsdc / 1e6
+                            const proceeds = c.proceedsUsdc / 1e6
+                            const pnl = c.realizedPnlUsdc / 1e6
+                            const outcomeClass =
+                              c.outcomeLabel === 'Won' ? 'bg-apple-green/15 text-apple-green'
+                              : c.outcomeLabel === 'Lost' ? 'bg-apple-red/15 text-apple-red'
+                              : 'bg-white/5 text-neutral-400'
+                            return (
+                            <div
+                              key={`${c.marketId}-${c.wordIndex}`}
+                              className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-1 md:gap-3 px-4 py-3 border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] transition-colors"
+                              style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.01)' }}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {c.coverImageUrl && (
+                                  <img src={c.coverImageUrl} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <Link
+                                    href={`/market/${c.marketId}`}
+                                    className="text-white text-sm font-semibold hover:underline truncate block leading-snug"
+                                  >
+                                    {c.marketTitle}
+                                  </Link>
+                                  <span className="text-neutral-500 text-xs truncate block">{c.wordLabel}</span>
+                                </div>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Outcome</span>
+                                <span className={`text-[10px] font-bold px-2 py-1 rounded ${outcomeClass}`}>{c.outcomeLabel}</span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Cost Basis</span>
+                                <span className="text-neutral-300 text-sm tabular-nums">${cost.toFixed(2)}</span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Proceeds</span>
+                                <span className="text-white text-sm font-medium tabular-nums">${proceeds.toFixed(2)}</span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">P&amp;L</span>
+                                <span className={`text-sm font-semibold tabular-nums ${pnl > 0 ? 'text-apple-green' : pnl < 0 ? 'text-apple-red' : 'text-neutral-400'}`}>
+                                  {pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex md:block justify-between md:text-right items-center">
+                                <span className="text-neutral-600 text-xs md:hidden">Closed</span>
+                                <span className="text-neutral-500 text-xs tabular-nums">
+                                  {new Date(c.closedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                            )
+                          })}
+                        </div>
+                        <Pagination page={onchainHistoryPg.page} totalPages={onchainHistoryPg.totalPages} totalItems={onchainHistoryPg.totalItems} onPageChange={onchainHistoryPg.setPage} />
+                      </>
+                    )}
                   </div>
 
                   {/* ── Free Market Open Positions Tab ────────────── */}
@@ -1318,6 +1722,89 @@ export default function PositionsPage() {
           </div>
         </div>
       </div>
+      {/* ── Close Position Modal ─────────────────────────── */}
+      {closeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+          onClick={() => { if (!closeModal.txPending) setCloseModal(null) }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-6 space-y-5"
+            style={{ background: '#111', border: '1px solid rgba(255,255,255,0.1)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-white text-lg font-bold mb-1">Close Position</h3>
+              <p className="text-neutral-500 text-sm truncate">{closeModal.pos.marketTitle}</p>
+            </div>
+
+            <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="flex justify-between text-sm">
+                <span className="text-neutral-500">Word</span>
+                <span className="text-white font-medium">{closeModal.pos.wordLabel}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-neutral-500">Side</span>
+                <span className={`font-bold ${closeModal.side === 'YES' ? 'text-apple-green' : 'text-apple-red'}`}>
+                  {closeModal.side}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-neutral-500">Shares</span>
+                <span className="text-white tabular-nums">{(Number(closeModal.shares) / 1e6).toFixed(2)}</span>
+              </div>
+              <div className="border-t border-white/[0.06] pt-2 flex justify-between text-sm">
+                <span className="text-neutral-500">You receive</span>
+                {closeModal.error ? (
+                  <span className="text-apple-red text-xs">Failed to estimate</span>
+                ) : closeModal.estimatedReturn === null ? (
+                  <span className="text-neutral-500 animate-pulse">Calculating...</span>
+                ) : (
+                  <span className="text-white font-bold tabular-nums">${formatUsdc(closeModal.estimatedReturn)} USDC</span>
+                )}
+              </div>
+            </div>
+
+            {closeModal.error && (
+              <p className="text-apple-red text-xs text-center">{closeModal.error}</p>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCloseModal(null)}
+                disabled={closeModal.txPending}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-neutral-400 hover:text-white transition-colors disabled:opacity-40"
+                style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeClose}
+                disabled={closeModal.txPending || closeModal.estimatedReturn === null || !!closeModal.error}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  background: closeModal.side === 'YES' ? 'rgba(52,199,89,0.2)' : 'rgba(255,59,48,0.2)',
+                  border: `1px solid ${closeModal.side === 'YES' ? 'rgba(52,199,89,0.4)' : 'rgba(255,59,48,0.4)'}`,
+                  color: closeModal.side === 'YES' ? '#34C759' : '#FF3B30',
+                }}
+              >
+                {closeModal.txPending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Selling...
+                  </span>
+                ) : (
+                  `Sell ${closeModal.side}`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

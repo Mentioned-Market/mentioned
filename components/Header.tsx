@@ -8,8 +8,31 @@ import PrivyFundsModal from '@/components/PrivyFundsModal'
 import HowItWorksModal from '@/components/HowItWorksModal'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import UserSearch from '@/components/UserSearch'
+
+function formatUsdc(baseUnits: string | null): string {
+  if (!baseUnits) return '—'
+  return '$' + (Number(BigInt(baseUnits)) / 1_000_000).toFixed(2)
+}
+
+// Last successful wallet summary, kept at module level so it survives the
+// Header remount on every page navigation. Without it, each navigation starts
+// from null, refetches, and often hits the API's 5s/wallet cooldown — leaving
+// the balance pill empty for seconds even though we showed values moments ago.
+let summaryCache: { wallet: string; usdc: string | null; portfolio: string | null } | null = null
+
+// When the last summary fetch started, per wallet — module level for the same
+// reason as summaryCache. Navigations within SUMMARY_REFRESH_MIN_MS of a fetch
+// reuse cached values instead of refetching, so route changes can't trip the
+// API's 5s/wallet cooldown.
+let lastSummaryFetch: { wallet: string; at: number } | null = null
+const SUMMARY_REFRESH_MIN_MS = 10_000
+
+// Shimmer placeholder sized to match the balance text while a first load runs.
+function BalanceSkeleton() {
+  return <div className="h-3.5 w-12 rounded bg-white/10 animate-pulse" aria-hidden="true" />
+}
 
 export default function Header() {
   const { publicKey, connected, connect, disconnect, username, pfpEmoji, discordLinked, profileLoading, walletReady, walletType, connecting, refreshProfile } = useWallet()
@@ -19,6 +42,16 @@ export default function Header() {
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [showDiscordTooltip, setShowDiscordTooltip] = useState(false)
   const [showFundsModal, setShowFundsModal] = useState(false)
+  // Seed from the module cache so navigations show the last-known values
+  // immediately while a background refresh runs.
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(
+    () => (summaryCache && summaryCache.wallet === publicKey ? summaryCache.usdc : null)
+  )
+  const [portfolioValue, setPortfolioValue] = useState<string | null>(
+    () => (summaryCache && summaryCache.wallet === publicKey ? summaryCache.portfolio : null)
+  )
+  const [refreshingSummary, setRefreshingSummary] = useState(false)
+  const [refreshCooldown, setRefreshCooldown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const discordTooltipRef = useRef<HTMLDivElement>(null)
@@ -81,6 +114,71 @@ export default function Header() {
       .catch(() => {})
   }, [connected, publicKey, showAchievementToast])
 
+  // Fetch USDC balance + portfolio value. Manual-refresh only (a tiny button in the
+  // header) so we don't hammer the RPC with a background poll — the user pulls a
+  // fresh read after trading.
+  const loadWalletSummary = useCallback((isRetry = false) => {
+    if (!publicKey) return
+    if (!isRetry) lastSummaryFetch = { wallet: publicKey, at: Date.now() }
+    setRefreshingSummary(true)
+    fetch(`/api/paid-markets/wallet-summary?wallet=${publicKey}`)
+      .then(async r => {
+        // API enforces a 5s/wallet cooldown; a fresh page load can collide with a
+        // recent refresh — retry once after the cooldown so the values still fill.
+        // Keep refreshingSummary true through the wait so the skeleton/spinner
+        // doesn't flash off and back on.
+        if (r.status === 429 && !isRetry) {
+          const retryAfter = Number(r.headers.get('Retry-After') || 5)
+          setTimeout(() => loadWalletSummary(true), retryAfter * 1000)
+          return 'retry-scheduled' as const
+        }
+        return r.ok ? r.json() : null
+      })
+      .then(data => {
+        if (data === 'retry-scheduled') return
+        setRefreshingSummary(false)
+        if (!data) return
+        setUsdcBalance(data.usdcBalance)
+        setPortfolioValue(data.portfolioValue)
+        summaryCache = { wallet: publicKey, usdc: data.usdcBalance, portfolio: data.portfolioValue }
+      })
+      .catch(() => setRefreshingSummary(false))
+  }, [publicKey])
+
+  // Manual refresh with a 5s client-side cooldown so the button can't be spammed
+  // (the API also enforces its own 5s/wallet cooldown as a backstop).
+  const handleManualRefresh = useCallback(() => {
+    if (refreshingSummary || refreshCooldown) return
+    setRefreshCooldown(true)
+    loadWalletSummary()
+    setTimeout(() => setRefreshCooldown(false), 5000)
+  }, [refreshingSummary, refreshCooldown, loadWalletSummary])
+
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      setUsdcBalance(null)
+      setPortfolioValue(null)
+      return
+    }
+    // On wallet switch, drop the previous wallet's values (or restore this
+    // wallet's cached ones) before the background refresh lands.
+    const cached = summaryCache && summaryCache.wallet === publicKey ? summaryCache : null
+    setUsdcBalance(cached ? cached.usdc : null)
+    setPortfolioValue(cached ? cached.portfolio : null)
+    // Header remounts on every navigation; skip the refetch when a fetch for
+    // this wallet ran recently so route changes don't hit the API cooldown.
+    // Only skip when cached values exist — otherwise the pill would sit empty.
+    if (
+      cached &&
+      lastSummaryFetch &&
+      lastSummaryFetch.wallet === publicKey &&
+      Date.now() - lastSummaryFetch.at < SUMMARY_REFRESH_MIN_MS
+    ) {
+      return
+    }
+    loadWalletSummary()
+  }, [connected, publicKey, loadWalletSummary])
+
   return (
     <>
       <header className="sticky top-0 z-50 w-screen ml-[calc(50%-50vw)] border-b border-white/10" style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
@@ -116,6 +214,40 @@ export default function Header() {
             </svg>
             How it works
           </button>
+
+          {/* USDC balance display — desktop only, logged-in only. Rendered as soon
+              as the wallet connects: cached values show instantly, a shimmer
+              covers the first load instead of the pill being invisible. */}
+          {connected && (
+            <div className="hidden md:flex items-center gap-1">
+              <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="text-center">
+                  <div className="text-[10px] text-neutral-500 font-medium leading-none mb-0.5">Portfolio</div>
+                  <div className="text-sm font-bold text-apple-green leading-none tabular-nums">
+                    {portfolioValue !== null ? formatUsdc(portfolioValue) : refreshingSummary ? <BalanceSkeleton /> : '—'}
+                  </div>
+                </div>
+                <div className="w-px h-6 bg-white/10" />
+                <div className="text-center">
+                  <div className="text-[10px] text-neutral-500 font-medium leading-none mb-0.5">Cash</div>
+                  <div className="text-sm font-bold text-apple-green leading-none tabular-nums">
+                    {usdcBalance !== null ? formatUsdc(usdcBalance) : refreshingSummary ? <BalanceSkeleton /> : '—'}
+                  </div>
+                </div>
+                <button
+                  onClick={handleManualRefresh}
+                  disabled={refreshingSummary || refreshCooldown}
+                  aria-label="Refresh balances"
+                  title={refreshCooldown ? 'Please wait a few seconds' : 'Refresh balances'}
+                  className="text-neutral-500 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className={`w-3.5 h-3.5 ${refreshingSummary ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
 
           {walletReady && connected && discordLinked === false && (
             <div className="relative" ref={discordTooltipRef}>

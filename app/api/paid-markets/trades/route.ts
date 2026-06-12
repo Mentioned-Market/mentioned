@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { SOLANA_CLUSTER } from '@/lib/solanaConfig'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,10 +25,10 @@ export async function GET(req: NextRequest) {
        up.username
      FROM trade_events te
      LEFT JOIN user_profiles up ON up.wallet = te.trader
-     WHERE te.market_id = $1
+     WHERE te.market_id = $1 AND te.cluster = $2
      ORDER BY te.block_time DESC
      LIMIT 30`,
-    [marketId],
+    [marketId, SOLANA_CLUSTER],
   )
 
   const trades = result.rows.map(r => ({
