@@ -376,6 +376,33 @@ export default function Header() {
             </button>
           )}
 
+          {/* Mobile cash/portfolio pill — minimised version of the desktop
+              balance display. Tap to refresh (dims while loading). Connected
+              only; md:hidden so the desktop pill above is untouched. */}
+          {connected && (
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshingSummary || refreshCooldown}
+              aria-label="Balances — tap to refresh"
+              className={`flex md:hidden items-center gap-1.5 px-2 py-1 rounded-lg transition-opacity ${refreshingSummary ? 'opacity-50' : ''}`}
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div className="flex flex-col items-center leading-none gap-0.5">
+                <span className="text-[8px] text-neutral-500 font-medium uppercase tracking-wide">Port</span>
+                <span className="text-[11px] font-bold text-apple-green tabular-nums">
+                  {portfolioValue !== null ? formatUsdc(portfolioValue) : '—'}
+                </span>
+              </div>
+              <div className="w-px h-5 bg-white/10" />
+              <div className="flex flex-col items-center leading-none gap-0.5">
+                <span className="text-[8px] text-neutral-500 font-medium uppercase tracking-wide">Cash</span>
+                <span className="text-[11px] font-bold text-apple-green tabular-nums">
+                  {usdcBalance !== null ? formatUsdc(usdcBalance) : '—'}
+                </span>
+              </div>
+            </button>
+          )}
+
           {/* Mobile burger button */}
           <div className="relative md:hidden" ref={mobileMenuRef}>
             <button
@@ -416,6 +443,20 @@ export default function Header() {
                 <Link href="/arena" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Arena</Link>
                 <Link href="/knowledge" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200">Knowledge</Link>
                 <Link href="/points" onClick={() => setMobileMenuOpen(false)} className="block px-4 py-3 text-[#F2B71F] text-sm font-semibold hover:bg-white/10 transition-colors duration-200">Points & Prizes</Link>
+                {walletType === 'privy' && (
+                  <>
+                    <div className="border-t border-white/10" />
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false)
+                        setShowFundsModal(true)
+                      }}
+                      className="w-full text-left px-4 py-3 text-white text-sm font-medium hover:bg-white/10 transition-colors duration-200"
+                    >
+                      Deposit / Withdraw
+                    </button>
+                  </>
+                )}
                 <div className="border-t border-white/10" />
                 <button
                   onClick={() => {

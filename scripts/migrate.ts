@@ -610,6 +610,38 @@ ALTER TABLE monitored_streams
 CREATE INDEX IF NOT EXISTS idx_monitored_streams_scheduled
   ON monitored_streams(scheduled_start_at, worker_pool)
   WHERE status = 'pending' AND scheduled_start_at IS NOT NULL;
+
+-- ── Event funding codes (real-funds giveaway, e.g. Berlin Summit) ───────────
+-- One row per pre-generated single-use claim code. A code is handed out IRL
+-- (deep link / QR) and burns on first successful redemption. The code table IS
+-- the budget cap: N codes = at most N funded wallets. Security relies on code
+-- entropy + atomic single-use, never on the (public) endpoint logic.
+--   status:  'unused'   — never claimed
+--            'reserved' — a wallet grabbed it; funding tx is in flight
+--            'funded'   — funding tx confirmed (terminal)
+-- A failed funding attempt is released back to 'unused' (redeemed_by cleared)
+-- so the legitimate holder can retry. Only 'funded' is a permanent binding.
+CREATE TABLE IF NOT EXISTS event_claim_codes (
+  id              SERIAL PRIMARY KEY,
+  campaign        TEXT NOT NULL,
+  code            TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'unused',
+  redeemed_by     TEXT,                 -- wallet that claimed (NULL until reserved)
+  signature       TEXT,                 -- funding tx signature once funded
+  usdc_base_units BIGINT,               -- USDC sent (6 decimals)
+  lamports        BIGINT,               -- SOL sent (lamports)
+  reserved_at     TIMESTAMPTZ,
+  funded_at       TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+-- Each code is unique within its campaign.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_code_unique
+  ON event_claim_codes(campaign, code);
+-- One claim per wallet per campaign: a wallet can hold at most one reserved/
+-- funded code. Enforced at the DB level so concurrent double-taps from the same
+-- wallet can't double-fund (the second UPDATE violates this and is rejected).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_wallet_once
+  ON event_claim_codes(campaign, redeemed_by) WHERE redeemed_by IS NOT NULL;
 `
 
 async function main() {

@@ -31,6 +31,13 @@ const nextConfig = {
         source: '/sitemap.xml',
         destination: '/api/sitemap',
       },
+      // Vanity event URL: mentioned.market/berlin (+ ?c=CODE) serves the
+      // generic promo landing while keeping the clean URL. Add one line per
+      // future event campaign (slug must match lib/eventCampaigns.ts).
+      {
+        source: '/berlin',
+        destination: '/promo/berlin',
+      },
     ]
   },
   // Enable compression
