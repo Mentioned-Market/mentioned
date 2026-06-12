@@ -16,7 +16,7 @@
 // here: N codes = at most N funded wallets.
 
 export interface EventCampaign {
-  /** URL slug, e.g. "berlinsummit" → /promo/berlinsummit (and the /berlinsummit vanity rewrite). */
+  /** URL slug, e.g. "berlin" → /promo/berlin (and the /berlin vanity rewrite). */
   slug: string
   /** Event name shown on the landing page. */
   title: string
@@ -42,7 +42,7 @@ export interface EventCampaign {
 
 const CAMPAIGNS: EventCampaign[] = [
   {
-    slug: 'berlinsummit',
+    slug: 'berlin',
     title: 'Berlin Summit',
     displayAmount: '$2 + a little SOL',
     enabled: true,
